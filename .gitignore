@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.local
+*.local
+docs/02-domain/trainer_rate_tiers.csv
+.DS_Store

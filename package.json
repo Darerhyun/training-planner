@@ -1,0 +1,19 @@
+{
+  "name": "training-planner",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "services/shared",
+    "services/core-api"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=services/core-api",
+    "build": "npm run build --workspace=services/shared && npm run build --workspace=services/core-api",
+    "start": "npm run start --workspace=services/core-api",
+    "typecheck": "npm run typecheck --workspace=services/shared && npm run typecheck --workspace=services/core-api"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

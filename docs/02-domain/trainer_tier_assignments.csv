@@ -1,0 +1,77 @@
+trainer_id,trainer_name,programme_category,tier_code
+alan-fu,Alan Fu,IIO,IIO-T1
+jennifer-zhou,Jennifer Zhou,IIO,IIO-T1
+gavin-chia,Gavin Chia,IIO,IIO-T2
+weng-kam,Weng Kam,IIO,IIO-T3
+danny-soh,Danny Soh,IIO,IIO-T4
+johnson-yeo,Johnson Yeo,IIO,IIO-T4
+ken-goh,Ken Goh,IIO,IIO-T5
+nan-heng,Nan Heng,IIO,IIO-T5
+alex-yap,Alex Yap,IIO,IIO-T5
+say-toon,Say Toon,IIO,IIO-T6
+rajpal,Rajpal,IIO,IIO-T7
+william-ho,William Ho,IIO,IIO-T8
+philip,Philip,IIO,IIO-T9
+sarbojit,Sarbojit,IIO,IIO-T10
+frank-ho,Frank Ho,IIO,IIO-T11
+kelvin-lim,Kelvin Lim,IIO,IIO-T12
+hk-fung,HK Fung,IIO,IIO-T13
+s-a-lim,S A Lim,IIO,IIO-T14
+kelvin-wu,Kelvin Wu,IIO,IIO-T15
+abby,Abby,DM,DM-T1
+deleon-lim,Deleon Lim,DM,DM-T2
+foo-nyuk-wei,Foo Nyuk Wei,DM,DM-T2
+lim-hui-ling,Lim Hui Ling,DM,DM-T2
+marcus-chiam,Marcus Chiam,DM,DM-T2
+jeffrey-loo,Jeffrey Loo,DM,DM-T3
+victor-pow,Victor Pow,DM,DM-T4
+allen-wong,Allen Wong,DM,DM-T4
+norman-lau,Norman Lau,DM,DM-T4
+abelene-hu,Abelene Hu,DM,DM-T5
+kala-rani,Kala Rani,DM,DM-T5
+klenton-foo,Klenton Foo,DM,DM-T5
+martin-li,Martin Li,DM,DM-T5
+eric-heng,Eric Heng,DM,DM-T6
+kevin-chua,Kevin Chua,DM,DM-T6
+lance-paul,Lance Paul,DM,DM-T6
+lim-jia-he,Lim Jia He,DM,DM-T6
+rodney,Rodney,DM,DM-T7
+raymond-teoh,Raymond Teoh,DM,DM-T8
+elaine-teo,Elaine Teo,DM,DM-T9
+benjamin-song,Benjamin Song,DM,DM-T10
+david-boh,David Boh,DM,DM-T10
+david-fong,David Fong,DM,DM-T10
+jocelyn-goh,Jocelyn Goh,DM,DM-T10
+timothy-ng,Timothy Ng,DM,DM-T10
+tylus-lim,Tylus Lim,DM,DM-T10
+frank-ho,Frank Ho,DM,DM-T11
+melvyn,Melvyn,DM,DM-T12
+paul-lim,Paul Lim,DM,DM-T13
+richard-wong,Richard Wong,DM,DM-T14
+richard-ng,Richard Ng,DM,DM-T15
+david-chan,David Chan,DM,DM-T16
+elizebath,Elizebath,DM,DM-T17
+koh-ys,Koh YS,DM,DM-T17
+victor,Victor,IT-Normal,IT-Normal-T1
+richard-tin,Richard Tin,IT-Normal,IT-Normal-T2
+winnie,Winnie,IT-Normal,IT-Normal-T3
+philip,Philip,IT-Normal,IT-Normal-T3
+priscilla,Priscilla,IT-Normal,IT-Normal-T3
+pauline,Pauline,IT-Normal,IT-Normal-T3
+sherie-poh,Sherie Poh,IT-Normal,IT-Normal-T4
+valene,Valene,IT-Normal,IT-Normal-T4
+stella,Stella,IT-Normal,IT-Normal-T5
+felicia-lim,Felicia Lim,IT-WSQ,IT-WSQ-T1
+victor,Victor,IT-WSQ,IT-WSQ-T2
+kala,Kala,IT-WSQ,IT-WSQ-T3
+richard-tin,Richard Tin,IT-WSQ,IT-WSQ-T3
+winnie,Winnie,IT-WSQ,IT-WSQ-T4
+philip,Philip,IT-WSQ,IT-WSQ-T4
+priscilla,Priscilla,IT-WSQ,IT-WSQ-T4
+pauline,Pauline,IT-WSQ,IT-WSQ-T4
+yan-xin,Yan Xin,IT-WSQ,IT-WSQ-T5
+winnie,Winnie,IT-Special,IT-Special-T1
+priscilla,Priscilla,IT-Special,IT-Special-T1
+pauline,Pauline,IT-Special,IT-Special-T1
+valene,Valene,IT-Special,IT-Special-T2
+stella,Stella,IT-Special,IT-Special-T3

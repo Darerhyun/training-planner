@@ -1,0 +1,10 @@
+code,name,type,address,notes
+IP,International Plaza,owned,"10 Anson Road, #06-11/#20-06/#34-08, Singapore 079903",Tanjong Pagar MRT — Central branch
+JTC,JTC Summit,owned,"8 Jurong Town Hall Road, #27-01, Singapore 609434",Jurong East — West branch / Headquarter
+FURAMA,Furama Hotel,external,,"External hotel venue, room name per booking"
+HOLIDAYINN,Holiday Inn,external,,"External hotel venue, room name per booking"
+SCOTTS,Scotts Hotel,external,,"External hotel venue, room name per booking"
+HBL,Home-Based Learning,virtual,,"Virtual delivery, no physical room. Sessions delivered via Zoom or similar."
+LAVENDER,Lavender Street,external,,External venue used for Drone Flying / Drone Piloting courses
+INHOUSE,Client In-house,external,,Sessions delivered at client's own premises. Address varies per booking.
+OUTBOUND,Outbound (external),external,,Catch-all for off-site / outbound trainings tracked in 'Take Note' rows of the room calendar

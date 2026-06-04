@@ -1,0 +1,6 @@
+category_code,description,applies_to
+IIO,Infrastructure & Operations programmes,"CIIO, ACIIO, DIIO"
+DM,Digital Marketing programmes,"ACDM, DDM, SDDM"
+IT-Normal,ASK Microsoft Office (non-WSQ),ASK courses in Office family
+IT-WSQ,WSQ-funded Microsoft Office,ASQ* codes (Excel Essentials/Intermediate/Mastery/Advanced)
+IT-Special,Premium IT courses,"Excel Power Query/Pivot/DAX, VBA, Power BI bridging"
