@@ -7,12 +7,15 @@
     "dev": "npm run build --workspace=@training-planner/shared && tsx --watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "seed-reference-data": "npm run build --workspace=@training-planner/shared && tsx src/scripts/seed-reference-data.ts",
     "typecheck": "npm run build --workspace=@training-planner/shared && tsc --noEmit"
   },
   "dependencies": {
     "@training-planner/shared": "*",
+    "@google-cloud/storage": "^7.16.0",
     "@hono/node-server": "^1.14.0",
-    "hono": "^4.7.4"
+    "hono": "^4.7.4",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -1,0 +1,22 @@
+code,name,programme_code,duration_days,fee_with_gst,is_capstone,recently_added,notes
+ASKMEN,Mentoring Session,,1,,False,False,Operational — mentoring for programme students
+ASKINH-1/2DAY,Staff Training (In-house Half Day),,0.5,,False,False,"In-house client training, half day"
+ASKINH-2DAY,Staff Training (In-house 2 Day),,2,,False,False,"In-house client training, 2 days"
+SCTP-CIIO,SCTP Enrolment: Certificate in IIO,CIIO,1,,False,False,Programme enrolment record
+SCTP-ACIIO,SCTP Enrolment: Advanced Certificate in IIO,ACIIO,1,,False,False,Programme enrolment record
+SCTP-DIIO,SCTP Enrolment: Diploma in IIO,DIIO,1,,False,False,Programme enrolment record
+SCTP-DDM,SCTP Enrolment: Diploma in Digital Marketing,DDM,1,,False,False,Programme enrolment record
+SCTP-SDDM,SCTP Enrolment: Specialist Diploma in DM,SDDM,1,,False,False,Programme enrolment record
+NS-DDM,Non-SCTP Enrolment: Diploma in Digital Marketing,DDM,1,,False,False,Programme enrolment record
+(RSVP)GENAI-DBI,RSVP: AI-Driven Business Intelligence,,1,,False,False,RSVP preview event
+(RSVP)GENAI-HRT,RSVP: AI in HR,,1,,False,False,RSVP preview event
+ASECTN,CompTIA Network+ (Exam),,1,,False,False,"Certification exam, not a teaching session"
+ASKAKG,Career Advisory with AKG,,1,,False,False,Career advisory — optional for students
+ASKCAW,Career Development Workshop,,1,,False,False,Career workshop — by invitation only
+ASKBSE,Better Spoken English for Div 2 and 3 Officers,ASK,1,,False,False,Bucket 2 — now confirmed in TMS schedule
+ASKCHAT,Mastering ChatGPT for Strategic Communication,ASK,1,,False,False,Bucket 2 — now confirmed in TMS schedule
+ASKEWS,Effective Writing Skills,ASK,1,,False,False,Bucket 2 — now confirmed in TMS schedule
+ASKGEC,Grammar for Effective Business Communication,ASK,1,,False,False,Bucket 2 — now confirmed in TMS schedule
+ASKRPW,Report Writing,ASK,1,,False,False,Bucket 2 — now confirmed in TMS schedule
+ASKWRM,Write Minutes of Meeting,ASK,1,,False,False,Bucket 2 — now confirmed in TMS schedule
+ASKPSM,Personal and Social Mastery Through Emotional Intelligence,ASK,1,,False,False,Client-specific variant

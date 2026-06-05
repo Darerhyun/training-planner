@@ -1,0 +1,55 @@
+tms_code,catalog_code,notes
+IIOC-IIT,CIIO-M1,SCTP variant
+NIIOC-IIT,CIIO-M1,Non-SCTP variant
+IIOC-CHP,CIIO-M2,SCTP variant
+NIIOC-CHP,CIIO-M2,Non-SCTP variant
+IIOC-OSS,CIIO-M3,SCTP variant
+NIIOC-OSS,CIIO-M3,Non-SCTP variant
+IIOC-NFT,CIIO-M4,SCTP variant
+NIIOC-NFT,CIIO-M4,Non-SCTP variant
+IIOC-CE,CIIO-M5,SCTP variant
+NIIOC-CE,CIIO-M5,Non-SCTP variant
+IIOC-ITPS,CIIO-M6,SCTP variant
+NIIOC-ITPS,CIIO-M6,Non-SCTP variant
+IIOC-SMHD,CIIO-M7,SCTP variant
+NIIOC-SMHD,CIIO-M7,Non-SCTP variant
+ACIIO-HST,ACIIO-AM1,SCTP variant
+NACIIO-HST,ACIIO-AM1,Non-SCTP variant
+ACIIO-ANA,ACIIO-AM2,SCTP variant
+NACIIO-ANA,ACIIO-AM2,Non-SCTP variant
+ACIIO-SSA,ACIIO-AM3,SCTP variant
+NACIIO-SSA,ACIIO-AM3,Non-SCTP variant
+ACIIO-CC,ACIIO-AM4,SCTP variant
+NACIIO-CC,ACIIO-AM4,Non-SCTP variant
+ACIIO-CEH,ACIIO-AM5,SCTP variant
+NACIIO-CEH,ACIIO-AM5,Non-SCTP variant
+ACIIO-ETT,ACIIO-AM6,SCTP variant
+NACIIO-ETT,ACIIO-AM6,Non-SCTP variant
+ACIIO-RP,ACIIO-AM7,SCTP variant
+NACIIO-RP,ACIIO-AM7,Non-SCTP variant
+DIIO-IIO,DIIO-DM1,SCTP variant
+NDIIO-IIO,DIIO-DM1,Non-SCTP variant
+DIIO-EAD,DIIO-DM2,SCTP variant
+NDIIO-EAD,DIIO-DM2,Non-SCTP variant
+DIIO-IPO,DIIO-DM3,SCTP variant
+NDIIO-IPO,DIIO-DM3,Non-SCTP variant
+DIIO-DRB,DIIO-DM4,SCTP variant
+NDIIO-DRB,DIIO-DM4,Non-SCTP variant
+DIIO-ISC,DIIO-DM5,SCTP variant
+NDIIO-ISC,DIIO-DM5,Non-SCTP variant
+DIIO-IPM,DIIO-DM6,SCTP variant
+NDIIO-IPM,DIIO-DM6,Non-SCTP variant
+DIIO-IAO,DIIO-DM7,SCTP variant
+NDIIO-IAO,DIIO-DM7,Non-SCTP variant
+DIIO-ADI,DIIO-DM8,SCTP variant
+NDIIO-ADI,DIIO-DM8,Non-SCTP variant
+DDM-FIM,DDM-FB,TMS uses FIM for Facebook & Instagram Marketing
+DDM-WLCO,DDM-WCO,TMS uses WLCO for Website & Landing Page
+DDM-DMC,DDM-CAP,TMS Capstone: Digital Marketing Campaign
+DDM-DMSP,SDDM-CAP,TMS Capstone: Digital Marketing Strategic Plan
+ASKGAI,ASNGAI,TMS code for Generative AI for Digital Marketing
+ASKTTM,ASNTTM,TMS code for TikTok Marketing
+ASQMEA,ASNMEA,TMS code for WSQ Excel Advanced
+ASKIIOCAP,ACIIO-AM7,TMS code for IIO Capstone
+ASKCAP,DDM-CAP,TMS generic capstone code (DDM)
+ASKMIE1,ASKMIE,TMS variant with suffix 1

@@ -4,14 +4,17 @@
   "private": true,
   "type": "module",
   "workspaces": [
+    "apps/web",
     "services/shared",
     "services/core-api"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=services/core-api",
-    "build": "npm run build --workspace=services/shared && npm run build --workspace=services/core-api",
+    "dev:web": "npm run dev --workspace=apps/web",
+    "build": "npm run build --workspace=services/shared && npm run build --workspace=services/core-api && npm run build --workspace=apps/web",
+    "seed-reference-data": "npm run seed-reference-data --workspace=services/core-api",
     "start": "npm run start --workspace=services/core-api",
-    "typecheck": "npm run typecheck --workspace=services/shared && npm run typecheck --workspace=services/core-api"
+    "typecheck": "npm run typecheck --workspace=services/shared && npm run typecheck --workspace=services/core-api && npm run typecheck --workspace=apps/web"
   },
   "engines": {
     "node": ">=22"

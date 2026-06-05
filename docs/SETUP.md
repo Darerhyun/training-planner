@@ -64,6 +64,14 @@ Seed data lives under [docs/02-domain](02-domain). The repo-safe CSVs currently 
 
 Actual trainer rate dollar values are not committed. `trainer_rate_tiers.csv` is intentionally absent; those values live only in Neon.
 
+Seed TMS reference rows after applying the schema, and again only when the CSV reference files change:
+
+```powershell
+npm.cmd run seed-reference-data
+```
+
+This inserts missing rows from `course_aliases.csv`, `new_courses_from_tms.csv`, and `trainer_aliases_tms.csv` without overwriting existing database rows.
+
 ## Firebase Auth Setup
 
 In Firebase Console:
@@ -96,6 +104,14 @@ npm.cmd run dev
 ```
 
 The API listens on `http://localhost:8080` by default.
+
+Start the Vite SPA in a second terminal:
+
+```powershell
+npm.cmd run dev:web
+```
+
+The SPA listens on `http://localhost:5173` by default.
 
 Public health check:
 
@@ -167,6 +183,22 @@ After deployment, verify:
 ```powershell
 Invoke-RestMethod https://<cloud-run-url>/health
 ```
+
+## Deploy The SPA To Firebase Hosting
+
+Build the Vite app:
+
+```powershell
+npm.cmd run build --workspace=apps/web
+```
+
+Deploy the generated [apps/web/dist](../apps/web/dist) folder with Firebase Hosting:
+
+```powershell
+firebase deploy --only hosting
+```
+
+[firebase.json](../firebase.json) points Hosting at the Vite build output and rewrites all routes to `index.html`.
 
 ## PR1 Completion Checklist
 

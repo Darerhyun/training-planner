@@ -75,6 +75,19 @@ CREATE TABLE trainer_aliases (
 CREATE INDEX idx_trainer_aliases_trainer ON trainer_aliases (trainer_id);
 
 -- ---------------------------------------------------------------------------
+-- 3b. Course Aliases
+--     Maps TMS Course / Program IDs to canonical course codes.
+--     Populated from docs/02-domain/course_aliases.csv in PR2.
+-- ---------------------------------------------------------------------------
+CREATE TABLE course_aliases (
+  tms_code        TEXT        PRIMARY KEY,
+  catalog_code    TEXT        NOT NULL REFERENCES courses (code) ON UPDATE CASCADE,
+  notes           TEXT
+);
+
+CREATE INDEX idx_course_aliases_catalog ON course_aliases (catalog_code);
+
+-- ---------------------------------------------------------------------------
 -- 4. Trainer ↔ Course skill matrix
 -- ---------------------------------------------------------------------------
 CREATE TABLE trainer_courses (
@@ -167,16 +180,40 @@ CREATE TABLE rooms (
 CREATE INDEX idx_rooms_venue ON rooms (venue_code);
 
 -- ---------------------------------------------------------------------------
--- 10. Sessions — the core planning unit
+-- 10. Upload batches
+-- ---------------------------------------------------------------------------
+CREATE TYPE upload_batch_status AS ENUM ('uploaded', 'parsed', 'applied', 'blocked', 'rejected');
+
+CREATE TABLE upload_batches (
+  id              UUID                PRIMARY KEY DEFAULT gen_random_uuid(),
+  original_filename TEXT,
+  gcs_object_name TEXT                NOT NULL UNIQUE,
+  status          upload_batch_status NOT NULL DEFAULT 'uploaded',
+  parse_result    JSONB,
+  created_by      UUID                REFERENCES users (id),
+  created_at      TIMESTAMPTZ         NOT NULL DEFAULT now(),
+  applied_at      TIMESTAMPTZ
+);
+
+CREATE INDEX idx_upload_batches_status ON upload_batches (status);
+CREATE INDEX idx_upload_batches_created_at ON upload_batches (created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- 11. Sessions — the core planning unit
 -- ---------------------------------------------------------------------------
 CREATE TYPE session_status AS ENUM ('draft', 'confirmed', 'cancelled', 'completed');
 
 CREATE TABLE sessions (
   id              UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
-  course_code     TEXT            NOT NULL REFERENCES courses (code),
+  course_code     TEXT            REFERENCES courses (code), -- NULL when TMS code is unresolved
+  tms_code        TEXT,           -- raw TMS Course / Program ID from the upload
+  source_course_name TEXT,        -- verification-only course name from TMS upload
   trainer_id      TEXT            REFERENCES trainers (trainer_id),   -- NULL = unassigned
+  raw_trainer_name TEXT,          -- raw TMS trainer name when unresolved or for audit
   venue_code      TEXT            REFERENCES venues (code),
   room_id         TEXT            REFERENCES rooms (room_id),
+  raw_venue_text  TEXT,           -- raw TMS venue/address field
+  time_text       TEXT,           -- TMS time range, stored as text for PR2
   status          session_status  NOT NULL DEFAULT 'draft',
 
   -- Dates
@@ -193,7 +230,7 @@ CREATE TABLE sessions (
   actual_pax      INT,            -- post-session actual count
 
   -- Upload provenance
-  upload_batch_id UUID,           -- FK to upload_batches (added in PR2)
+  upload_batch_id UUID            REFERENCES upload_batches (id),
   external_ref    TEXT,           -- row identifier from the source Excel
 
   notes           TEXT,
@@ -213,9 +250,10 @@ CREATE INDEX idx_sessions_venue     ON sessions (venue_code);
 CREATE INDEX idx_sessions_room      ON sessions (room_id);
 CREATE INDEX idx_sessions_dates     ON sessions (start_date, end_date);
 CREATE INDEX idx_sessions_status    ON sessions (status);
+CREATE UNIQUE INDEX idx_sessions_external_ref ON sessions (external_ref) WHERE external_ref IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
--- 11. Session Economics — raw data view
+-- 12. Session Economics — raw data view
 --     Exposes session + course + pax data needed by the API layer.
 --     ALL cost calculations (category resolution, tier lookup, pax-rate
 --     selection, breakeven iteration, viability badge) are done in the
@@ -258,11 +296,11 @@ SELECT
   END AS revenue_with_gst
 
 FROM sessions s
-JOIN courses c ON c.code = s.course_code
+LEFT JOIN courses c ON c.code = s.course_code
 WHERE s.status <> 'cancelled';
 
 -- ---------------------------------------------------------------------------
--- 12. App configuration (key-value for admin-tunable settings)
+-- 13. App configuration (key-value for admin-tunable settings)
 -- ---------------------------------------------------------------------------
 CREATE TABLE app_config (
   key             TEXT        PRIMARY KEY,
