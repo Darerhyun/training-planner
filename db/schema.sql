@@ -38,7 +38,7 @@ CREATE INDEX idx_users_email        ON users (email);
 CREATE TABLE courses (
   code            TEXT        PRIMARY KEY,
   name            TEXT        NOT NULL,
-  programme_code  TEXT,          -- ACDM/DDM/SDDM/CIIO/ACIIO/DIIO/ASK or NULL for standalone
+  programme_code  TEXT,          -- FTDM/FTIIO/DGAI/ASK (active), ACDM/DDM/SDDM/CIIO/ACIIO/DIIO (obsolete), or NULL for standalone
   duration_days   NUMERIC(4,1) NOT NULL,
   fee_with_gst    NUMERIC(10,2),  -- total price incl 9% GST; NULL if unknown
   is_capstone     BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -47,6 +47,21 @@ CREATE TABLE courses (
 );
 
 CREATE INDEX idx_courses_programme ON courses (programme_code);
+
+-- Programme dimension: identity, lifecycle status, supersession.
+-- No FK from courses.programme_code yet (avoids seed-order coupling; added later).
+CREATE TYPE programme_status AS ENUM ('active', 'obsolete');
+
+CREATE TABLE programmes (
+  code            TEXT             PRIMARY KEY,   -- FTDM, FTIIO, DGAI, ASK, ACDM, ...
+  name            TEXT             NOT NULL,
+  status          programme_status NOT NULL DEFAULT 'active',
+  superseded_by   TEXT             REFERENCES programmes (code),  -- self-ref; NULL unless obsolete
+  ta_eligible     BOOLEAN          NOT NULL DEFAULT FALSE,        -- future Training Assistants feature; column only, no logic
+  notes           TEXT
+);
+
+CREATE INDEX idx_programmes_status ON programmes (status);
 
 -- ---------------------------------------------------------------------------
 -- 3. Trainers
@@ -363,6 +378,23 @@ INSERT INTO programme_categories (category_code, description, applies_to) VALUES
   ('IT-Normal',  'ASK Microsoft Office (non-WSQ)',           'ASK courses in Office family'),
   ('IT-WSQ',     'WSQ-funded Microsoft Office',              'ASQ* codes (Excel Essentials/Intermediate/Mastery/Advanced)'),
   ('IT-Special', 'Premium IT courses',                       'Excel Power Query/Pivot/DAX, VBA, Power BI bridging');
+
+-- ---------------------------------------------------------------------------
+-- Programmes (4 active + 6 obsolete)
+-- Active rows first so obsolete rows can reference them via superseded_by.
+-- Obsolete rows transcribed from docs/02-domain/obsolete_programmes_2026.csv.
+-- ---------------------------------------------------------------------------
+INSERT INTO programmes (code, name, status, superseded_by, ta_eligible, notes) VALUES
+  ('FTDM',  'Diploma in Digital Marketing (Full-Time)',                            'active',   NULL,    FALSE, 'Consolidated full-time DM diploma'),
+  ('FTIIO', 'Advanced Certificate in IT Infrastructure & Operations (Full-Time)',  'active',   NULL,    TRUE,  'TA-eligible: completion qualifies graduate as Training Assistant'),
+  ('DGAI',  'Diploma in Generative AI',                                            'active',   NULL,    FALSE, 'New full-time GenAI diploma'),
+  ('ASK',   'ASK Standalone Courses',                                              'active',   NULL,    FALSE, 'Standalone ASK catalog courses'),
+  ('ACDM',  'Advanced Certificate in Digital Marketing',                           'obsolete', 'FTDM',  FALSE, 'Stacked cert structure retired; modules folded into full-time Diploma in DM'),
+  ('DDM',   'Diploma in Digital Marketing (Modular)',                              'obsolete', 'FTDM',  FALSE, 'Folded into full-time Diploma in DM'),
+  ('SDDM',  'Specialist Diploma in Digital Marketing',                             'obsolete', 'FTDM',  FALSE, 'Advanced variants dropped; SDDM unpopular/frequently cancelled'),
+  ('CIIO',  'Certificate in IT Infrastructure & Operations',                       'obsolete', 'FTIIO', FALSE, 'Folded into full-time Advanced Certificate in IT I&O'),
+  ('ACIIO', 'Advanced Certificate in IT Infrastructure & Operations (Modular)',    'obsolete', 'FTIIO', FALSE, 'Folded into full-time Advanced Certificate in IT I&O'),
+  ('DIIO',  'Diploma in IT Infrastructure & Operations',                           'obsolete', 'FTIIO', FALSE, 'Folded into full-time Advanced Certificate in IT I&O');
 
 -- ---------------------------------------------------------------------------
 -- Trainer Rate Tiers (structure only — dollar values entered in Neon by admin)

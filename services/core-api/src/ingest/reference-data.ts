@@ -33,6 +33,13 @@ interface CsvTrainerAliasRow {
   notes: string;
 }
 
+interface CsvTrainerCourseRow {
+  trainer_id: string;
+  course_code: string;
+  is_sme: string;
+  notes: string;
+}
+
 const currentFile = fileURLToPath(import.meta.url);
 const currentDir = path.dirname(currentFile);
 const domainDocsDir = path.resolve(currentDir, '../../../../docs/02-domain');
@@ -84,6 +91,58 @@ export async function ensureTmsReferenceData(): Promise<void> {
        VALUES ($1, $2, 'tms')
       ON CONFLICT (alias_name) DO NOTHING`,
       [alias.trainer_id, alias.tms_name],
+    );
+  }
+}
+
+/**
+ * Seeds the 35 full-time 2026 courses and their trainer-course skill links
+ * from docs/02-domain. Idempotent (ON CONFLICT DO NOTHING) — matches the TMS
+ * reference-data pattern. Programme rows themselves are seeded by the SQL
+ * migration db/migrations/2026-06-30_programmes.sql, not here.
+ */
+export async function ensureFulltimeCourseData(): Promise<void> {
+  const [fulltimeCourses, fulltimeTrainerCourses] = await Promise.all([
+    readCsv<CsvCourseRow>('courses_fulltime_2026.csv'),
+    readCsv<CsvTrainerCourseRow>('trainer_courses_fulltime_2026.csv'),
+  ]);
+
+  const db = getDb();
+
+  for (const course of fulltimeCourses) {
+    await db(
+      `INSERT INTO courses
+        (code, name, programme_code, duration_days, fee_with_gst, is_capstone, recently_added, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (code) DO NOTHING`,
+      [
+        course.code,
+        course.name,
+        nullableText(course.programme_code),
+        Number(course.duration_days),
+        nullableNumber(course.fee_with_gst),
+        parseBoolean(course.is_capstone),
+        parseBoolean(course.recently_added),
+        nullableText(course.notes),
+      ],
+    );
+  }
+
+  for (const link of fulltimeTrainerCourses) {
+    if (!link.trainer_id || !link.course_code) {
+      continue;
+    }
+
+    await db(
+      `INSERT INTO trainer_courses (trainer_id, course_code, is_sme, notes)
+       VALUES ($1, $2, $3, $4)
+      ON CONFLICT (trainer_id, course_code) DO NOTHING`,
+      [
+        link.trainer_id,
+        link.course_code,
+        parseBoolean(link.is_sme),
+        nullableText(link.notes),
+      ],
     );
   }
 }
