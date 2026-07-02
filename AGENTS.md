@@ -28,7 +28,7 @@ Cost target: **$0/month** on free tiers where possible.
 
 | Layer | Choice | Notes |
 |---|---|---|
-| Database | **Neon Postgres** (free tier) | Single schema. No Firestore. |
+| Database | **Google Cloud SQL** (Postgres) | Single schema. No Firestore. |
 | API | **Cloud Run** — Node 22 + TypeScript + Hono | `services/shared` + `services/core-api` |
 | Frontend | **Vite SPA** on **Firebase Hosting** | Dark navy/indigo glass-morphism aesthetic preferred |
 | Auth | **Firebase Auth** — email magic link | `ADMIN_EMAILS` env allowlist for first admins |
@@ -49,7 +49,7 @@ The data model is driven by the CSVs in `docs/` — they are the seed data. The 
 2. **Work in small, reviewable batches.** One PR's worth of scope at a time. Validate each batch (it builds, it runs) before moving on.
 3. **Ask before deleting** files or making destructive schema changes.
 4. **Report honestly.** If something failed, say so. Do not silently retry or paper over errors.
-5. **Sensitive data stays out of the repo.** Real trainer fees are never committed. They live only in the Neon database. The repo contains the rate *model* and *tier groupings*, never the dollar amounts. See `docs/02-domain/trainer-rates.md`.
+5. **Sensitive data stays out of the repo.** Real trainer fees are never committed. They live only in the Google Cloud SQL database. The repo contains the rate *model* and *tier groupings*, never the dollar amounts. See `docs/02-domain/trainer-rates.md`.
 6. **Honour the standardised conventions** (below) so the codebase stays consistent.
 
 ## Naming & layout conventions (locked)

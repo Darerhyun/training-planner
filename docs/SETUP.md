@@ -1,6 +1,6 @@
 # Setup
 
-This guide covers the PR1 foundation: Neon Postgres schema, shared service utilities, the Hono core API, Firebase Auth admin verification, and Cloud Run deployment.
+This guide covers the PR1 foundation: Google Cloud SQL (Postgres) schema, shared service utilities, the Hono core API, Firebase Auth admin verification, and Cloud Run deployment.
 
 PR1 does not include file upload, Excel parsing, or planning UI work.
 
@@ -8,7 +8,7 @@ PR1 does not include file upload, Excel parsing, or planning UI work.
 
 - Node.js 22+
 - npm 10+
-- A Neon Postgres database
+- A Google Cloud SQL (Postgres) instance
 - A Firebase project with Authentication enabled
 - Google Cloud SDK for Cloud Run deployment
 
@@ -44,7 +44,11 @@ The `VITE_FIREBASE_*` and `VITE_API_BASE_URL` variables are reserved for the fut
 
 ## Database Setup
 
-Apply the approved schema to Neon:
+Local development connects to Cloud SQL through the Cloud SQL Auth Proxy, which
+exposes the instance on `localhost:5432`. Start the proxy in its own terminal
+before running the schema, seed, or API.
+
+Apply the approved schema to Cloud SQL:
 
 ```powershell
 psql "$env:DATABASE_URL" -f db/schema.sql
@@ -62,7 +66,7 @@ Seed data lives under [docs/02-domain](02-domain). The repo-safe CSVs currently 
 - [programme_categories.csv](02-domain/programme_categories.csv)
 - [trainer_tier_assignments.csv](02-domain/trainer_tier_assignments.csv)
 
-Actual trainer rate dollar values are not committed. `trainer_rate_tiers.csv` is intentionally absent; those values live only in Neon.
+Actual trainer rate dollar values are not committed. `trainer_rate_tiers.csv` is intentionally absent; those values live only in Google Cloud SQL.
 
 Seed TMS reference rows after applying the schema, and again only when the CSV reference files change:
 
@@ -172,11 +176,19 @@ gcloud run deploy core-api `
   --image=$IMAGE `
   --platform=managed `
   --allow-unauthenticated `
+  --max-instances=10 `
   --set-env-vars="NODE_ENV=production,PORT=8080,ALLOWED_ORIGINS=https://your-app.web.app,ADMIN_EMAILS=owner@example.com" `
   --set-secrets="DATABASE_URL=DATABASE_URL:latest"
 ```
 
 Store sensitive values such as `DATABASE_URL` and `FIREBASE_SERVICE_ACCOUNT` in Secret Manager rather than passing them as plain environment variables.
+
+`--max-instances=10` bounds the total number of Cloud Run instances, and therefore
+the total number of database connection pools. Each instance opens one pool
+(`pg.Pool max: 5`), so the worst case is 10 × 5 = 50 connections. Keep this cap in
+line with the Cloud SQL instance's `max_connections` (run `SHOW max_connections;`
+to check) — on a small/shared-core tier, lower `--max-instances` or the pool `max`
+if 50 would exceed the instance limit.
 
 After deployment, verify:
 

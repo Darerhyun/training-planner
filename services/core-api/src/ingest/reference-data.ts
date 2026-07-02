@@ -158,25 +158,25 @@ export async function loadScheduleLookups(): Promise<{
   const db = getDb();
   const [courseAliases, courses, trainerAliases, trainers, venues, rooms] =
     await Promise.all([
-      db('SELECT tms_code, catalog_code FROM course_aliases'),
-      db('SELECT code FROM courses'),
-      db(
+      db<CourseAliasRow>('SELECT tms_code, catalog_code FROM course_aliases'),
+      db<CourseLookupRow>('SELECT code FROM courses'),
+      db<TrainerAliasRow>(
         `SELECT alias_name AS tms_name, trainer_id
          FROM trainer_aliases
          WHERE source IN ('tms', 'rate_excel', 'schedule_excel')`,
       ),
-      db('SELECT trainer_id, name FROM trainers WHERE is_active = TRUE'),
-      db('SELECT code, name, type, address FROM venues'),
-      db('SELECT room_id, venue_code, name FROM rooms'),
+      db<TrainerLookupRow>('SELECT trainer_id, name FROM trainers WHERE is_active = TRUE'),
+      db<VenueLookupRow>('SELECT code, name, type, address FROM venues'),
+      db<RoomLookupRow>('SELECT room_id, venue_code, name FROM rooms'),
     ]);
 
   return {
-    courseAliases: courseAliases as CourseAliasRow[],
-    courses: courses as CourseLookupRow[],
-    trainerAliases: trainerAliases as TrainerAliasRow[],
-    trainers: trainers as TrainerLookupRow[],
-    venues: venues as VenueLookupRow[],
-    rooms: rooms as RoomLookupRow[],
+    courseAliases,
+    courses,
+    trainerAliases,
+    trainers,
+    venues,
+    rooms,
   };
 }
 

@@ -19,7 +19,7 @@ docs/
     ├── rooms.csv                   ← seed data: 15 rooms
     ├── trainer-rates.md            ← pricing model, tiers, viability badges, session economics
     ├── programme_categories.csv    ← seed data: 5 pricing categories
-    ├── trainer_rate_tiers.csv      ← (NOT in repo — schema only; real rates live in Neon)
+    ├── trainer_rate_tiers.csv      ← (NOT in repo — schema only; real rates live in Google Cloud SQL)
     └── trainer_tier_assignments.csv← seed data: which trainer is in which tier
 ```
 
@@ -48,7 +48,7 @@ docs/
 | 1 | Courses + programmes | `courses.md`, `courses_catalog.csv` | Complete |
 | 2 | Course rates | folded into courses (fee_with_gst column) | Complete |
 | 3 | Trainers + skills + SME | `trainers.md`, `trainers.csv`, `trainer_courses.csv` | Complete |
-| 4 | Trainer rates + tiers | `trainer-rates.md`, `programme_categories.csv`, `trainer_rate_tiers.csv`, `trainer_tier_assignments.csv` | Complete (rates entered in Neon, not repo) |
+| 4 | Trainer rates + tiers | `trainer-rates.md`, `programme_categories.csv`, `trainer_rate_tiers.csv`, `trainer_tier_assignments.csv` | Complete (rates entered in Google Cloud SQL, not repo) |
 | 5 | Venues + rooms | `venues-rooms.md`, `venues.csv`, `rooms.csv` | Complete |
 | 6 | Training assistants | — | NOT yet modelled |
 
@@ -58,7 +58,7 @@ docs/
 - **All fees include 9% GST.** No funding/subsidy math in this tool — that's TMS's job.
 - **No SSG/TGS codes stored.** Those are TMS data, not planning data.
 - **Sessions are dynamic** (from Excel upload); **catalog is static** (rarely changes). The catalog must be solid so the parser has something reliable to match against.
-- **Trainer fees are sensitive.** The repo has the rate *model* and *tier groupings*; the actual dollar rates live only in Neon and are surfaced to users only as viability badges (except for finance/admin roles).
+- **Trainer fees are sensitive.** The repo has the rate *model* and *tier groupings*; the actual dollar rates live only in Google Cloud SQL and are surfaced to users only as viability badges (except for finance/admin roles).
 
 ## Known gaps / to-do (documented in the domain files)
 

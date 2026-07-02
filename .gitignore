@@ -3,6 +3,7 @@ dist/
 *.tsbuildinfo
 .env
 .env.local
+.env.txt
 *.local
 docs/02-domain/trainer_rate_tiers.csv
 .DS_Store

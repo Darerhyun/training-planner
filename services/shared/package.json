@@ -16,12 +16,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^0.10.4",
     "firebase-admin": "^13.0.2",
-    "hono": "^4.7.4"
+    "hono": "^4.7.4",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
     "typescript": "^5.7.2"
   }
 }

@@ -33,7 +33,7 @@ async function findOrCreateUser(
     throw new Error('Firebase token did not include an email address');
   }
 
-  const existing = await db(
+  const existing = await db<User>(
     `SELECT id, firebase_uid, email, display_name, role, created_at, updated_at
      FROM users
      WHERE firebase_uid = $1`,
@@ -41,13 +41,13 @@ async function findOrCreateUser(
   );
 
   if (existing.length > 0) {
-    return existing[0] as User;
+    return existing[0];
   }
 
   const adminEmails = getAdminEmails();
   const role: UserRole = adminEmails.has(normalizedEmail) ? 'admin' : 'pending';
 
-  const inserted = await db(
+  const inserted = await db<User>(
     `INSERT INTO users (firebase_uid, email, display_name, role)
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (firebase_uid) DO UPDATE SET updated_at = now()
@@ -55,7 +55,7 @@ async function findOrCreateUser(
     [firebaseUid, normalizedEmail, displayName, role],
   );
 
-  return inserted[0] as User;
+  return inserted[0];
 }
 
 // ---------------------------------------------------------------------------

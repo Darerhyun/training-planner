@@ -1,21 +1,59 @@
-import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
+import { Pool, type PoolConfig } from 'pg';
 
-let sql: NeonQueryFunction<false, false>;
+/**
+ * Callable query interface kept stable so call sites stay unchanged:
+ * `await getDb()(sqlText, params)` resolves to an array of row objects.
+ */
+export type SqlQuery = <T = Record<string, unknown>>(
+  query: string,
+  params?: unknown[],
+) => Promise<T[]>;
 
-/** Returns a Neon serverless SQL client using DATABASE_URL. */
-export function getDb(): NeonQueryFunction<false, false> {
-  if (!sql) {
+let pool: Pool | undefined;
+let query: SqlQuery | undefined;
+
+/** Lazily builds the connection pool from DATABASE_URL. */
+function getPool(): Pool {
+  if (!pool) {
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) {
       throw new Error('DATABASE_URL environment variable is required');
     }
-    sql = neon(databaseUrl);
+
+    // node-postgres parses the connection string for both connection styles:
+    //  - Local dev via Cloud SQL Auth Proxy: postgresql://user:pass@localhost:5432/training_planner (TCP)
+    //  - Cloud Run via Cloud SQL connector:  postgresql://user:pass@/training_planner?host=/cloudsql/PROJECT:REGION:INSTANCE (Unix socket)
+    // No TLS config is set: the proxy/connector handle encryption.
+    // max: 5 caps connections per pool (one pool per Cloud Run instance) so the
+    // small Cloud SQL tier's connection limit isn't exhausted under scale-out.
+    const config: PoolConfig = { connectionString: databaseUrl, max: 5 };
+    pool = new Pool(config);
   }
-  return sql;
+
+  return pool;
+}
+
+/**
+ * Returns a callable query function backed by a pooled pg connection.
+ * Signature: `(sqlText, params?) => rows[]`.
+ */
+export function getDb(): SqlQuery {
+  if (!query) {
+    const activePool = getPool();
+    query = async <T = Record<string, unknown>>(
+      text: string,
+      params?: unknown[],
+    ): Promise<T[]> => {
+      const result = await activePool.query(text, params);
+      return result.rows as T[];
+    };
+  }
+
+  return query;
 }
 
 /** Lightweight connectivity check for readiness endpoints. */
 export async function checkDbConnection(): Promise<boolean> {
-  const result = await getDb()('SELECT 1 AS ok');
+  const result = await getDb()<{ ok: number }>('SELECT 1 AS ok');
   return result[0]?.ok === 1;
 }

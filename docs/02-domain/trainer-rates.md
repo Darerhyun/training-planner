@@ -4,7 +4,7 @@
 
 ## Why this entity is structured the way it is
 
-Trainer pay is sensitive — actual dollar rates are not stored in the public repo or the markdown knowledge base. They live only in the `trainer_rate_tiers` table in Neon, which Owen populates directly.
+Trainer pay is sensitive — actual dollar rates are not stored in the public repo or the markdown knowledge base. They live only in the `trainer_rate_tiers` table in Google Cloud SQL, which Owen populates directly.
 
 What IS in the repo:
 - The **data model** — what tables exist, what columns they have, how they relate
@@ -75,7 +75,7 @@ description            e.g. "Mid-tier IIO trainer, 2 trainers in this band"
 pax_3 .. pax_20        Daily rate (incl. GST) at each pax band
 ```
 
-The repo contains [trainer_rate_tiers_TEMPLATE.csv](./trainer_rate_tiers_TEMPLATE.csv) — a schema-only version with all 45 tier rows but **no rate values**. Real rates are entered directly into Neon by Owen, never committed.
+The repo contains [trainer_rate_tiers_TEMPLATE.csv](./trainer_rate_tiers_TEMPLATE.csv) — a schema-only version with all 45 tier rows but **no rate values**. Real rates are entered directly into Google Cloud SQL by Owen, never committed.
 
 ### Table 3 — `trainer_tier_assignments` (safe for repo)
 
@@ -396,12 +396,12 @@ def get_category(course_code: str, programme_code: str | None) -> str:
 | `trainer_rates.md` (this doc) | Knowledge doc + calculation rules | No |
 
 What's NOT in the repo:
-- `trainer_rate_tiers.csv` with real rates — lives only in Neon
-- `session_economics` view — defined in SQL, runs only against Neon
+- `trainer_rate_tiers.csv` with real rates — lives only in Google Cloud SQL
+- `session_economics` view — defined in SQL, runs only against Google Cloud SQL
 
 ## What this entity enables for the website
 
-Once these tables exist + the rates are populated in Neon:
+Once these tables exist + the rates are populated in Google Cloud SQL:
 
 1. **Per-session viability badge** on the planning grid
 2. **Breakeven pax indicator** for "do we need more registrations"

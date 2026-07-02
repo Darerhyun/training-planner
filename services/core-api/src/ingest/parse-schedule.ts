@@ -149,12 +149,12 @@ export async function applyScheduleParseResult(
 
 async function summarizeRows(rows: MappedScheduleRow[]): Promise<ScheduleParseResult> {
   const db = getDb();
-  const existingRows = (await db(
+  const existingRows = await db<ExistingSessionRow>(
     `SELECT external_ref, course_code, trainer_id, venue_code, room_id, status,
       start_date::text, end_date::text, expected_pax, confirmed_pax, time_text
      FROM sessions
      WHERE external_ref IS NOT NULL`,
-  )) as ExistingSessionRow[];
+  );
   const existingByRef = new Map(existingRows.map((row) => [row.external_ref, row]));
 
   let inserts = 0;
