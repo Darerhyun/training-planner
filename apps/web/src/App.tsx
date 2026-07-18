@@ -10,14 +10,17 @@ import {
   fetchSessions,
   uploadMasterSchedule,
 } from './api.js';
-import { auth, completeMagicLink, isSignInWithEmailLink, sendMagicLink, signOut } from './firebase.js';
+import { auth, completeMagicLink, isSignInWithEmailLink, sendMagicLink, signInWithPassword, signOut } from './firebase.js';
 
 type View = 'sync' | 'sessions';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [email, setEmail] = useState(window.localStorage.getItem('training-planner-email') ?? '');
+  const [password, setPassword] = useState('');
   const [authMessage, setAuthMessage] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
   const [view, setView] = useState<View>('sync');
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
@@ -36,9 +39,12 @@ export default function App() {
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              sendMagicLink(email)
-                .then(() => setAuthMessage('Check your email for the sign-in link.'))
-                .catch((error: Error) => setAuthMessage(error.message));
+              setAuthBusy(true);
+              setAuthError('');
+              setAuthMessage('');
+              signInWithPassword(email, password)
+                .catch((error: unknown) => setAuthError(getSignInErrorMessage(error)))
+                .finally(() => setAuthBusy(false));
             }}
           >
             <label htmlFor="email">Email</label>
@@ -49,12 +55,38 @@ export default function App() {
               onChange={(event) => setEmail(event.target.value)}
               required
             />
-            <button type="submit">
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
+            <button type="submit" disabled={authBusy}>
               <Check size={16} />
-              Send Link
+              Sign In
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={authBusy || !email}
+              onClick={() => {
+                setAuthBusy(true);
+                setAuthError('');
+                setAuthMessage('');
+                sendMagicLink(email)
+                  .then(() => setAuthMessage('Check your email for the sign-in link.'))
+                  .catch((error: unknown) => setAuthError(getSignInErrorMessage(error)))
+                  .finally(() => setAuthBusy(false));
+              }}
+            >
+              Email Me a Link
             </button>
           </form>
           {authMessage && <p className="message">{authMessage}</p>}
+          {authError && <p className="error">{authError}</p>}
         </section>
       </main>
     );
@@ -84,6 +116,25 @@ export default function App() {
       {view === 'sync' ? <SyncPage user={user} /> : <SessionsPage user={user} />}
     </main>
   );
+}
+
+function getSignInErrorMessage(error: unknown): string {
+  const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+
+  switch (code) {
+    case 'auth/user-not-found':
+      return 'No user exists for that email address. Ask an admin to create your account.';
+    case 'auth/wrong-password':
+      return 'The password is incorrect. Try again or ask an admin to reset it.';
+    case 'auth/invalid-credential':
+      return 'The email or password did not match an existing account.';
+    case 'auth/invalid-email':
+      return 'Enter a valid email address.';
+    case 'auth/too-many-requests':
+      return 'Too many sign-in attempts. Wait a moment, then try again.';
+    default:
+      return error instanceof Error ? error.message : 'Sign-in failed. Try again.';
+  }
 }
 
 function SyncPage({ user }: { user: User }) {

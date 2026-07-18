@@ -3,6 +3,7 @@ import {
   getAuth,
   isSignInWithEmailLink,
   sendSignInLinkToEmail,
+  signInWithEmailAndPassword,
   signInWithEmailLink,
   signOut,
 } from 'firebase/auth';
@@ -14,6 +15,11 @@ const app = initializeApp({
 });
 
 export const auth = getAuth(app);
+
+export async function signInWithPassword(email: string, password: string): Promise<void> {
+  await signInWithEmailAndPassword(auth, email, password);
+  window.localStorage.setItem('training-planner-email', email);
+}
 
 export async function sendMagicLink(email: string): Promise<void> {
   await sendSignInLinkToEmail(auth, email, {
