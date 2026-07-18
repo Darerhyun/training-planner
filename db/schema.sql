@@ -2,7 +2,7 @@
 -- Training Schedule Planner — Postgres Schema
 -- PR1 Foundation · June 2026
 --
--- Run against Neon Postgres (free tier). Single schema, no Firestore.
+-- Run against Google Cloud SQL (Postgres). Single schema, no Firestore.
 -- Seed data for static catalog tables is included at the bottom.
 -- Trainer rate dollar values are NEVER in this file — only the tier structure.
 -- =============================================================================
@@ -125,7 +125,7 @@ CREATE TABLE programme_categories (
 );
 
 -- ---------------------------------------------------------------------------
--- 6. Trainer Rate Tiers (SCHEMA ONLY — real rates entered in Neon directly)
+-- 6. Trainer Rate Tiers (SCHEMA ONLY — real rates entered in Google Cloud SQL directly)
 --    One column per pax value (3–20) to preserve per-pax rate granularity.
 --    Some trainers have rates that change within a pax band (e.g. different
 --    rates at pax 15 vs 16), so we store one column per pax value.
@@ -397,7 +397,7 @@ INSERT INTO programmes (code, name, status, superseded_by, ta_eligible, notes) V
   ('DIIO',  'Diploma in IT Infrastructure & Operations',                           'obsolete', 'FTIIO', FALSE, 'Folded into full-time Advanced Certificate in IT I&O');
 
 -- ---------------------------------------------------------------------------
--- Trainer Rate Tiers (structure only — dollar values entered in Neon by admin)
+-- Trainer Rate Tiers (structure only — dollar values entered in Google Cloud SQL by admin)
 -- ---------------------------------------------------------------------------
 INSERT INTO trainer_rate_tiers (tier_code, programme_category, description) VALUES
   -- IIO: 15 tiers

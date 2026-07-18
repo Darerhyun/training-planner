@@ -10,7 +10,9 @@ docs/
 ├── SETUP.md                        ← how to run the project locally + deploy (to be written in PR1)
 └── 02-domain/                      ← the domain model: what the business actually is
     ├── courses.md                  ← courses, programmes, modules, fees, durations
-    ├── courses_catalog.csv         ← seed data: 142 courses/modules
+    ├── courses_catalog.csv         ← seed data: 142 original courses/modules
+    ├── courses_fulltime_2026.csv   ← seed data: 35 full-time restructure courses
+    ├── obsolete_programmes_2026.csv← supersession map for 6 obsolete programmes
     ├── trainers.md                 ← trainer roster, skills, SME, exclusions
     ├── trainers.csv                ← seed data: 113 trainers
     ├── trainer_courses.csv         ← seed data: 929 trainer→course skill links
@@ -45,7 +47,7 @@ docs/
 
 | # | Entity | Docs | Status |
 |---|---|---|---|
-| 1 | Courses + programmes | `courses.md`, `courses_catalog.csv` | Complete |
+| 1 | Courses + programmes | `courses.md`, `courses_catalog.csv`, `courses_fulltime_2026.csv`, `obsolete_programmes_2026.csv` | Complete |
 | 2 | Course rates | folded into courses (fee_with_gst column) | Complete |
 | 3 | Trainers + skills + SME | `trainers.md`, `trainers.csv`, `trainer_courses.csv` | Complete |
 | 4 | Trainer rates + tiers | `trainer-rates.md`, `programme_categories.csv`, `trainer_rate_tiers.csv`, `trainer_tier_assignments.csv` | Complete (rates entered in Google Cloud SQL, not repo) |
@@ -54,7 +56,8 @@ docs/
 
 ## Important cross-cutting facts
 
-- **Codes use the company's internal vocabulary**, not SSG's official names. Programme codes: `ACDM`, `DDM`, `SDDM` (Digital Marketing family); `CIIO`, `ACIIO`, `DIIO` (IT Infrastructure & Operations family); `ASK` (in-house non-funded line).
+- **Codes use the company's internal vocabulary**, not SSG's official names. Active programme codes: `FTDM`, `FTIIO`, `DGAI`, and `ASK`; obsolete programme codes retained for historical sessions: `ACDM`, `DDM`, `SDDM`, `CIIO`, `ACIIO`, `DIIO`.
+- **Course reference data currently totals 177 rows**: 142 original catalog rows plus 35 full-time restructure rows. The active planning set is 135 rows because obsolete-programme courses are excluded from new planning flows.
 - **All fees include 9% GST.** No funding/subsidy math in this tool — that's TMS's job.
 - **No SSG/TGS codes stored.** Those are TMS data, not planning data.
 - **Sessions are dynamic** (from Excel upload); **catalog is static** (rarely changes). The catalog must be solid so the parser has something reliable to match against.

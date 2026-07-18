@@ -55,7 +55,9 @@ Stored as a `module_excludes` array on the trainer row, holding course codes. Em
 
 ## Course coverage
 
-**132 of 142** catalog courses have at least one trainer who can teach them.
+Original catalog coverage: **132 of 142** courses have at least one trainer who can teach them.
+
+Full-time 2026 coverage: **30 of 35** full-time courses have at least one trainer link in `trainer_courses_fulltime_2026.csv`.
 
 **10 catalog courses have NO eligible trainers yet:**
 
@@ -151,6 +153,7 @@ Trainer fees are NOT in this dataset. They'll be modelled separately in `trainer
 - Trainer-course skill links: 929
 - SME flags: 59
 - Course exclusions: 2 (Norman, Sam)
-- Catalog coverage: 132/142 (93%)
+- Original catalog coverage: 132/142 (93%)
+- Full-time 2026 coverage: 30/35 (86%)
 - Bucket 2 skipped courses: 19 (counting from matrix unique courses)
 - Bucket 2 skipped skill assignments: 23 (counting per-trainer mentions)
