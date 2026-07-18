@@ -1,3 +1,4 @@
+import '../env.js';
 import {
   ensureTmsReferenceData,
   ensureFulltimeCourseData,

@@ -11,9 +11,10 @@
     "typecheck": "npm run build --workspace=@training-planner/shared && tsc --noEmit"
   },
   "dependencies": {
-    "@training-planner/shared": "*",
     "@google-cloud/storage": "^7.16.0",
     "@hono/node-server": "^1.14.0",
+    "@training-planner/shared": "*",
+    "dotenv": "^17.4.2",
     "hono": "^4.7.4",
     "xlsx": "^0.18.5"
   },
