@@ -45,10 +45,11 @@ const currentDir = path.dirname(currentFile);
 const domainDocsDir = path.resolve(currentDir, '../../../../docs/02-domain');
 
 export async function ensureTmsReferenceData(): Promise<void> {
-  const [newCourses, courseAliases, trainerAliases] = await Promise.all([
+  const [newCourses, courseAliases, trainerAliases, trainerCourses] = await Promise.all([
     readCsv<CsvCourseRow>('new_courses_from_tms.csv'),
     readCsv<CsvCourseAliasRow>('course_aliases.csv'),
     readCsv<CsvTrainerAliasRow>('trainer_aliases_tms.csv'),
+    readCsv<CsvTrainerCourseRow>('trainer_courses.csv'),
   ]);
 
   const db = getDb();
@@ -91,6 +92,24 @@ export async function ensureTmsReferenceData(): Promise<void> {
        VALUES ($1, $2, 'tms')
       ON CONFLICT (alias_name) DO NOTHING`,
       [alias.trainer_id, alias.tms_name],
+    );
+  }
+
+  for (const link of trainerCourses) {
+    if (!link.trainer_id || !link.course_code) {
+      continue;
+    }
+
+    await db(
+      `INSERT INTO trainer_courses (trainer_id, course_code, is_sme, notes)
+       VALUES ($1, $2, $3, $4)
+      ON CONFLICT (trainer_id, course_code) DO NOTHING`,
+      [
+        link.trainer_id,
+        link.course_code,
+        parseBoolean(link.is_sme),
+        nullableText(link.notes),
+      ],
     );
   }
 }
