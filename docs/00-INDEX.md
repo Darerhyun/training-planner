@@ -12,9 +12,12 @@ docs/
     ├── courses.md                  ← courses, programmes, modules, fees, durations
     ├── courses_catalog.csv         ← seed data: 142 original courses/modules
     ├── courses_fulltime_2026.csv   ← seed data: 35 full-time restructure courses
+    ├── course_aliases_ft_2026.csv  ← seed data: 60 full-time TMS code aliases
     ├── obsolete_programmes_2026.csv← supersession map for 6 obsolete programmes
     ├── trainers.md                 ← trainer roster, skills, SME, exclusions
     ├── trainers.csv                ← seed data: 113 trainers
+    ├── trainers_new_2026.csv       ← seed data: 2 new in-house trainers
+    ├── trainer_aliases_2026aug.csv ← seed data: 6 August schedule-name aliases
     ├── trainer_courses.csv         ← seed data: 929 trainer→course skill links
     ├── venues-rooms.md             ← venues and rooms model
     ├── venues.csv                  ← seed data: 9 venues
@@ -47,9 +50,9 @@ docs/
 
 | # | Entity | Docs | Status |
 |---|---|---|---|
-| 1 | Courses + programmes | `courses.md`, `courses_catalog.csv`, `courses_fulltime_2026.csv`, `obsolete_programmes_2026.csv` | Complete |
+| 1 | Courses + programmes | `courses.md`, `courses_catalog.csv`, `courses_fulltime_2026.csv`, `course_aliases_ft_2026.csv`, `obsolete_programmes_2026.csv` | Complete |
 | 2 | Course rates | folded into courses (fee_with_gst column) | Complete |
-| 3 | Trainers + skills + SME | `trainers.md`, `trainers.csv`, `trainer_courses.csv` | Complete |
+| 3 | Trainers + skills + SME | `trainers.md`, `trainers.csv`, `trainers_new_2026.csv`, `trainer_courses.csv`, `trainer_aliases_2026aug.csv` | Complete |
 | 4 | Trainer rates + tiers | `trainer-rates.md`, `programme_categories.csv`, `trainer_rate_tiers.csv`, `trainer_tier_assignments.csv` | Complete (rates entered in Google Cloud SQL, not repo) |
 | 5 | Venues + rooms | `venues-rooms.md`, `venues.csv`, `rooms.csv` | Complete |
 | 6 | Training assistants | — | NOT yet modelled |

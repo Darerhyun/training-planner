@@ -59,7 +59,11 @@ The schema file is [db/schema.sql](../db/schema.sql). Do not edit it unless a sc
 Seed data lives under [docs/02-domain](02-domain). The repo-safe CSVs currently present are:
 
 - [courses_catalog.csv](02-domain/courses_catalog.csv)
+- [courses_fulltime_2026.csv](02-domain/courses_fulltime_2026.csv)
+- [course_aliases_ft_2026.csv](02-domain/course_aliases_ft_2026.csv)
 - [trainers.csv](02-domain/trainers.csv)
+- [trainers_new_2026.csv](02-domain/trainers_new_2026.csv)
+- [trainer_aliases_2026aug.csv](02-domain/trainer_aliases_2026aug.csv)
 - [trainer_courses.csv](02-domain/trainer_courses.csv)
 - [venues.csv](02-domain/venues.csv)
 - [rooms.csv](02-domain/rooms.csv)
@@ -74,7 +78,7 @@ Seed TMS reference rows after applying the schema, and again only when the CSV r
 npm.cmd run seed-reference-data
 ```
 
-This inserts missing rows from `course_aliases.csv`, `new_courses_from_tms.csv`, and `trainer_aliases_tms.csv` without overwriting existing database rows.
+This inserts missing courses, course aliases, trainers, trainer aliases, and trainer-course links from the reference CSVs without overwriting existing database rows.
 
 ## Firebase Auth Setup
 

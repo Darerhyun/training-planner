@@ -33,6 +33,14 @@ interface CsvTrainerAliasRow {
   notes: string;
 }
 
+interface CsvTrainerRow {
+  trainer_id: string;
+  name: string;
+  is_active: string;
+  module_excludes: string;
+  notes: string;
+}
+
 interface CsvTrainerCourseRow {
   trainer_id: string;
   course_code: string;
@@ -121,9 +129,18 @@ export async function ensureTmsReferenceData(): Promise<void> {
  * migration db/migrations/2026-06-30_programmes.sql, not here.
  */
 export async function ensureFulltimeCourseData(): Promise<void> {
-  const [fulltimeCourses, fulltimeTrainerCourses] = await Promise.all([
+  const [
+    fulltimeCourses,
+    fulltimeTrainerCourses,
+    fulltimeCourseAliases,
+    newTrainers,
+    trainerAliases,
+  ] = await Promise.all([
     readCsv<CsvCourseRow>('courses_fulltime_2026.csv'),
     readCsv<CsvTrainerCourseRow>('trainer_courses_fulltime_2026.csv'),
+    readCsv<CsvCourseAliasRow>('course_aliases_ft_2026.csv'),
+    readCsv<CsvTrainerRow>('trainers_new_2026.csv'),
+    readCsv<CsvTrainerAliasRow>('trainer_aliases_2026aug.csv'),
   ]);
 
   const db = getDb();
@@ -144,6 +161,43 @@ export async function ensureFulltimeCourseData(): Promise<void> {
         parseBoolean(course.recently_added),
         nullableText(course.notes),
       ],
+    );
+  }
+
+  for (const alias of fulltimeCourseAliases) {
+    await db(
+      `INSERT INTO course_aliases (tms_code, catalog_code, notes)
+       VALUES ($1, $2, $3)
+      ON CONFLICT (tms_code) DO NOTHING`,
+      [alias.tms_code, alias.catalog_code, nullableText(alias.notes)],
+    );
+  }
+
+  for (const trainer of newTrainers) {
+    await db(
+      `INSERT INTO trainers (trainer_id, name, is_active, module_excludes, notes)
+       VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (trainer_id) DO NOTHING`,
+      [
+        trainer.trainer_id,
+        trainer.name,
+        parseBoolean(trainer.is_active),
+        parseTextArray(trainer.module_excludes),
+        nullableText(trainer.notes),
+      ],
+    );
+  }
+
+  for (const alias of trainerAliases) {
+    if (!alias.trainer_id) {
+      continue;
+    }
+
+    await db(
+      `INSERT INTO trainer_aliases (trainer_id, alias_name, source)
+       VALUES ($1, $2, 'schedule_excel')
+      ON CONFLICT (alias_name) DO NOTHING`,
+      [alias.trainer_id, alias.tms_name],
     );
   }
 
@@ -252,4 +306,11 @@ function nullableNumber(value: string): number | null {
 
 function parseBoolean(value: string): boolean {
   return value.trim().toLowerCase() === 'true';
+}
+
+function parseTextArray(value: string): string[] {
+  return value
+    .split('|')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
