@@ -65,6 +65,7 @@ docs/
 
 ## Known gaps / to-do (documented in the domain files)
 
+- PR3 polish: surface API authentication/authorization failures in the UI (for example, "Your account isn't authorised — contact admin") instead of reporting them only in the browser console.
 - 10 catalog courses have no trainer assignments yet (4 capstones + 2 new AI courses + 4 name-variant mismatches) — see `trainers.md`.
 - Trainer name aliasing needed: the rate Excel uses short names ("Winnie", "Philip") that differ from the roster ("Winnie Liu", "Philip Gan") — see `trainer-rates.md`. A `trainer_aliases` table is the planned fix.
 - 11 JTC rooms have no capacity captured yet — see `venues-rooms.md`.

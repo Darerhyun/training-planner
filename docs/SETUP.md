@@ -212,6 +212,13 @@ firebase deploy --only hosting
 
 [firebase.json](../firebase.json) points Hosting at the Vite build output and rewrites all routes to `index.html`.
 
+Before production uploads are enabled, add the deployed Firebase Hosting origin
+(for example, `https://your-project.web.app`) to the
+`training-planner-499504-uploads` bucket CORS configuration. Keep the local
+development origins and apply the updated configuration with
+`gcloud storage buckets update --cors-file`; otherwise browser `PUT` requests
+from Firebase Hosting will fail their CORS preflight.
+
 ## PR1 Completion Checklist
 
 - [x] Approved Postgres schema in [db/schema.sql](../db/schema.sql)
