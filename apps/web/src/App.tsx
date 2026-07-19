@@ -1,21 +1,41 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
 import { onAuthStateChanged } from 'firebase/auth';
-import { Check, ListFilter, LogOut, RefreshCw, Upload, X } from 'lucide-react';
+import { CalendarDays, Check, ClipboardList, ListFilter, LogOut, RefreshCw, Upload, X } from 'lucide-react';
 import {
   ApiError,
   type AppProfile,
   type ApiSession,
   type ParseResult,
+  type PlanningIssue,
+  type PlanningResponse,
+  type PlanningSession,
+  type PlanningStatus,
   cancelSchedule,
   confirmSchedule,
   fetchMe,
+  fetchPlanningSessions,
   fetchSessions,
   uploadMasterSchedule,
 } from './api.js';
 import { auth, completeMagicLink, isSignInWithEmailLink, sendMagicLink, signInWithPassword, signOut } from './firebase.js';
 
-type View = 'sync' | 'sessions';
+type View = 'planning' | 'sync' | 'sessions';
+
+const planningStatuses: PlanningStatus[] = ['draft', 'confirmed', 'cancelled', 'completed'];
+const planningIssues: PlanningIssue[] = [
+  'unassigned_trainer',
+  'unresolved_venue',
+  'owned_venue_missing_room',
+  'capacity_overrun',
+];
+
+const issueLabels: Record<PlanningIssue, string> = {
+  unassigned_trainer: 'Unassigned trainer',
+  unresolved_venue: 'Unresolved venue',
+  owned_venue_missing_room: 'Owned venue missing room',
+  capacity_overrun: 'Capacity overrun',
+};
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -26,7 +46,7 @@ export default function App() {
   const [authMessage, setAuthMessage] = useState('');
   const [authError, setAuthError] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
-  const [view, setView] = useState<View>('sync');
+  const [view, setView] = useState<View>('planning');
 
   useEffect(() => onAuthStateChanged(auth, (nextUser) => {
     setUser(nextUser);
@@ -167,6 +187,10 @@ export default function App() {
           <p>{profile.display_name || profile.email} · {profile.role}</p>
         </div>
         <nav className="tabs" aria-label="Primary">
+          <button className={view === 'planning' ? 'active' : ''} onClick={() => setView('planning')}>
+            <CalendarDays size={16} />
+            Planning
+          </button>
           <button className={view === 'sync' ? 'active' : ''} onClick={() => setView('sync')}>
             <Upload size={16} />
             Sync
@@ -180,8 +204,384 @@ export default function App() {
           <LogOut size={18} />
         </button>
       </header>
-      {view === 'sync' ? <SyncPage user={user} /> : <SessionsPage user={user} />}
+      {view === 'planning' && <PlanningPage user={user} />}
+      {view === 'sync' && <SyncPage user={user} />}
+      {view === 'sessions' && <SessionsPage user={user} />}
     </main>
+  );
+}
+
+function getSingaporeDate(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Singapore',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
+function addCalendarMonths(dateText: string, months: number): string {
+  const [year, month, day] = dateText.split('-').map(Number);
+  const targetMonthIndex = month - 1 + months;
+  const lastDay = new Date(Date.UTC(year, targetMonthIndex + 1, 0)).getUTCDate();
+  const date = new Date(Date.UTC(year, targetMonthIndex, Math.min(day, lastDay)));
+  return date.toISOString().slice(0, 10);
+}
+
+function formatDateRange(from: string, to: string): string {
+  return `${from} to ${to}`;
+}
+
+function toggleValue<T extends string>(values: T[], value: T): T[] {
+  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+}
+
+function getSessionIssues(session: PlanningSession): PlanningIssue[] {
+  return [
+    session.issues.unassignedTrainer ? 'unassigned_trainer' : null,
+    session.issues.unresolvedVenue ? 'unresolved_venue' : null,
+    session.issues.ownedVenueMissingRoom ? 'owned_venue_missing_room' : null,
+    session.issues.capacityOverrun ? 'capacity_overrun' : null,
+  ].filter(Boolean) as PlanningIssue[];
+}
+
+function PlanningPage({ user }: { user: User }) {
+  const initialFrom = useMemo(() => getSingaporeDate(), []);
+  const initialTo = useMemo(() => addCalendarMonths(initialFrom, 6), [initialFrom]);
+  const [from, setFrom] = useState(initialFrom);
+  const [to, setTo] = useState(initialTo);
+  const [statuses, setStatuses] = useState<PlanningStatus[]>([]);
+  const [programme, setProgramme] = useState('');
+  const [trainerId, setTrainerId] = useState('');
+  const [venueCode, setVenueCode] = useState('');
+  const [roomId, setRoomId] = useState('');
+  const [issues, setIssues] = useState<PlanningIssue[]>([]);
+  const [data, setData] = useState<PlanningResponse | null>(null);
+  const [sessions, setSessions] = useState<PlanningSession[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [selectedSession, setSelectedSession] = useState<PlanningSession | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState('');
+
+  const includeCancelled = statuses.includes('cancelled');
+  const queryKey = useMemo(
+    () => JSON.stringify({ from, to, statuses, programme, trainerId, venueCode, roomId, issues }),
+    [from, to, statuses, programme, trainerId, venueCode, roomId, issues],
+  );
+
+  async function load(cursor?: string | null) {
+    const append = Boolean(cursor);
+    if (append) {
+      setLoadingMore(true);
+    } else {
+      setBusy(true);
+    }
+    setError('');
+    try {
+      const result = await fetchPlanningSessions(user, {
+        from,
+        to,
+        status: statuses,
+        programme: programme || undefined,
+        trainerId: trainerId || undefined,
+        venueCode: venueCode || undefined,
+        roomId: roomId || undefined,
+        issue: issues,
+        includeCancelled,
+        limit: 100,
+        cursor,
+      });
+      setData(result);
+      setNextCursor(result.page.nextCursor);
+      setSessions((current) => append ? mergePlanningSessions(current, result.sessions) : result.sessions);
+      if (!append) {
+        setSelectedSession(null);
+      }
+    } catch (caught) {
+      void handleApiError(caught, setError);
+    } finally {
+      setBusy(false);
+      setLoadingMore(false);
+    }
+  }
+
+  function clearFilters() {
+    setFrom(initialFrom);
+    setTo(initialTo);
+    setStatuses([]);
+    setProgramme('');
+    setTrainerId('');
+    setVenueCode('');
+    setRoomId('');
+    setIssues([]);
+  }
+
+  useEffect(() => {
+    setNextCursor(null);
+    setSessions([]);
+    void load(null);
+  }, [queryKey]);
+
+  return (
+    <section className="planning-stack">
+      <div className="panel planning-hero">
+        <div>
+          <h2>Planning</h2>
+          <span>Session span · {formatDateRange(from, to)}</span>
+        </div>
+        <div className="toolbar">
+          <button className="secondary" onClick={clearFilters} disabled={busy || loadingMore}>
+            <X size={16} />
+            Clear filters
+          </button>
+          <button className="icon-button" onClick={() => load(null)} disabled={busy || loadingMore} aria-label="Refresh planning" title="Refresh planning">
+            <RefreshCw size={17} className={busy ? 'spin' : ''} />
+          </button>
+        </div>
+      </div>
+
+      <PlanningSummary data={data} busy={busy} />
+
+      <div className="panel filter-panel">
+        <div className="filter-grid">
+          <label>
+            Session span from
+            <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+          </label>
+          <label>
+            Session span to
+            <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+          </label>
+          <label>
+            Programme
+            <select value={programme} onChange={(event) => setProgramme(event.target.value)}>
+              <option value="">All programmes</option>
+              {data?.filters.programmes.map((item) => (
+                <option value={item.code} key={item.code}>{item.name} ({item.code})</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Trainer
+            <select value={trainerId} onChange={(event) => setTrainerId(event.target.value)}>
+              <option value="">All trainers</option>
+              {data?.filters.trainers.map((item) => (
+                <option value={item.id} key={item.id}>{item.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Venue
+            <select value={venueCode} onChange={(event) => setVenueCode(event.target.value)}>
+              <option value="">All venues</option>
+              {data?.filters.venues.map((item) => (
+                <option value={item.code} key={item.code}>{item.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Room
+            <select value={roomId} onChange={(event) => setRoomId(event.target.value)}>
+              <option value="">All rooms</option>
+              {data?.filters.rooms.map((item) => (
+                <option value={item.id} key={item.id}>{item.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="filter-options">
+          <div>
+            <span>Status</span>
+            <div className="chip-row">
+              {planningStatuses.map((status) => (
+                <label className="filter-chip" key={status}>
+                  <input
+                    type="checkbox"
+                    checked={statuses.includes(status)}
+                    onChange={() => setStatuses((current) => toggleValue(current, status))}
+                  />
+                  {status}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <span>Issues</span>
+            <div className="chip-row">
+              {planningIssues.map((issue) => (
+                <label className="filter-chip" key={issue}>
+                  <input
+                    type="checkbox"
+                    checked={issues.includes(issue)}
+                    onChange={() => setIssues((current) => toggleValue(current, issue))}
+                  />
+                  {issueLabels[issue]}
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="planning-content">
+        <div className="panel table-panel planning-table-panel">
+          <div className="panel-heading row-heading">
+            <div>
+              <h2>Sessions</h2>
+              <span>{data ? `${data.summary.total} matching session spans` : 'Loading session spans'}</span>
+            </div>
+            {busy && <RefreshCw size={18} className="spin" />}
+          </div>
+          {error && <p className="error">{error}</p>}
+          {!busy && !error && sessions.length === 0 && <p className="empty">No sessions match this session span and filter set.</p>}
+          <div className="table-wrap">
+            <table className="planning-table">
+              <thead>
+                <tr>
+                  <th>Session span</th>
+                  <th>Course</th>
+                  <th>Programme</th>
+                  <th>Trainer</th>
+                  <th>Venue / Room</th>
+                  <th>Pax</th>
+                  <th>Status</th>
+                  <th>Issues</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessions.map((session) => (
+                  <tr key={session.id} className="selectable-row" onClick={() => setSelectedSession(session)}>
+                    <td>
+                      <strong>{session.dates.start}</strong>
+                      <span>to {session.dates.end}</span>
+                      <span>{session.dates.spanDays} day span</span>
+                    </td>
+                    <td>
+                      <strong>{session.course.name ?? session.course.tmsCode ?? 'Unresolved'}</strong>
+                      <span>{session.course.code ?? session.course.tmsCode ?? session.externalRef}</span>
+                    </td>
+                    <td>{session.course.programmeCode ?? 'Standalone'}</td>
+                    <td>{session.trainer.name ?? session.trainer.rawName ?? 'Unassigned'}</td>
+                    <td>
+                      <strong>{session.venue.name ?? session.venue.rawText ?? 'Unresolved'}</strong>
+                      <span>{session.room.name ?? (session.room.id ? session.room.id : 'No room')}</span>
+                    </td>
+                    <td>{session.pax.confirmed ?? session.pax.expected ?? '-'}</td>
+                    <td><span className="status-pill">{session.status}</span></td>
+                    <td><IssueBadges session={session} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="pagination-row">
+            <button className="secondary" disabled={!nextCursor || busy || loadingMore} onClick={() => load(nextCursor)}>
+              {loadingMore ? <RefreshCw size={16} className="spin" /> : <ClipboardList size={16} />}
+              Load more
+            </button>
+          </div>
+        </div>
+
+        <SessionDetailPanel session={selectedSession} onClose={() => setSelectedSession(null)} />
+      </div>
+    </section>
+  );
+}
+
+function mergePlanningSessions(current: PlanningSession[], next: PlanningSession[]): PlanningSession[] {
+  const seen = new Set(current.map((session) => session.id));
+  return [...current, ...next.filter((session) => !seen.has(session.id))];
+}
+
+function PlanningSummary({ data, busy }: { data: PlanningResponse | null; busy: boolean }) {
+  const metrics = [
+    ['Total sessions', data?.summary.total ?? '-'],
+    ['Draft', data?.summary.byStatus.draft ?? '-'],
+    ['Confirmed', data?.summary.byStatus.confirmed ?? '-'],
+    ['Cancelled', data?.summary.byStatus.cancelled ?? '-'],
+    ['Unresolved venues', data?.summary.issues.unresolvedVenues ?? '-'],
+    ['Unassigned trainers', data?.summary.issues.unassignedTrainers ?? '-'],
+    ['Missing owned rooms', data?.summary.issues.ownedVenuesWithoutRooms ?? '-'],
+    ['Capacity overruns', data?.summary.issues.capacityOverruns ?? '-'],
+  ];
+
+  return (
+    <div className="metrics planning-metrics">
+      {metrics.map(([label, value]) => (
+        <div className="metric" key={label}>
+          <span>{label}</span>
+          <strong>{busy ? '...' : value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function IssueBadges({ session }: { session: PlanningSession }) {
+  const issues = getSessionIssues(session);
+  if (issues.length === 0) return <span className="empty">None</span>;
+
+  return (
+    <div className="issue-list">
+      {issues.map((issue) => <span className="issue-pill" key={issue}>{issueLabels[issue]}</span>)}
+    </div>
+  );
+}
+
+function SessionDetailPanel({ session, onClose }: { session: PlanningSession | null; onClose: () => void }) {
+  if (!session) {
+    return (
+      <aside className="panel detail-panel muted-detail">
+        <h2>Session details</h2>
+        <p className="empty">Select a row to inspect the read-only session details.</p>
+      </aside>
+    );
+  }
+
+  const detailRows = [
+    ['Course', session.course.name ?? 'Unresolved'],
+    ['Course code', session.course.code ?? '-'],
+    ['TMS code', session.course.tmsCode ?? '-'],
+    ['External ref', session.externalRef ?? '-'],
+    ['Status', session.status],
+    ['Session span', `${session.dates.start} to ${session.dates.end}`],
+    ['Span length', `${session.dates.spanDays} day span`],
+    ['Time', session.dates.timeText ?? '-'],
+    ['Trainer', session.trainer.name ?? session.trainer.rawName ?? 'Unassigned'],
+    ['Venue', session.venue.name ?? 'Unresolved'],
+    ['Raw venue', session.venue.rawText ?? '-'],
+    ['Room', session.room.name ?? session.room.id ?? '-'],
+    ['Room capacity', session.room.capacity ?? '-'],
+    ['Expected pax', session.pax.expected ?? '-'],
+    ['Confirmed pax', session.pax.confirmed ?? '-'],
+    ['Effective pax', session.pax.effective ?? '-'],
+  ];
+
+  return (
+    <aside className="panel detail-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>Session details</h2>
+          <span>Read-only</span>
+        </div>
+        <button className="icon-button secondary" onClick={onClose} aria-label="Close details" title="Close details">
+          <X size={16} />
+        </button>
+      </div>
+      <IssueBadges session={session} />
+      <dl className="detail-list">
+        {detailRows.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </aside>
   );
 }
 

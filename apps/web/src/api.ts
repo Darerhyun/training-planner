@@ -37,6 +37,104 @@ export interface ApiSession {
   confirmed_pax: number | null;
 }
 
+export type PlanningStatus = 'draft' | 'confirmed' | 'cancelled' | 'completed';
+
+export type PlanningIssue =
+  | 'unassigned_trainer'
+  | 'unresolved_venue'
+  | 'owned_venue_missing_room'
+  | 'capacity_overrun';
+
+export interface PlanningRequest {
+  from: string;
+  to: string;
+  status?: PlanningStatus[];
+  programme?: string;
+  trainerId?: string;
+  venueCode?: string;
+  roomId?: string;
+  issue?: PlanningIssue[];
+  includeCancelled?: boolean;
+  limit?: number;
+  cursor?: string | null;
+}
+
+export interface PlanningSession {
+  id: string;
+  externalRef: string | null;
+  course: {
+    code: string | null;
+    tmsCode: string | null;
+    name: string | null;
+    programmeCode: string | null;
+  };
+  trainer: {
+    id: string | null;
+    name: string | null;
+    rawName: string | null;
+  };
+  venue: {
+    code: string | null;
+    name: string | null;
+    type: string | null;
+    rawText: string | null;
+  };
+  room: {
+    id: string | null;
+    name: string | null;
+    capacity: number | null;
+  };
+  dates: {
+    start: string;
+    end: string;
+    spanDays: number;
+    timeText: string | null;
+  };
+  pax: {
+    expected: number | null;
+    confirmed: number | null;
+    effective: number | null;
+  };
+  status: PlanningStatus;
+  issues: {
+    unassignedTrainer: boolean;
+    unresolvedVenue: boolean;
+    ownedVenueMissingRoom: boolean;
+    capacityOverrun: boolean;
+  };
+}
+
+export interface PlanningResponse {
+  meta: {
+    filterMode: string;
+    spanFilter: string;
+    trainingDayConflictDetection: string;
+  };
+  summary: {
+    dateRange: { from: string; to: string };
+    total: number;
+    byStatus: Record<PlanningStatus, number>;
+    issues: {
+      unassignedTrainers: number;
+      unresolvedVenues: number;
+      ownedVenuesWithoutRooms: number;
+      capacityOverruns: number;
+    };
+  };
+  filters: {
+    programmes: Array<{ code: string; name: string; status: string }>;
+    trainers: Array<{ id: string; name: string; is_active: boolean }>;
+    venues: Array<{ code: string; name: string; type: string | null }>;
+    rooms: Array<{ id: string; venue_code: string | null; name: string; capacity: number | null }>;
+    issues: PlanningIssue[];
+  };
+  sessions: PlanningSession[];
+  page: {
+    limit: number;
+    nextCursor: string | null;
+  };
+}
+
 export interface ParseResult {
   summary: {
     totalRows: number;
@@ -140,6 +238,22 @@ export async function fetchSessions(user: User, status?: string): Promise<ApiSes
   const query = status ? `?status=${encodeURIComponent(status)}` : '';
   const data = await apiFetch<{ sessions: ApiSession[] }>(user, `/sessions${query}`);
   return data.sessions;
+}
+
+export async function fetchPlanningSessions(user: User, request: PlanningRequest): Promise<PlanningResponse> {
+  const query = new URLSearchParams({ from: request.from, to: request.to });
+
+  if (request.status?.length) query.set('status', request.status.join(','));
+  if (request.programme) query.set('programme', request.programme);
+  if (request.trainerId) query.set('trainerId', request.trainerId);
+  if (request.venueCode) query.set('venueCode', request.venueCode);
+  if (request.roomId) query.set('roomId', request.roomId);
+  if (request.issue?.length) query.set('issue', request.issue.join(','));
+  if (request.includeCancelled) query.set('includeCancelled', 'true');
+  if (request.limit) query.set('limit', String(request.limit));
+  if (request.cursor) query.set('cursor', request.cursor);
+
+  return apiFetch<PlanningResponse>(user, `/planning/sessions?${query.toString()}`);
 }
 
 async function readResponseBody(response: Response): Promise<unknown> {
