@@ -14,6 +14,7 @@ export type {
 
 // Database
 export { checkDbConnection, getDb } from './db.js';
+export type { SqlQuery } from './db.js';
 
 // Firebase
 export { getFirebaseAuth } from './firebase.js';

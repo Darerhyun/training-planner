@@ -6,6 +6,7 @@ import { logger } from 'hono/logger';
 import type { AppEnv } from '@training-planner/shared';
 import { healthRoutes } from './routes/health.js';
 import { meRoutes } from './routes/me.js';
+import { createPlanningRoutes } from './routes/planning.js';
 import { sessionsRoutes } from './routes/sessions.js';
 import { syncRoutes } from './routes/sync.js';
 import { uploadsRoutes } from './routes/uploads.js';
@@ -31,6 +32,7 @@ app.route('/', healthRoutes);
 app.route('/', meRoutes);
 app.route('/', uploadsRoutes);
 app.route('/', syncRoutes);
+app.route('/', createPlanningRoutes());
 app.route('/', sessionsRoutes);
 
 // ---------------------------------------------------------------------------
