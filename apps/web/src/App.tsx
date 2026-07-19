@@ -3,10 +3,13 @@ import type { User } from 'firebase/auth';
 import { onAuthStateChanged } from 'firebase/auth';
 import { Check, ListFilter, LogOut, RefreshCw, Upload, X } from 'lucide-react';
 import {
+  ApiError,
+  type AppProfile,
   type ApiSession,
   type ParseResult,
   cancelSchedule,
   confirmSchedule,
+  fetchMe,
   fetchSessions,
   uploadMasterSchedule,
 } from './api.js';
@@ -16,6 +19,8 @@ type View = 'sync' | 'sessions';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<AppProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [email, setEmail] = useState(window.localStorage.getItem('training-planner-email') ?? '');
   const [password, setPassword] = useState('');
   const [authMessage, setAuthMessage] = useState('');
@@ -23,7 +28,40 @@ export default function App() {
   const [authBusy, setAuthBusy] = useState(false);
   const [view, setView] = useState<View>('sync');
 
-  useEffect(() => onAuthStateChanged(auth, setUser), []);
+  useEffect(() => onAuthStateChanged(auth, (nextUser) => {
+    setUser(nextUser);
+    setProfile(null);
+    setAuthError('');
+  }), []);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    let cancelled = false;
+    setProfileLoading(true);
+    fetchMe(user)
+      .then((nextProfile) => {
+        if (!cancelled) {
+          setProfile(nextProfile);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          void handleApiError(error, setAuthError);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setProfileLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   useEffect(() => {
     if (isSignInWithEmailLink(auth, window.location.href) && email) {
@@ -92,12 +130,41 @@ export default function App() {
     );
   }
 
+  if (profileLoading || !profile) {
+    return (
+      <main className="auth-shell">
+        <section className="auth-panel status-panel">
+          <RefreshCw size={18} className="spin" />
+          <h1>Training Planner</h1>
+          <p className="empty">Loading your account profile...</p>
+          {authError && <p className="error">{authError}</p>}
+        </section>
+      </main>
+    );
+  }
+
+  if (profile.role === 'pending' || profile.role === 'rejected') {
+    return (
+      <main className="auth-shell">
+        <section className="auth-panel status-panel">
+          <h1>{profile.role === 'pending' ? 'Approval Pending' : 'Access Unavailable'}</h1>
+          <p className="empty">{profile.message}</p>
+          <p>{profile.email}</p>
+          <button className="secondary" onClick={() => signOut(auth)}>
+            <LogOut size={16} />
+            Sign Out
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
         <div>
           <h1>Training Planner</h1>
-          <p>{user.email}</p>
+          <p>{profile.display_name || profile.email} · {profile.role}</p>
         </div>
         <nav className="tabs" aria-label="Primary">
           <button className={view === 'sync' ? 'active' : ''} onClick={() => setView('sync')}>
@@ -116,6 +183,15 @@ export default function App() {
       {view === 'sync' ? <SyncPage user={user} /> : <SessionsPage user={user} />}
     </main>
   );
+}
+
+async function handleApiError(error: unknown, setError: (message: string) => void): Promise<void> {
+  const message = error instanceof Error ? error.message : 'Request failed. Try again.';
+  setError(message);
+
+  if (error instanceof ApiError && error.status === 401) {
+    await signOut(auth);
+  }
 }
 
 function getSignInErrorMessage(error: unknown): string {
@@ -153,7 +229,7 @@ function SyncPage({ user }: { user: User }) {
     try {
       setResult(await uploadMasterSchedule(user, file));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Upload failed');
+      void handleApiError(caught, setError);
     } finally {
       setBusy(false);
     }
@@ -166,7 +242,7 @@ function SyncPage({ user }: { user: User }) {
     try {
       setResult(await confirmSchedule(user, result.uploadBatchId, manualOverride));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Confirm failed');
+      void handleApiError(caught, setError);
     } finally {
       setBusy(false);
     }
@@ -181,7 +257,7 @@ function SyncPage({ user }: { user: User }) {
       setResult(null);
       setFile(null);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Cancel failed');
+      void handleApiError(caught, setError);
     } finally {
       setBusy(false);
     }
@@ -292,7 +368,7 @@ function SessionsPage({ user }: { user: User }) {
     try {
       setSessions(await fetchSessions(user, status || undefined));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Load failed');
+      void handleApiError(caught, setError);
     } finally {
       setBusy(false);
     }

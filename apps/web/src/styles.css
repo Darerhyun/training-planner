@@ -59,6 +59,7 @@ select option { color: #06111f; }
 .auth-panel { max-width: 420px; padding: 28px; width: 100%; }
 .auth-panel form { display: grid; gap: 12px; }
 .auth-panel h1, .topbar h1, .panel h2 { margin: 0; }
+.status-panel { display: grid; gap: 14px; }
 
 .app-shell { padding: 24px; }
 .topbar {
