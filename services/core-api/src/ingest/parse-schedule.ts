@@ -6,6 +6,8 @@ import {
   createVenueResolver,
   mapMasterScheduleRow,
   MASTER_SCHEDULE_DATA_START_ROW,
+  MASTER_SCHEDULE_HEADER_ROW,
+  resolveMasterScheduleColumns,
   type MappedScheduleRow,
   type ScheduleParseAlert,
 } from './master-schedule-mapping.js';
@@ -69,11 +71,21 @@ export async function parseScheduleWorkbook(buffer: Buffer): Promise<SchedulePar
     blankrows: false,
     raw: false,
   });
+  const headerRow = rawRows[MASTER_SCHEDULE_HEADER_ROW - 1];
+  if (!headerRow) {
+    throw new Error(`Schedule header row ${MASTER_SCHEDULE_HEADER_ROW} is missing.`);
+  }
+  const columns = resolveMasterScheduleColumns(headerRow);
 
   const mappedRows = rawRows
     .slice(MASTER_SCHEDULE_DATA_START_ROW - 1)
     .map((row, index) =>
-      mapMasterScheduleRow(row, index + MASTER_SCHEDULE_DATA_START_ROW, resolvers),
+      mapMasterScheduleRow(
+        row,
+        index + MASTER_SCHEDULE_DATA_START_ROW,
+        resolvers,
+        columns,
+      ),
     )
     .filter((row) => row.tmsCode || row.sourceCourseName || row.startDate || row.endDate);
 

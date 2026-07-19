@@ -3,20 +3,79 @@ import type { SessionStatus } from '@training-planner/shared';
 export const MASTER_SCHEDULE_HEADER_ROW = 2;
 export const MASTER_SCHEDULE_DATA_START_ROW = 3;
 
-export const MASTER_SCHEDULE_COLUMNS = {
-  tmsCode: 1,
-  courseName: 2,
-  aliasBatchId: 6,
-  batchId: 7,
-  startDate: 8,
-  endDate: 9,
-  trainerName: 10,
-  venueText: 12,
-  timeText: 13,
-  expectedPax: 16,
-  confirmedPax: 17,
-  status: 20,
-} as const;
+export interface MasterScheduleColumns {
+  tmsCode: number;
+  courseName: number;
+  aliasBatchId: number;
+  batchId: number;
+  startDate: number;
+  endDate: number;
+  trainerName: number;
+  venueText: number;
+  roomName?: number;
+  timeText: number;
+  expectedPax: number;
+  confirmedPax: number;
+  status: number;
+}
+
+const HEADER_ALIASES: Record<keyof MasterScheduleColumns, readonly string[]> = {
+  tmsCode: ['Course / Program ID', 'Course / Programme ID'],
+  courseName: ['Course / Program Name', 'Course / Programme Name'],
+  aliasBatchId: ['Alias Batch ID'],
+  batchId: ['Batch ID'],
+  startDate: ['Start Date (DD-MM-YYYY)', 'Start Date'],
+  endDate: ['End Date', 'End Date (DD-MM-YYYY)'],
+  trainerName: ['Trainer'],
+  venueText: ['Venue', 'Venue (address text)'],
+  roomName: ['Room'],
+  timeText: ['Time'],
+  expectedPax: ['Cap'],
+  confirmedPax: ['Confirm'],
+  status: ['Status'],
+};
+
+const REQUIRED_HEADERS = Object.keys(HEADER_ALIASES).filter(
+  (key): key is keyof MasterScheduleColumns => key !== 'roomName',
+);
+
+export class ScheduleHeaderError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ScheduleHeaderError';
+  }
+}
+
+export function resolveMasterScheduleColumns(
+  headerRow: readonly unknown[],
+): MasterScheduleColumns {
+  const foundHeaders = headerRow.map((value) => String(value ?? '').trim());
+  const normalizedHeaders = foundHeaders.map(normalizeHeader);
+  const resolved: Partial<MasterScheduleColumns> = {};
+
+  for (const [key, aliases] of Object.entries(HEADER_ALIASES) as Array<
+    [keyof MasterScheduleColumns, readonly string[]]
+  >) {
+    const acceptedHeaders = aliases.map(normalizeHeader);
+    const index = normalizedHeaders.findIndex((header) => acceptedHeaders.includes(header));
+    if (index >= 0) {
+      resolved[key] = index + 1;
+    }
+  }
+
+  const missing = REQUIRED_HEADERS.filter((key) => resolved[key] === undefined);
+  if (missing.length > 0) {
+    const expected = missing
+      .map((key) => HEADER_ALIASES[key].join(' or '))
+      .join('; ');
+    const found = foundHeaders.filter(Boolean).join(', ') || '(none)';
+    throw new ScheduleHeaderError(
+      `Missing required schedule headers. Expected: ${expected}. Found: ${found}.`,
+    );
+  }
+
+  return resolved as MasterScheduleColumns;
+}
 
 export type ScheduleAlertCode =
   | 'unknown_course'
@@ -83,7 +142,7 @@ export interface VenueResolution {
 }
 
 export interface VenueResolver {
-  resolve(venueText: string): VenueResolution;
+  resolve(venueText: string, roomName?: string | null): VenueResolution;
 }
 
 export interface ScheduleLookupResolvers {
@@ -191,7 +250,7 @@ export function createVenueResolver(
   }));
 
   return {
-    resolve(venueText: string): VenueResolution {
+    resolve(venueText: string, roomName?: string | null): VenueResolution {
       const normalizedVenueText = normalizeText(venueText);
       const venueCode =
         venuePatterns.find((venue) =>
@@ -206,8 +265,11 @@ export function createVenueResolver(
         ? roomPatterns.filter((room) => room.venueCode === venueCode)
         : [];
 
+      const roomInput = roomName === undefined
+        ? normalizedVenueText
+        : normalizeText(stripRoomPrefix(roomName ?? ''));
       const room = possibleRooms.find((candidate) =>
-        roomNameAppearsInVenueText(candidate.roomName, normalizedVenueText),
+        roomNameAppearsInVenueText(candidate.roomName, roomInput),
       );
 
       return {
@@ -223,21 +285,23 @@ export function mapMasterScheduleRow(
   row: readonly unknown[],
   rowNumber: number,
   resolvers: ScheduleLookupResolvers,
+  columns: MasterScheduleColumns,
 ): MappedScheduleRow {
   const alerts: ScheduleParseAlert[] = [];
 
-  const tmsCode = readCell(row, MASTER_SCHEDULE_COLUMNS.tmsCode);
-  const sourceCourseName = readCell(row, MASTER_SCHEDULE_COLUMNS.courseName);
-  const aliasBatchId = readCell(row, MASTER_SCHEDULE_COLUMNS.aliasBatchId);
-  const batchId = readCell(row, MASTER_SCHEDULE_COLUMNS.batchId);
-  const rawStartDate = readCell(row, MASTER_SCHEDULE_COLUMNS.startDate);
-  const rawEndDate = readCell(row, MASTER_SCHEDULE_COLUMNS.endDate);
-  const rawTrainerName = readCell(row, MASTER_SCHEDULE_COLUMNS.trainerName);
-  const rawVenueText = readCell(row, MASTER_SCHEDULE_COLUMNS.venueText);
-  const timeText = readCell(row, MASTER_SCHEDULE_COLUMNS.timeText);
-  const rawExpectedPax = readCell(row, MASTER_SCHEDULE_COLUMNS.expectedPax);
-  const rawConfirmedPax = readCell(row, MASTER_SCHEDULE_COLUMNS.confirmedPax);
-  const rawStatus = readCell(row, MASTER_SCHEDULE_COLUMNS.status);
+  const tmsCode = readCell(row, columns.tmsCode);
+  const sourceCourseName = readCell(row, columns.courseName);
+  const aliasBatchId = readCell(row, columns.aliasBatchId);
+  const batchId = readCell(row, columns.batchId);
+  const rawStartDate = readCell(row, columns.startDate);
+  const rawEndDate = readCell(row, columns.endDate);
+  const rawTrainerName = readCell(row, columns.trainerName);
+  const rawVenueText = readCell(row, columns.venueText);
+  const rawRoomName = columns.roomName ? readCell(row, columns.roomName) : undefined;
+  const timeText = readCell(row, columns.timeText);
+  const rawExpectedPax = readCell(row, columns.expectedPax);
+  const rawConfirmedPax = readCell(row, columns.confirmedPax);
+  const rawStatus = readCell(row, columns.status);
 
   const courseCode = tmsCode ? resolvers.courses.resolve(tmsCode) : null;
   if (!courseCode) {
@@ -282,7 +346,7 @@ export function mapMasterScheduleRow(
   }
 
   const venue = rawVenueText
-    ? resolvers.venues.resolve(rawVenueText)
+    ? resolvers.venues.resolve(rawVenueText, rawRoomName)
     : { venueCode: null, roomId: null, roomWasExpected: false };
 
   if (rawVenueText && !venue.venueCode) {
@@ -297,9 +361,11 @@ export function mapMasterScheduleRow(
   if (rawVenueText && venue.roomWasExpected && !venue.roomId) {
     alerts.push({
       code: 'unknown_room',
-      message: 'Owned venue was detected, but no known room name was found.',
+      message: rawRoomName === undefined
+        ? 'Owned venue was detected, but no known room name was found in the venue text.'
+        : 'Room did not match a known room for the detected venue.',
       rowNumber,
-      rawValue: rawVenueText,
+      rawValue: rawRoomName ?? rawVenueText,
     });
   }
 
@@ -427,6 +493,14 @@ function normalizeCode(value: string): string {
 
 function normalizeName(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toUpperCase();
+}
+
+function normalizeHeader(value: string): string {
+  return normalizeName(value).replace(/\s*\/\s*/g, ' / ');
+}
+
+function stripRoomPrefix(value: string): string {
+  return value.replace(/^ROOM\s+/i, '').trim();
 }
 
 function normalizeText(value: string): string {

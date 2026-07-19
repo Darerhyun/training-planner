@@ -7,6 +7,7 @@ import {
   parseScheduleWorkbook,
   type ScheduleParseResult,
 } from '../ingest/parse-schedule.js';
+import { ScheduleHeaderError } from '../ingest/master-schedule-mapping.js';
 
 const storage = new Storage();
 
@@ -33,8 +34,21 @@ syncRoutes.post('/sync/parse-schedule', async (c) => {
     return c.json({ error: 'GCS_UPLOAD_BUCKET is not configured' }, 500);
   }
 
-  const [buffer] = await storage.bucket(bucketName).file(batch.gcs_object_name).download();
-  const parseResult = await parseScheduleWorkbook(buffer);
+  let parseResult: ScheduleParseResult;
+  try {
+    const [buffer] = await storage
+      .bucket(bucketName)
+      .file(batch.gcs_object_name)
+      .download();
+    parseResult = await parseScheduleWorkbook(buffer);
+  } catch (error) {
+    console.error('Schedule parse failed:', error);
+    const message = error instanceof Error ? error.message : 'Unknown parse error';
+    return c.json(
+      { error: `Schedule parse failed: ${message}` },
+      error instanceof ScheduleHeaderError ? 422 : 500,
+    );
+  }
 
   if (!parseResult.summary.requiresConfirmation) {
     const applied = await applyScheduleParseResult(uploadBatchId, parseResult);
