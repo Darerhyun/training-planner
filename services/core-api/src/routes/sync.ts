@@ -128,7 +128,9 @@ async function saveParseResult(
 ): Promise<void> {
   await getDb()(
     `UPDATE upload_batches
-     SET status = $2, parse_result = $3::jsonb, applied_at = CASE WHEN $2 = 'applied' THEN now() ELSE applied_at END
+     SET status = $2::upload_batch_status,
+       parse_result = $3::jsonb,
+       applied_at = CASE WHEN $2::upload_batch_status = 'applied'::upload_batch_status THEN now() ELSE applied_at END
      WHERE id = $1`,
     [batchId, status, JSON.stringify(applied ? { ...parseResult, applied } : parseResult)],
   );
