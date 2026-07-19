@@ -15,6 +15,10 @@ docs/
     ├── new_courses_2026H2.csv      ← seed data: 9 H2 ASK courses + 3 operational entries
     ├── course_aliases_ft_2026.csv  ← seed data: 60 full-time TMS code aliases
     ├── obsolete_programmes_2026.csv← supersession map for 6 obsolete programmes
+    ├── planning-rules.md           ← planning rulebook: cadence, capacity, exemptions, FT history usage
+    ├── course_planning_profiles.csv← planning profiles: cadence, confirm rates, gap stats by course × venue
+    ├── course_monthly_profiles.csv ← monthly planning profiles: seasonality, strong/weak months by course × venue
+    ├── ft_history_mapping.csv      ← maps new FT courses to historical planning-profile proxies
     ├── trainers.md                 ← trainer roster, skills, SME, exclusions
     ├── trainers.csv                ← seed data: 113 trainers
     ├── trainers_new_2026.csv       ← seed data: 2 new in-house trainers
@@ -42,6 +46,7 @@ docs/
 | Database schema, seed data | All four domain `.md` files + every `.csv` |
 | Parsing the master schedule Excel | `courses.md` (to match course codes), `trainers.md` (trainer name aliasing), `venues-rooms.md` (venue codes) |
 | Sessions list / planning grid | `courses.md`, `venues-rooms.md` |
+| Planning rules / cadence / capacity | `planning-rules.md`, `course_planning_profiles.csv`, `course_monthly_profiles.csv`, `ft_history_mapping.csv` |
 | Trainer picker / assignment suggestions | `trainers.md` (skills, SME, exclusions), `trainer-rates.md` (tier/cost awareness) |
 | Viability badges / revenue / breakeven | `trainer-rates.md` (the whole economics + badge model) |
 | Room overview / capacity warnings | `venues-rooms.md` |
