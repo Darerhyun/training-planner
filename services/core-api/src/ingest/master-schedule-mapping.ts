@@ -235,6 +235,10 @@ export function createVenueResolver(
   rooms: RoomLookupRow[],
 ): VenueResolver {
   const venueAliases = new Map([['VIRTUAL', 'HBL']]);
+  const addressVenuePatterns = [
+    { venueCode: 'IP', pattern: normalizeText('10 Anson Road') },
+    { venueCode: 'JTC', pattern: normalizeText('8 Jurong Town Hall Road') },
+  ];
   const venuePatterns = venues.map((venue) => ({
     venueCode: venue.code,
     venueType: venue.type,
@@ -253,8 +257,11 @@ export function createVenueResolver(
   return {
     resolve(venueText: string, roomName?: string | null): VenueResolution {
       const normalizedVenueText = normalizeText(venueText);
-      const venueCode =
-        venueAliases.get(normalizedVenueText) ?? venuePatterns.find((venue) =>
+      const venueCode = venueAliases.get(normalizedVenueText)
+        ?? addressVenuePatterns.find((venue) =>
+          normalizedVenueText.includes(venue.pattern),
+        )?.venueCode
+        ?? venuePatterns.find((venue) =>
           venue.patterns.some(
             (pattern) => pattern && normalizedVenueText.includes(pattern),
           ),

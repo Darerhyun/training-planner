@@ -357,6 +357,9 @@ INSERT INTO rooms (room_id, venue_code, name, capacity, notes) VALUES
   ('ip-quality',        'IP',  'Quality',            20,   NULL),
   ('ip-habits',         'IP',  'Habits',             18,   NULL),
   ('ip-experience',     'IP',  'Experience',         30,   NULL),
+  ('ip-class1',         'IP',  'Class1',             NULL, 'Generic room label from August 2026 Master Schedule'),
+  ('ip-class2',         'IP',  'Class2',             NULL, 'Generic room label from August 2026 Master Schedule'),
+  ('ip-classroom',      'IP',  'Classroom',          NULL, 'Generic room label from August 2026 Master Schedule'),
   ('jtc-enjoyment',     'JTC', 'Enjoyment',          NULL, 'Capacity not yet captured'),
   ('jtc-gratitude',     'JTC', 'Gratitude',          NULL, 'Capacity not yet captured'),
   ('jtc-happiness',     'JTC', 'Happiness',          NULL, 'Capacity not yet captured'),
@@ -367,7 +370,8 @@ INSERT INTO rooms (room_id, venue_code, name, capacity, notes) VALUES
   ('jtc-concept',       'JTC', 'Concept',            NULL, 'Capacity not yet captured'),
   ('jtc-level20-roomA', 'JTC', 'Level 20 (Room A)',  NULL, 'Capacity not yet captured'),
   ('jtc-level20-roomB', 'JTC', 'Level 20 (Room B)',  NULL, 'Capacity not yet captured'),
-  ('jtc-level20-roomC', 'JTC', 'Level 20 (Room C)',  NULL, 'Capacity not yet captured');
+  ('jtc-level20-roomC', 'JTC', 'Level 20 (Room C)',  NULL, 'Capacity not yet captured'),
+  ('jtc-classroom',     'JTC', 'Classroom',          NULL, 'Generic room label from August 2026 Master Schedule');
 
 -- ---------------------------------------------------------------------------
 -- Programme Categories

@@ -3,6 +3,9 @@ ip-knowledge,IP,Knowledge,16,
 ip-quality,IP,Quality,20,
 ip-habits,IP,Habits,18,
 ip-experience,IP,Experience,30,
+ip-class1,IP,Class1,,Generic room label from August 2026 Master Schedule
+ip-class2,IP,Class2,,Generic room label from August 2026 Master Schedule
+ip-classroom,IP,Classroom,,Generic room label from August 2026 Master Schedule
 jtc-enjoyment,JTC,Enjoyment,,Capacity not yet captured
 jtc-gratitude,JTC,Gratitude,,Capacity not yet captured
 jtc-happiness,JTC,Happiness,,Capacity not yet captured
@@ -14,3 +17,4 @@ jtc-concept,JTC,Concept,,Capacity not yet captured
 jtc-level20-roomA,JTC,Level 20 (Room A),,Capacity not yet captured. One of 3 rooms on Level 20.
 jtc-level20-roomB,JTC,Level 20 (Room B),,Capacity not yet captured. One of 3 rooms on Level 20.
 jtc-level20-roomC,JTC,Level 20 (Room C),,Capacity not yet captured. One of 3 rooms on Level 20.
+jtc-classroom,JTC,Classroom,,Generic room label from August 2026 Master Schedule

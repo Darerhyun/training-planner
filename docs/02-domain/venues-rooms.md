@@ -33,7 +33,7 @@ A session always has a venue (`sessions.venue_code`). It optionally has a room (
 
 ## Room catalog
 
-### International Plaza — 4 rooms, all with confirmed capacities
+### International Plaza — 7 rooms, 4 with confirmed capacities
 
 | Room ID | Name | Capacity |
 |---|---|---|
@@ -41,8 +41,11 @@ A session always has a venue (`sessions.venue_code`). It optionally has a room (
 | `ip-quality` | Quality | 20 |
 | `ip-habits` | Habits | 18 |
 | `ip-experience` | Experience | 30 |
+| `ip-class1` | Class1 | — |
+| `ip-class2` | Class2 | — |
+| `ip-classroom` | Classroom | — |
 
-### JTC Summit — 11 rooms, capacities not yet captured
+### JTC Summit — 12 rooms, capacities not yet captured
 
 | Room ID | Name | Capacity |
 |---|---|---|
@@ -57,12 +60,26 @@ A session always has a venue (`sessions.venue_code`). It optionally has a room (
 | `jtc-level20-roomA` | Level 20 (Room A) | — |
 | `jtc-level20-roomB` | Level 20 (Room B) | — |
 | `jtc-level20-roomC` | Level 20 (Room C) | — |
+| `jtc-classroom` | Classroom | — |
 
-**11 capacities to fill in.** These weren't in the room booking Excel — they need to come from facilities or be measured manually.
+**15 capacities to fill in** across the generic August schedule labels and JTC rooms. These need to come from facilities or be measured manually.
+
+### Generic owned-room labels from August 2026 schedule
+
+The August 2026 Master Schedule uses generic room labels in a separate room column. These labels are resolved only after the venue/address column has identified an owned venue:
+
+| Venue | Observed label | Room ID |
+|---|---|---|
+| IP | Class1 | `ip-class1` |
+| IP | Class2 | `ip-class2` |
+| IP | Classroom | `ip-classroom` |
+| JTC | Classroom | `jtc-classroom` |
+
+Do not infer missing combinations. `jtc-class1` and `jtc-class2` are not catalogued because they were not observed in the August workbook. `Classroom` at one-off external/client addresses remains unresolved.
 
 ## Naming conventions
 
-- **Room ID** (database key): lowercase, hyphenated, prefixed with venue code. Examples: `ip-knowledge`, `jtc-level20-roomA`.
+- **Room ID** (database key): lowercase, hyphenated, prefixed with venue code. Examples: `ip-knowledge`, `jtc-level20-roomA`, `ip-class1`.
 - **Display name**: the operational name people use ("Knowledge", "Level 20 (Room A)").
 - **Disambiguating multiple rooms on the same level**: use `Level XX (Room A/B/C)` format.
 
@@ -126,7 +143,7 @@ notes       — free text
 ## Counts
 
 - Venues: 9 (2 owned, 6 external, 1 virtual)
-- Rooms: 15 (4 with capacity, 11 missing capacity — all JTC)
+- Rooms: 19 (4 with capacity, 15 missing capacity)
 
 ## What this entity enables
 
