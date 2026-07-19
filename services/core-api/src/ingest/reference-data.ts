@@ -53,16 +53,21 @@ const currentDir = path.dirname(currentFile);
 const domainDocsDir = path.resolve(currentDir, '../../../../docs/02-domain');
 
 export async function ensureTmsReferenceData(): Promise<void> {
-  const [newCourses, courseAliases, trainerAliases, trainerCourses] = await Promise.all([
-    readCsv<CsvCourseRow>('new_courses_from_tms.csv'),
-    readCsv<CsvCourseAliasRow>('course_aliases.csv'),
-    readCsv<CsvTrainerAliasRow>('trainer_aliases_tms.csv'),
-    readCsv<CsvTrainerCourseRow>('trainer_courses.csv'),
-  ]);
+  const [newCourses, h2CourseRows, courseAliases, trainerAliases, trainerCourses] =
+    await Promise.all([
+      readCsv<CsvCourseRow>('new_courses_from_tms.csv'),
+      readCsv<CsvCourseRow>('new_courses_2026H2.csv'),
+      readCsv<CsvCourseAliasRow>('course_aliases.csv'),
+      readCsv<CsvTrainerAliasRow>('trainer_aliases_tms.csv'),
+      readCsv<CsvTrainerCourseRow>('trainer_courses.csv'),
+    ]);
+  const h2AskCourses = h2CourseRows.filter(
+    (course) => course.programme_code.trim() === 'ASK',
+  );
 
   const db = getDb();
 
-  for (const course of newCourses) {
+  for (const course of [...newCourses, ...h2AskCourses]) {
     await db(
       `INSERT INTO courses
         (code, name, programme_code, duration_days, fee_with_gst, is_capstone, recently_added, notes)

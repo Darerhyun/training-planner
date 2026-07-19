@@ -60,6 +60,7 @@ Seed data lives under [docs/02-domain](02-domain). The repo-safe CSVs currently 
 
 - [courses_catalog.csv](02-domain/courses_catalog.csv)
 - [courses_fulltime_2026.csv](02-domain/courses_fulltime_2026.csv)
+- [new_courses_2026H2.csv](02-domain/new_courses_2026H2.csv)
 - [course_aliases_ft_2026.csv](02-domain/course_aliases_ft_2026.csv)
 - [trainers.csv](02-domain/trainers.csv)
 - [trainers_new_2026.csv](02-domain/trainers_new_2026.csv)
