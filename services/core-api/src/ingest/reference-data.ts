@@ -61,13 +61,10 @@ export async function ensureTmsReferenceData(): Promise<void> {
       readCsv<CsvTrainerAliasRow>('trainer_aliases_tms.csv'),
       readCsv<CsvTrainerCourseRow>('trainer_courses.csv'),
     ]);
-  const h2AskCourses = h2CourseRows.filter(
-    (course) => course.programme_code.trim() === 'ASK',
-  );
 
   const db = getDb();
 
-  for (const course of [...newCourses, ...h2AskCourses]) {
+  for (const course of [...newCourses, ...h2CourseRows]) {
     await db(
       `INSERT INTO courses
         (code, name, programme_code, duration_days, fee_with_gst, is_capstone, recently_added, notes)

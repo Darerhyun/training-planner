@@ -12,7 +12,7 @@ docs/
     ├── courses.md                  ← courses, programmes, modules, fees, durations
     ├── courses_catalog.csv         ← seed data: 142 original courses/modules
     ├── courses_fulltime_2026.csv   ← seed data: 35 full-time restructure courses
-    ├── new_courses_2026H2.csv      ← seed data: 9 H2 ASK courses + 2 excluded career rows
+    ├── new_courses_2026H2.csv      ← seed data: 9 H2 ASK courses + 3 operational entries
     ├── course_aliases_ft_2026.csv  ← seed data: 60 full-time TMS code aliases
     ├── obsolete_programmes_2026.csv← supersession map for 6 obsolete programmes
     ├── trainers.md                 ← trainer roster, skills, SME, exclusions
@@ -61,7 +61,7 @@ docs/
 ## Important cross-cutting facts
 
 - **Codes use the company's internal vocabulary**, not SSG's official names. Active programme codes: `FTDM`, `FTIIO`, `DGAI`, and `ASK`; obsolete programme codes retained for historical sessions: `ACDM`, `DDM`, `SDDM`, `CIIO`, `ACIIO`, `DIIO`.
-- **Course reference data currently totals 186 rows**: 142 original catalog rows, 35 full-time restructure rows, and 9 H2 ASK rows. The active planning set is 144 rows because obsolete-programme courses are excluded from new planning flows.
+- **Course reference data currently totals 189 rows**: 142 original catalog rows, 35 full-time restructure rows, and 12 H2 rows. The active planning set is 147 rows because obsolete-programme courses are excluded from new planning flows.
 - **All fees include 9% GST.** No funding/subsidy math in this tool — that's TMS's job.
 - **No SSG/TGS codes stored.** Those are TMS data, not planning data.
 - **Sessions are dynamic** (from Excel upload); **catalog is static** (rarely changes). The catalog must be solid so the parser has something reliable to match against.
