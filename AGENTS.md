@@ -11,7 +11,7 @@ An internal **training schedule planning tool** for an adult-education company i
 3. **Assists** the planner in assigning trainers and rooms to sessions, using business rules and an AI assistant.
 4. **Computes** per-session economics — revenue vs trainer cost — and surfaces a viability badge so the planner knows which sessions are profitable, without exposing sensitive trainer fees to non-finance users.
 
-This is a planning aid, NOT the system of record. The company's TMS (Training Management System) remains the official record for funding claims, SSG codes, etc. This tool is for internal operational planning only.
+Excel is an import source only. After import, the Training Planner app is authoritative for internal planning changes such as trainer assignments and session amendments. This app is still NOT the regulated system of record: the company's TMS (Training Management System) remains the official record for funding claims, SSG codes, and other regulated data.
 
 ## Who uses it
 
@@ -39,7 +39,7 @@ Do not introduce Vertex AI, Firestore, or Cloudflare — they are explicitly out
 
 ## How to read this project
 
-The domain knowledge — what courses exist, who can teach what, what rooms exist, how pricing works — is captured in `docs/`. **Read the relevant doc before writing code that touches that domain.** Start with `docs/00-INDEX.md`, which maps every file.
+The product workflow and domain knowledge are captured in `docs/`. **Read the relevant doc before writing code that touches that product or domain area.** Start with `docs/00-INDEX.md`, which maps every file. For Course Planning vs Sessions workflow, Excel/app/TMS ownership, and PR3E–PR3H scope, read `docs/01-product/planning-workflow-roadmap.md`.
 
 The data model is driven by the CSVs in `docs/` — they are the seed data. The markdown files explain the model and the business rules.
 
@@ -66,7 +66,15 @@ Build in this order. Each PR is independently reviewable. Do not jump ahead.
 
 1. **PR1 — Foundation.** Postgres schema + Firebase Auth shell + Cloud Run scaffold (`services/shared` + `services/core-api` with `/health` and `/me`) + admin allowlist + `.env.example`. **Mandatory checkpoint: stop after the schema is written and get it reviewed before writing application code.**
 2. **PR2 — Ingest.** GCS signed uploads + `parse-schedule` function + Sync page UI + Sessions list page. Tiered confirm: auto-apply when fewer than 10 changes and no cancellations, otherwise require explicit confirm. Defensive guard if a parse would cancel more than 50% of existing sessions.
-3. **PR3 — Planning dashboard.**
+3. **PR3 — Planning dashboard and session workflow.** Preserve completed PR3 history while extending PR3 before PR4:
+	- **PR3A — Room/reference polish.** Completed: generic owned-room label resolution for the observed August workbook labels (`ip-class1`, `ip-class2`, `ip-classroom`, `jtc-classroom`) without adding unobserved JTC class variants.
+	- **PR3B — Read-only Planning Dashboard API.** Completed: `/planning/sessions` span-overlap API with filters, pagination, summaries, role access, and deferred training-day conflict detection.
+	- **PR3C — Planning Dashboard frontend.** Completed: default authenticated Planning view with read-only session table, filters, summaries, and detail panel.
+	- **PR3D — Planning Profile annotations.** Completed: read-only CSV-backed planning profile annotations for direct history, FT proxy history, no-history courses, and unavailable profiles.
+	- **PR3E — Product and data-ownership contract.** Commit the approved Course Planning vs Sessions workflow and ownership roadmap; documentation only.
+	- **PR3F — Session write safety and audit foundation.** Add ownership, optimistic concurrency, session history, Admin/Ops trainer assignment endpoint, and Sync conflict protection.
+	- **PR3G — Sessions UX and navigation consolidation.** Turn the rich Planning dashboard into the enhanced Sessions experience with role-appropriate trainer amendment UI and history/detail states.
+	- **PR3H — Future Course Planning.** Add month-based Course Planning using planning profiles as evidence, with explicit creation of draft Sessions from approved planned runs.
 4. **PR4 — Trainer picker drawer** with rules-based suggestions (skills, SME boost, exclusions, tier/cost awareness).
 5. **PR5 — AI assistant chat** (propose → confirm → execute pattern).
 6. **PR6 — Gantt trainers view, Calendar view, Activity page.**
@@ -74,7 +82,8 @@ Build in this order. Each PR is independently reviewable. Do not jump ahead.
 ## Key domain concepts (one-liners — details in docs/)
 
 - **Course / module** — a thing that can be taught. Standalone (ASK courses) or part of a programme (ACDM, DDM, SDDM, CIIO, ACIIO, DIIO). See `docs/02-domain/courses.md`.
-- **Session** — one delivery of one course on specific dates at a venue/room, for a cohort. Comes from the Excel upload. This is the planning unit.
+- **Course Planning** — future-month course × venue planning. It decides what should be run, not who teaches it.
+- **Session** — one delivery of one course on specific dates at a venue/room, for a cohort. Imported from Excel or created from approved Course Planning. Trainer assignment and session amendments happen here.
 - **Trainer** — someone who can teach courses. Skill matrix + SME flags + exclusions. See `docs/02-domain/trainers.md`.
 - **Venue / Room** — where sessions happen. Owned venues (IP, JTC) have rooms with capacities; external (hotels) and virtual (HBL) do not. See `docs/02-domain/venues-rooms.md`.
 - **Trainer rate / tier** — what a trainer costs, by programme category and pax band. Sensitive. See `docs/02-domain/trainer-rates.md`.

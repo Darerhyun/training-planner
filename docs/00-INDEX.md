@@ -7,6 +7,8 @@
 ```
 docs/
 ├── 00-INDEX.md                     ← you are here
+├── 01-product/
+│   └── planning-workflow-roadmap.md ← approved Course Planning vs Sessions workflow and ownership contract
 ├── SETUP.md                        ← how to run the project locally + deploy (to be written in PR1)
 └── 02-domain/                      ← the domain model: what the business actually is
     ├── courses.md                  ← courses, programmes, modules, fees, durations
@@ -43,6 +45,7 @@ docs/
 
 | If you are working on... | Read these |
 |---|---|
+| Course Planning / Sessions workflow, Excel/app/TMS ownership, PR3E–PR3H scope | `01-product/planning-workflow-roadmap.md` |
 | Database schema, seed data | All four domain `.md` files + every `.csv` |
 | Parsing the master schedule Excel | `courses.md` (to match course codes), `trainers.md` (trainer name aliasing), `venues-rooms.md` (venue codes) |
 | Sessions list / planning grid | `courses.md`, `venues-rooms.md` |

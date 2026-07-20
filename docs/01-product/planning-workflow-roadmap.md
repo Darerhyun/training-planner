@@ -1,0 +1,262 @@
+# Training Planner — Planning and Sessions Roadmap
+
+Status: Approved product direction; implementation pending
+Last updated: 20 July 2026
+
+## 1. Purpose
+
+This document defines the distinction between future course planning, individual
+class sessions, trainer assignment, and Excel ingestion.
+
+It extends the existing roadmap. It does not replace or renumber completed PR1,
+PR2, or PR3 work.
+
+## 2. Source-of-truth decision
+
+- Excel is an **import source only**. It supplies historical and existing schedule
+  data that cannot yet be obtained from another source.
+- The Training Planner website is the authoritative source for **internal planning
+  changes made after import**, including trainer assignments.
+- The website does not need to write changes back to an Excel workbook or generate
+  an updated master workbook.
+- The TMS remains the official record for funding, SSG codes, claims, and other
+  regulated data.
+- A later Excel upload must never silently overwrite a session already managed in
+  the website. The Sync preview must identify the conflict and require an explicit
+  resolution.
+
+Data direction:
+
+```text
+Excel import -> Training Planner -> Internal course planning and session management
+```
+
+There is no automatic Training Planner -> Excel workflow.
+
+## 3. Product terminology
+
+### Course Planning
+
+Course Planning answers: **What courses should we run in future months?**
+
+It works at course × venue × month level and includes:
+
+- programme and course;
+- planning month;
+- venue;
+- proposed number of runs;
+- historical confirmation rate and cadence;
+- strong and weak months;
+- planning notes and plan status.
+
+It does not assign trainers. It does not claim that a session span represents
+individual training days.
+
+### Sessions
+
+Sessions answers: **What are the actual classes, and who will teach them?**
+
+A session is one individual class delivery and includes:
+
+- course;
+- session span and, when available in a future data model, authoritative training
+  dates;
+- trainer;
+- venue and room;
+- pax;
+- status;
+- import/application ownership and change history.
+
+Trainer assignment and trainer replacement happen in Sessions. A class created
+from Course Planning appears in Sessions as a draft.
+
+### Sync
+
+Sync imports an Excel schedule, previews changes, and reconciles incoming rows with
+sessions already in the website.
+
+Sync must distinguish:
+
+- new imported sessions;
+- unchanged imported sessions;
+- safe updates to sessions not yet managed in the website;
+- conflicts where an upload differs from a website-managed session.
+
+Conflicting uploads must not silently overwrite website-managed values.
+
+## 4. Navigation and information architecture
+
+Target primary navigation:
+
+1. **Course Planning** — future-month planning.
+2. **Sessions** — individual classes, trainers, venues, pax, and status.
+3. **Sync** — Excel import and reconciliation.
+
+The existing rich Planning dashboard should become the enhanced Sessions
+experience. The old basic Sessions page must remain until the enhanced replacement
+has functional parity and acceptance tests. It may then be removed in a separate,
+reviewable change.
+
+## 5. Roles
+
+| Role | Course plans | Sessions | Trainer assignment | Sync |
+|---|---|---|---|---|
+| Admin | Create/edit/approve | Create/edit | Assign/change/unassign | Full |
+| Ops | Create/edit/approve | Create/edit | Assign/change/unassign | Full |
+| Finance | Read-only | Read-only | Read-only | No write access |
+| Viewer | Read-only | Read-only | Read-only | No write access |
+| Pending/Rejected | No access | No access | No access | No access |
+
+No trainer fee values may be returned to Viewer or Ops. Trainer fee values remain
+outside GitHub.
+
+## 6. Session amendment workflow
+
+For an Admin or Ops user:
+
+1. Open a session.
+2. Select **Assign trainer**, **Change trainer**, or **Unassign trainer**.
+3. Review the current and proposed assignment.
+4. Save with optimistic concurrency protection.
+5. Record the actor, timestamp, previous trainer, new trainer, and an optional note
+   in session history.
+6. Mark the session as managed by the application so later Excel imports cannot
+   silently overwrite it.
+
+If another user changed the session after it was opened, reject the stale save and
+ask the user to reload. Do not use last-write-wins behaviour.
+
+Accurate trainer date-conflict detection remains deferred until authoritative
+individual training dates exist. Session start/end spans must not be expanded into
+assumed consecutive training days.
+
+## 7. UI/UX direction
+
+The interface should use plain operational language and progressive disclosure.
+Avoid solver terminology, dense configuration screens, and drag-and-drop in the
+first editable release.
+
+### Course Planning page
+
+- Month selector as the primary control.
+- Programme, course, venue, and history filters.
+- Summary cards: planned runs, historical target, unscheduled runs, and low-history
+  courses.
+- Course rows grouped by programme, showing target cadence, planned count,
+  confirmation history, and seasonality.
+- A clear **Add planned run** or **Schedule class** action.
+- Neutral explanations for no-history and low-historical-confirmation courses.
+
+### Sessions page
+
+- Upcoming sessions by default, with explicit filters for past and cancelled.
+- Dense table for dates, course, trainer, venue/room, pax, status, and issues.
+- Selecting a row opens a detail drawer.
+- Admin/Ops see a single clear trainer action. Finance/Viewer see the same detail
+  without edit controls.
+- Before save, show a compact current -> proposed change preview.
+- After save, show success in context and add the entry to session history.
+- Provide clear empty, loading, validation, authorization, stale-edit, and import-
+  conflict states.
+
+### Accessibility and responsive behaviour
+
+- Do not rely on colour alone for statuses or warnings.
+- All controls need visible labels, keyboard access, and focus states.
+- Desktop uses the table plus side drawer.
+- Mobile uses a reduced table/list and a full-screen detail panel.
+- Destructive actions such as cancellation require explicit confirmation.
+
+## 8. Design references
+
+This workflow adapts established academic scheduling patterns without copying their
+complexity:
+
+- Cal Poly describes a scheduling flow covering input, editing, validation,
+  approval, and updating course offerings:
+  https://registrar.calpoly.edu/academic-scheduling
+- UniTime separates assigned and unassigned work, detail views, changes/history,
+  and committed assignments:
+  https://help.unitime.org/university-timetabling-application
+  https://help.unitime.org/manuals/instructor-scheduling
+
+The Training Planner should retain these useful separations while presenting a
+simpler workflow for non-technical Operations users.
+
+## 9. Incremental PR plan
+
+Historical PRs remain unchanged. Continue with PR3 sub-parts so the existing PR4
+Trainer Picker milestone keeps its original identity.
+
+### PR3E — Product and data-ownership contract
+
+- Commit this roadmap and update the documentation index.
+- Amend AGENTS.md only where needed to state that Excel is import-only and the app
+  is authoritative for internal planning after import.
+- Preserve the statement that TMS is the official regulated record.
+- No runtime, schema, database, or deployment changes.
+
+### PR3F — Session write safety and audit foundation
+
+- Add application-managed/import-managed session ownership.
+- Add optimistic concurrency/versioning.
+- Add session change history with actor and timestamp.
+- Add an Admin/Ops-only trainer assignment endpoint.
+- Keep Finance/Viewer read-only.
+- Change Sync so incoming Excel differences cannot silently overwrite an
+  application-managed session; report them as explicit conflicts.
+- Backend and focused tests first; no UI redesign in this PR.
+
+### PR3G — Sessions UX and navigation consolidation
+
+- Turn the current rich Planning dashboard into the enhanced Sessions page.
+- Add the read-only detail/history view for all active roles.
+- Add trainer assignment/change/unassign controls for Admin/Ops.
+- Add stale-edit and import-conflict messages.
+- Retain the old basic Sessions implementation until parity is verified, then
+  remove it within this PR only if tests and manual acceptance pass.
+- Do not add trainer recommendations yet.
+
+### PR3H — Future Course Planning
+
+- Add a month-based course planning model and page.
+- Use the committed planning profiles and monthly profiles as read-only evidence.
+- Allow Admin/Ops to create and approve proposed course runs.
+- Allow an approved planned run to create a draft Session through an explicit user
+  action.
+- Do not automatically assign a trainer or generate dates.
+- Do not introduce AI recommendations.
+
+### PR4 — Trainer Picker
+
+- Keep the existing PR4 milestone.
+- Add rules-based trainer suggestions to the trainer action in Sessions.
+- Respect skills, SME boost, exclusions, role-based economics visibility, and the
+  absence of authoritative individual training dates.
+
+PR5 and PR6 remain AI assistant and Calendar/Gantt/Activity work respectively.
+
+## 10. Non-goals for PR3E–PR3H
+
+- Writing back to Excel or generating a replacement Excel workbook.
+- Treating Excel as authoritative after import.
+- AI-generated schedules or automatic trainer assignment.
+- Trainer or room conflict claims based on every date inside a session span.
+- Trainer fee values in GitHub or unrestricted API/frontend responses.
+- Drag-and-drop scheduling.
+- Removing historical PR documentation or renumbering completed work.
+
+## 11. Acceptance checkpoints
+
+Each PR must stop after implementation, tests, and a report. Deployment and database
+migration require their own explicit approval/checkpoint.
+
+Before PR4 begins, confirm that:
+
+- Course Planning and Sessions have distinct purposes in navigation and copy;
+- Admin/Ops can safely amend a trainer with audit history;
+- Finance/Viewer remain read-only;
+- stale writes are rejected;
+- Excel re-import cannot silently replace application-managed changes;
+- the existing session and sync behaviours remain covered by regression tests;
+- no individual training dates have been inferred from session spans.
