@@ -53,6 +53,8 @@ type PlanningSessionRow = {
   span_days: number;
   expected_pax: number | null;
   confirmed_pax: number | null;
+  management_source: 'import' | 'application';
+  version: number;
   unassigned_trainer: boolean;
   unresolved_venue: boolean;
   owned_venue_missing_room: boolean;
@@ -231,6 +233,8 @@ function mapSession(row: PlanningSessionRow) {
       effective: effectivePax,
     },
     status: row.status,
+    managementSource: row.management_source,
+    version: row.version,
     issues: {
       unassignedTrainer: row.unassigned_trainer,
       unresolvedVenue: row.unresolved_venue,
@@ -342,6 +346,8 @@ export function createPlanningRoutes(options: PlanningRouteOptions = {}): Hono<A
         (s.end_date - s.start_date + 1)::int AS span_days,
         s.expected_pax,
         s.confirmed_pax,
+        s.management_source::text AS management_source,
+        s.version,
         (s.trainer_id IS NULL) AS unassigned_trainer,
         (s.venue_code IS NULL) AS unresolved_venue,
         (v.type = 'owned' AND s.room_id IS NULL) AS owned_venue_missing_room,

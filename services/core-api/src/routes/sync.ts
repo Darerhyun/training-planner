@@ -5,6 +5,7 @@ import type { AppEnv } from '@training-planner/shared';
 import {
   applyScheduleParseResult,
   parseScheduleWorkbook,
+  type ScheduleApplyResult,
   type ScheduleParseResult,
 } from '../ingest/parse-schedule.js';
 import { ScheduleHeaderError } from '../ingest/master-schedule-mapping.js';
@@ -124,7 +125,7 @@ async function saveParseResult(
   batchId: string,
   status: 'parsed' | 'blocked' | 'applied',
   parseResult: ScheduleParseResult,
-  applied?: { applied: number; skipped: number },
+  applied?: ScheduleApplyResult,
 ): Promise<void> {
   await getDb()(
     `UPDATE upload_batches

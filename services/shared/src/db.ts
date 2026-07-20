@@ -1,4 +1,4 @@
-import { Pool, type PoolConfig } from 'pg';
+import { Pool, type PoolClient, type PoolConfig } from 'pg';
 
 /**
  * Callable query interface kept stable so call sites stay unchanged:
@@ -8,6 +8,8 @@ export type SqlQuery = <T = Record<string, unknown>>(
   query: string,
   params?: unknown[],
 ) => Promise<T[]>;
+
+export type TransactionHandler<T> = (query: SqlQuery) => Promise<T>;
 
 let pool: Pool | undefined;
 let query: SqlQuery | undefined;
@@ -50,6 +52,31 @@ export function getDb(): SqlQuery {
   }
 
   return query;
+}
+
+function queryFromClient(client: PoolClient): SqlQuery {
+  return async <T = Record<string, unknown>>(
+    text: string,
+    params?: unknown[],
+  ): Promise<T[]> => {
+    const result = await client.query(text, params);
+    return result.rows as T[];
+  };
+}
+
+export async function withTransaction<T>(handler: TransactionHandler<T>): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+    const result = await handler(queryFromClient(client));
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 /** Lightweight connectivity check for readiness endpoints. */

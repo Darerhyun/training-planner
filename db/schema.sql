@@ -217,6 +217,8 @@ CREATE INDEX idx_upload_batches_created_at ON upload_batches (created_at DESC);
 -- 11. Sessions — the core planning unit
 -- ---------------------------------------------------------------------------
 CREATE TYPE session_status AS ENUM ('draft', 'confirmed', 'cancelled', 'completed');
+CREATE TYPE session_management_source AS ENUM ('import', 'application');
+CREATE TYPE session_change_action AS ENUM ('trainer_assigned', 'trainer_replaced', 'trainer_unassigned');
 
 CREATE TABLE sessions (
   id              UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -248,12 +250,19 @@ CREATE TABLE sessions (
   upload_batch_id UUID            REFERENCES upload_batches (id),
   external_ref    TEXT,           -- row identifier from the source Excel
 
+  -- Write safety / ownership
+  management_source session_management_source NOT NULL DEFAULT 'import',
+  version         INT             NOT NULL DEFAULT 1,
+  app_managed_at  TIMESTAMPTZ,
+  app_managed_by  UUID            REFERENCES users (id),
+
   notes           TEXT,
   created_at      TIMESTAMPTZ     NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ     NOT NULL DEFAULT now(),
 
   -- Constraints
   CONSTRAINT chk_dates CHECK (end_date >= start_date),
+  CONSTRAINT chk_sessions_version_positive CHECK (version > 0),
   CONSTRAINT chk_room_venue CHECK (
     room_id IS NULL OR venue_code IS NOT NULL
   )
@@ -265,7 +274,26 @@ CREATE INDEX idx_sessions_venue     ON sessions (venue_code);
 CREATE INDEX idx_sessions_room      ON sessions (room_id);
 CREATE INDEX idx_sessions_dates     ON sessions (start_date, end_date);
 CREATE INDEX idx_sessions_status    ON sessions (status);
+CREATE INDEX idx_sessions_management_source ON sessions (management_source);
+CREATE INDEX idx_sessions_app_managed_by ON sessions (app_managed_by);
 CREATE UNIQUE INDEX idx_sessions_external_ref ON sessions (external_ref) WHERE external_ref IS NOT NULL;
+
+CREATE TABLE session_change_history (
+  id                  UUID                  PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id          UUID                  NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+  actor_user_id       UUID                  REFERENCES users (id),
+  action              session_change_action NOT NULL,
+  previous_trainer_id TEXT                  REFERENCES trainers (trainer_id),
+  new_trainer_id      TEXT                  REFERENCES trainers (trainer_id),
+  note                TEXT,
+  metadata            JSONB                 NOT NULL DEFAULT '{}'::jsonb,
+  created_at          TIMESTAMPTZ           NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_session_change_history_session_created
+  ON session_change_history (session_id, created_at DESC);
+CREATE INDEX idx_session_change_history_actor
+  ON session_change_history (actor_user_id);
 
 -- ---------------------------------------------------------------------------
 -- 12. Session Economics — raw data view

@@ -1,0 +1,227 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import type { SqlQuery } from '@training-planner/shared';
+import {
+  applyScheduleParseResult,
+  buildExternalRef,
+  summarizeRows,
+  type ScheduleParseResult,
+} from './parse-schedule.js';
+import type { MappedScheduleRow } from './master-schedule-mapping.js';
+
+type ExistingRow = {
+  id: string;
+  external_ref: string;
+  management_source: 'import' | 'application';
+  course_code: string | null;
+  trainer_id: string | null;
+  venue_code: string | null;
+  room_id: string | null;
+  status: string;
+  start_date: string;
+  end_date: string;
+  expected_pax: number | null;
+  confirmed_pax: number | null;
+  time_text: string | null;
+};
+
+function mapped(overrides: Partial<MappedScheduleRow> = {}): MappedScheduleRow {
+  return {
+    rowNumber: 3,
+    tmsCode: 'ASKMEI-2026-1',
+    courseCode: 'ASKMEI',
+    sourceCourseName: 'Excel Intermediate',
+    aliasBatchId: 'ASKMEI-2026-1',
+    batchId: null,
+    startDate: '2026-08-01',
+    endDate: '2026-08-02',
+    trainerId: 'trainer-1',
+    rawTrainerName: null,
+    venueCode: 'IP',
+    roomId: 'ip-class1',
+    rawVenueText: 'IP Class 1',
+    timeText: '9.00 AM - 6.00 PM',
+    expectedPax: 12,
+    confirmedPax: 10,
+    status: 'confirmed',
+    alerts: [],
+    ...overrides,
+  };
+}
+
+function existingFor(row: MappedScheduleRow, overrides: Partial<ExistingRow> = {}): ExistingRow {
+  return {
+    id: `session-${row.rowNumber}`,
+    external_ref: buildExternalRef(row),
+    management_source: 'import',
+    course_code: row.courseCode,
+    trainer_id: row.trainerId,
+    venue_code: row.venueCode,
+    room_id: row.roomId,
+    status: row.status,
+    start_date: row.startDate ?? '2026-08-01',
+    end_date: row.endDate ?? '2026-08-02',
+    expected_pax: row.expectedPax,
+    confirmed_pax: row.confirmedPax,
+    time_text: row.timeText,
+    ...overrides,
+  };
+}
+
+function createFakeDb(existing: ExistingRow[]) {
+  const rows = [...existing];
+  const calls: string[] = [];
+  const db: SqlQuery = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T[]> => {
+    calls.push(sql);
+    if (sql.includes('WHERE external_ref IS NOT NULL')) return rows as T[];
+    if (sql.includes('WHERE external_ref = $1')) {
+      return rows.filter((row) => row.external_ref === params[0]) as T[];
+    }
+    if (sql.includes('UPDATE sessions')) {
+      const row = rows.find((item) => item.id === params[0] && item.management_source === 'import');
+      if (row) {
+        row.course_code = params[1] as string | null;
+        row.trainer_id = params[4] as string | null;
+        row.venue_code = params[6] as string | null;
+        row.room_id = params[7] as string | null;
+        row.time_text = params[9] as string | null;
+        row.status = params[10] as string;
+        row.start_date = params[11] as string;
+        row.end_date = params[12] as string;
+        row.expected_pax = params[13] as number | null;
+        row.confirmed_pax = params[14] as number | null;
+      }
+      return [];
+    }
+    if (sql.includes('INSERT INTO sessions')) {
+      rows.push({
+        id: `inserted-${rows.length + 1}`,
+        external_ref: params[15] as string,
+        management_source: 'import',
+        course_code: params[0] as string | null,
+        trainer_id: params[3] as string | null,
+        venue_code: params[5] as string | null,
+        room_id: params[6] as string | null,
+        status: params[9] as string,
+        start_date: params[10] as string,
+        end_date: params[11] as string,
+        expected_pax: params[12] as number | null,
+        confirmed_pax: params[13] as number | null,
+        time_text: params[8] as string | null,
+      });
+      return [];
+    }
+    return [];
+  };
+  return { db, rows, calls };
+}
+
+test('summarizes existing new unchanged update and cancellation Sync behavior', async () => {
+  const unchanged = mapped({ rowNumber: 3, aliasBatchId: 'ASKMEI-2026-1' });
+  const changed = mapped({ rowNumber: 4, aliasBatchId: 'ASKMEI-2026-2', trainerId: 'trainer-2' });
+  const cancelled = mapped({ rowNumber: 5, aliasBatchId: 'ASKMEI-2026-3', status: 'cancelled' });
+  const inserted = mapped({ rowNumber: 6, aliasBatchId: 'ASKMEI-2026-4' });
+  const fake = createFakeDb([
+    existingFor(unchanged),
+    existingFor(changed, { trainer_id: 'trainer-1' }),
+    existingFor(cancelled, { status: 'confirmed' }),
+  ]);
+
+  const result = await summarizeRows([unchanged, changed, cancelled, inserted], fake.db);
+
+  assert.equal(result.summary.inserts, 1);
+  assert.equal(result.summary.updates, 2);
+  assert.equal(result.summary.unchanged, 1);
+  assert.equal(result.summary.cancellations, 1);
+  assert.equal(result.summary.changeCount, 3);
+  assert.equal(result.summary.conflicts, 0);
+  assert.equal(result.summary.requiresConfirmation, true);
+});
+
+test('app-managed identical incoming rows remain unchanged', async () => {
+  const row = mapped({ rowNumber: 3, aliasBatchId: 'ASKMEI-2026-10' });
+  const fake = createFakeDb([existingFor(row, { management_source: 'application' })]);
+
+  const result = await summarizeRows([row], fake.db);
+  const applied = await applyScheduleParseResult('batch-1', { ...result, rows: [row] }, fake.db);
+
+  assert.equal(result.summary.unchanged, 1);
+  assert.equal(result.summary.conflicts, 0);
+  assert.equal(applied.applied, 1);
+  assert.equal(applied.unchanged, 1);
+  assert.equal(applied.conflicts.length, 0);
+});
+
+test('app-managed trainer status date venue room and pax differences become conflicts', async () => {
+  const cases: Array<[string, Partial<MappedScheduleRow>, Partial<ExistingRow>]> = [
+    ['trainerId', { trainerId: 'trainer-2' }, { trainer_id: 'trainer-1' }],
+    ['status', { status: 'cancelled' }, { status: 'confirmed' }],
+    ['startDate', { startDate: '2026-08-03' }, { start_date: '2026-08-01' }],
+    ['endDate', { endDate: '2026-08-04' }, { end_date: '2026-08-02' }],
+    ['venueCode', { venueCode: 'JTC' }, { venue_code: 'IP' }],
+    ['roomId', { roomId: 'jtc-classroom' }, { room_id: 'ip-class1' }],
+    ['expectedPax', { expectedPax: 18 }, { expected_pax: 12 }],
+    ['confirmedPax', { confirmedPax: 16 }, { confirmed_pax: 10 }],
+  ];
+
+  for (const [field, rowPatch, existingPatch] of cases) {
+    const row = mapped({ rowNumber: 10, aliasBatchId: `ASKMEI-2026-${field}`, ...rowPatch });
+    const fake = createFakeDb([existingFor(row, { management_source: 'application', ...existingPatch })]);
+    const result = await summarizeRows([row], fake.db);
+
+    assert.equal(result.summary.conflicts, 1, field);
+    assert.equal(result.summary.requiresConfirmation, true, field);
+    assert.equal(result.conflicts[0].fields.some((changed) => changed.field === field), true, field);
+  }
+});
+
+test('safe rows apply while app-managed conflicts are skipped', async () => {
+  const safe = mapped({ rowNumber: 3, aliasBatchId: 'ASKMEI-2026-41', trainerId: 'trainer-2' });
+  const conflict = mapped({ rowNumber: 4, aliasBatchId: 'ASKMEI-2026-42', status: 'cancelled' });
+  const fake = createFakeDb([
+    existingFor(safe, { trainer_id: 'trainer-1', management_source: 'import' }),
+    existingFor(conflict, { status: 'confirmed', management_source: 'application' }),
+  ]);
+  const parseResult = await summarizeRows([safe, conflict], fake.db);
+
+  const applied = await applyScheduleParseResult('batch-1', parseResult, fake.db);
+
+  assert.equal(applied.applied, 1);
+  assert.equal(applied.skipped, 1);
+  assert.equal(applied.conflicts.length, 1);
+  assert.equal(fake.rows.find((row) => row.external_ref === buildExternalRef(safe))?.trainer_id, 'trainer-2');
+  assert.equal(fake.rows.find((row) => row.external_ref === buildExternalRef(conflict))?.status, 'confirmed');
+});
+
+test('apply rechecks ownership at confirm time before updating', async () => {
+  const row = mapped({ rowNumber: 3, aliasBatchId: 'ASKMEI-2026-race', trainerId: 'trainer-2' });
+  const fake = createFakeDb([existingFor(row, { trainer_id: 'trainer-1', management_source: 'application' })]);
+  const staleParseResult: ScheduleParseResult = {
+    rows: [row],
+    alerts: [],
+    conflicts: [],
+    summary: {
+      totalRows: 1,
+      validRows: 1,
+      inserts: 0,
+      updates: 1,
+      unchanged: 0,
+      skipped: 0,
+      cancellations: 0,
+      conflicts: 0,
+      existingSessions: 1,
+      changeCount: 1,
+      autoApplied: false,
+      requiresConfirmation: true,
+      blocked: false,
+      blockReason: null,
+    },
+  };
+
+  const applied = await applyScheduleParseResult('batch-1', staleParseResult, fake.db);
+
+  assert.equal(applied.applied, 0);
+  assert.equal(applied.skipped, 1);
+  assert.equal(applied.conflicts.length, 1);
+  assert.equal(applied.conflicts[0].fields[0].field, 'trainerId');
+});

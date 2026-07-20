@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { getDb } from '@training-planner/shared';
+import type { SqlQuery } from '@training-planner/shared';
 import {
   createCourseResolver,
   createTrainerResolver,
@@ -16,6 +17,7 @@ import { loadScheduleLookups } from './reference-data.js';
 export interface ScheduleParseResult {
   rows: MappedScheduleRow[];
   alerts: ScheduleParseAlert[];
+  conflicts: ScheduleImportConflict[];
   summary: {
     totalRows: number;
     validRows: number;
@@ -24,6 +26,7 @@ export interface ScheduleParseResult {
     unchanged: number;
     skipped: number;
     cancellations: number;
+    conflicts: number;
     existingSessions: number;
     changeCount: number;
     autoApplied: boolean;
@@ -33,8 +36,31 @@ export interface ScheduleParseResult {
   };
 }
 
+export interface ScheduleImportConflict {
+  externalRef: string;
+  rowNumber: number;
+  sessionId: string;
+  reason: 'application_managed_difference';
+  fields: ScheduleImportConflictField[];
+}
+
+export interface ScheduleImportConflictField {
+  field: string;
+  current: string | number | null;
+  incoming: string | number | null;
+}
+
+export interface ScheduleApplyResult {
+  applied: number;
+  skipped: number;
+  unchanged: number;
+  conflicts: ScheduleImportConflict[];
+}
+
 interface ExistingSessionRow {
+  id: string;
   external_ref: string;
+  management_source: 'import' | 'application';
   course_code: string | null;
   trainer_id: string | null;
   venue_code: string | null;
@@ -95,14 +121,43 @@ export async function parseScheduleWorkbook(buffer: Buffer): Promise<SchedulePar
 export async function applyScheduleParseResult(
   batchId: string,
   parseResult: ScheduleParseResult,
-): Promise<{ applied: number; skipped: number }> {
-  const db = getDb();
+  db: SqlQuery = getDb(),
+): Promise<ScheduleApplyResult> {
   let applied = 0;
   let skipped = 0;
+  let unchanged = 0;
+  const conflicts: ScheduleImportConflict[] = [];
 
   for (const row of parseResult.rows) {
     if (!row.startDate || !row.endDate) {
       skipped += 1;
+      continue;
+    }
+
+    const externalRef = buildExternalRef(row);
+    const existing = await findExistingSession(db, externalRef);
+
+    if (existing?.management_source === 'application') {
+      const conflict = buildConflict(existing, row, externalRef);
+      if (conflict) {
+        conflicts.push(conflict);
+        skipped += 1;
+      } else {
+        applied += 1;
+        unchanged += 1;
+      }
+      continue;
+    }
+
+    if (existing && !rowChanged(existing, row)) {
+      applied += 1;
+      unchanged += 1;
+      continue;
+    }
+
+    if (existing) {
+      await updateImportManagedSession(db, existing.id, batchId, row);
+      applied += 1;
       continue;
     }
 
@@ -149,20 +204,23 @@ export async function applyScheduleParseResult(
         row.expectedPax,
         row.confirmedPax,
         batchId,
-        buildExternalRef(row),
+        externalRef,
       ],
     );
 
     applied += 1;
   }
 
-  return { applied, skipped };
+  return { applied, skipped, unchanged, conflicts };
 }
 
-async function summarizeRows(rows: MappedScheduleRow[]): Promise<ScheduleParseResult> {
-  const db = getDb();
+export async function summarizeRows(
+  rows: MappedScheduleRow[],
+  db: SqlQuery = getDb(),
+): Promise<ScheduleParseResult> {
   const existingRows = await db<ExistingSessionRow>(
-    `SELECT external_ref, course_code, trainer_id, venue_code, room_id, status,
+    `SELECT id, external_ref, management_source::text AS management_source,
+      course_code, trainer_id, venue_code, room_id, status,
       start_date::text, end_date::text, expected_pax, confirmed_pax, time_text
      FROM sessions
      WHERE external_ref IS NOT NULL`,
@@ -173,7 +231,8 @@ async function summarizeRows(rows: MappedScheduleRow[]): Promise<ScheduleParseRe
   let updates = 0;
   let unchanged = 0;
   let skipped = 0;
-  const cancellations = rows.filter((row) => row.status === 'cancelled').length;
+  let cancellations = 0;
+  const conflicts: ScheduleImportConflict[] = [];
 
   for (const row of rows) {
     if (!row.startDate || !row.endDate) {
@@ -181,23 +240,35 @@ async function summarizeRows(rows: MappedScheduleRow[]): Promise<ScheduleParseRe
       continue;
     }
 
-    const existing = existingByRef.get(buildExternalRef(row));
+    const externalRef = buildExternalRef(row);
+    const existing = existingByRef.get(externalRef);
     if (!existing) {
       inserts += 1;
+      if (row.status === 'cancelled') cancellations += 1;
+    } else if (existing.management_source === 'application') {
+      const conflict = buildConflict(existing, row, externalRef);
+      if (conflict) {
+        conflicts.push(conflict);
+      } else {
+        unchanged += 1;
+      }
     } else if (rowChanged(existing, row)) {
       updates += 1;
+      if (row.status === 'cancelled') cancellations += 1;
     } else {
       unchanged += 1;
+      if (row.status === 'cancelled') cancellations += 1;
     }
   }
 
   const changeCount = inserts + updates;
   const blocked = existingRows.length > 0 && cancellations > existingRows.length / 2;
-  const requiresConfirmation = blocked || cancellations > 0 || changeCount >= 10;
+  const requiresConfirmation = blocked || cancellations > 0 || changeCount >= 10 || conflicts.length > 0;
 
   return {
     rows,
     alerts: rows.flatMap((row) => row.alerts),
+    conflicts,
     summary: {
       totalRows: rows.length,
       validRows: rows.length - skipped,
@@ -206,6 +277,7 @@ async function summarizeRows(rows: MappedScheduleRow[]): Promise<ScheduleParseRe
       unchanged,
       skipped,
       cancellations,
+      conflicts: conflicts.length,
       existingSessions: existingRows.length,
       changeCount,
       autoApplied: false,
@@ -218,7 +290,68 @@ async function summarizeRows(rows: MappedScheduleRow[]): Promise<ScheduleParseRe
   };
 }
 
-function buildExternalRef(row: MappedScheduleRow): string {
+async function findExistingSession(db: SqlQuery, externalRef: string): Promise<ExistingSessionRow | null> {
+  const rows = await db<ExistingSessionRow>(
+    `SELECT id, external_ref, management_source::text AS management_source,
+      course_code, trainer_id, venue_code, room_id, status,
+      start_date::text, end_date::text, expected_pax, confirmed_pax, time_text
+     FROM sessions
+     WHERE external_ref = $1`,
+    [externalRef],
+  );
+
+  return rows[0] ?? null;
+}
+
+async function updateImportManagedSession(
+  db: SqlQuery,
+  sessionId: string,
+  batchId: string,
+  row: MappedScheduleRow,
+): Promise<void> {
+  await db(
+    `UPDATE sessions
+     SET course_code = $2,
+       tms_code = $3,
+       source_course_name = $4,
+       trainer_id = $5,
+       raw_trainer_name = $6,
+       venue_code = $7,
+       room_id = $8,
+       raw_venue_text = $9,
+       time_text = $10,
+       status = $11,
+       start_date = $12,
+       end_date = $13,
+       expected_pax = $14,
+       confirmed_pax = $15,
+       upload_batch_id = $16,
+       version = version + 1,
+       updated_at = now()
+     WHERE id = $1
+       AND management_source = 'import'`,
+    [
+      sessionId,
+      row.courseCode,
+      row.tmsCode,
+      row.sourceCourseName,
+      row.trainerId,
+      row.rawTrainerName,
+      row.venueCode,
+      row.roomId,
+      row.rawVenueText,
+      row.timeText,
+      row.status,
+      row.startDate,
+      row.endDate,
+      row.expectedPax,
+      row.confirmedPax,
+      batchId,
+    ],
+  );
+}
+
+export function buildExternalRef(row: MappedScheduleRow): string {
   const stableBatchId = getStableBatchId(row);
   if (stableBatchId) {
     return `tms:${stableBatchId}`;
@@ -241,18 +374,50 @@ function getStableBatchId(row: MappedScheduleRow): string | null {
 }
 
 function rowChanged(existing: ExistingSessionRow, row: MappedScheduleRow): boolean {
-  return (
-    existing.course_code !== row.courseCode ||
-    existing.trainer_id !== row.trainerId ||
-    existing.venue_code !== row.venueCode ||
-    existing.room_id !== row.roomId ||
-    existing.status !== row.status ||
-    existing.start_date !== row.startDate ||
-    existing.end_date !== row.endDate ||
-    existing.expected_pax !== row.expectedPax ||
-    existing.confirmed_pax !== row.confirmedPax ||
-    existing.time_text !== row.timeText
-  );
+  return getChangedFields(existing, row).length > 0;
+}
+
+function buildConflict(
+  existing: ExistingSessionRow,
+  row: MappedScheduleRow,
+  externalRef: string,
+): ScheduleImportConflict | null {
+  const fields = getChangedFields(existing, row);
+  if (fields.length === 0) return null;
+  return {
+    externalRef,
+    rowNumber: row.rowNumber,
+    sessionId: existing.id,
+    reason: 'application_managed_difference',
+    fields,
+  };
+}
+
+function getChangedFields(
+  existing: ExistingSessionRow,
+  row: MappedScheduleRow,
+): ScheduleImportConflictField[] {
+  return [
+    compareField('courseCode', existing.course_code, row.courseCode),
+    compareField('trainerId', existing.trainer_id, row.trainerId),
+    compareField('venueCode', existing.venue_code, row.venueCode),
+    compareField('roomId', existing.room_id, row.roomId),
+    compareField('status', existing.status, row.status),
+    compareField('startDate', existing.start_date, row.startDate),
+    compareField('endDate', existing.end_date, row.endDate),
+    compareField('expectedPax', existing.expected_pax, row.expectedPax),
+    compareField('confirmedPax', existing.confirmed_pax, row.confirmedPax),
+    compareField('timeText', existing.time_text, row.timeText),
+  ].filter((field): field is ScheduleImportConflictField => Boolean(field));
+}
+
+function compareField(
+  field: string,
+  current: string | number | null,
+  incoming: string | number | null,
+): ScheduleImportConflictField | null {
+  if (current === incoming) return null;
+  return { field, current, incoming };
 }
 
 function normalizeExternalRefPart(value: string): string {

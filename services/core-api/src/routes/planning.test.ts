@@ -43,6 +43,8 @@ const baseRows = [
     span_days: 2,
     expected_pax: 12,
     confirmed_pax: null,
+    management_source: 'import',
+    version: 1,
     unassigned_trainer: true,
     unresolved_venue: true,
     owned_venue_missing_room: false,
@@ -72,6 +74,8 @@ const baseRows = [
     span_days: 1,
     expected_pax: 18,
     confirmed_pax: null,
+    management_source: 'application',
+    version: 3,
     unassigned_trainer: false,
     unresolved_venue: false,
     owned_venue_missing_room: false,
@@ -180,6 +184,8 @@ test('allows active roles and denies pending or rejected users', async () => {
     const result = await request(role, '/planning/sessions?from=2026-08-01&to=2026-08-31');
     assert.equal(result.response.status, 200);
     assert.equal(typeof result.body.sessions[0].planningProfile.source, 'string');
+    assert.equal(result.body.sessions[0].managementSource, 'import');
+    assert.equal(result.body.sessions[0].version, 1);
   }
   assert.equal((await request('pending', '/planning/sessions?from=2026-08-01&to=2026-08-31')).response.status, 403);
   assert.equal((await request('rejected', '/planning/sessions?from=2026-08-01&to=2026-08-31')).response.status, 403);

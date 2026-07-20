@@ -13,8 +13,8 @@ export type {
 } from './types.js';
 
 // Database
-export { checkDbConnection, getDb } from './db.js';
-export type { SqlQuery } from './db.js';
+export { checkDbConnection, getDb, withTransaction } from './db.js';
+export type { SqlQuery, TransactionHandler } from './db.js';
 
 // Firebase
 export { getFirebaseAuth } from './firebase.js';
