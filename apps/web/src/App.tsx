@@ -34,7 +34,14 @@ const issueLabels: Record<PlanningIssue, string> = {
   unassigned_trainer: 'Unassigned trainer',
   unresolved_venue: 'Unresolved venue',
   owned_venue_missing_room: 'Owned venue missing room',
-  capacity_overrun: 'Capacity overrun',
+  capacity_overrun: 'Room pax over capacity',
+};
+
+const profileSourceLabels: Record<PlanningSession['planningProfile']['source'], string> = {
+  direct: 'Direct history',
+  ft_proxy: 'FT proxy history',
+  no_history: 'No history',
+  unavailable: 'Profile unavailable',
 };
 
 export default function App() {
@@ -247,6 +254,20 @@ function getSessionIssues(session: PlanningSession): PlanningIssue[] {
   ].filter(Boolean) as PlanningIssue[];
 }
 
+function formatPercent(value: number | null): string {
+  if (value === null) return '-';
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatNumber(value: number | null): string {
+  if (value === null) return '-';
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function formatMonths(months: string[]): string {
+  return months.length ? months.join(', ') : '-';
+}
+
 function PlanningPage({ user }: { user: User }) {
   const initialFrom = useMemo(() => getSingaporeDate(), []);
   const initialTo = useMemo(() => addCalendarMonths(initialFrom, 6), [initialFrom]);
@@ -444,6 +465,7 @@ function PlanningPage({ user }: { user: User }) {
                 <tr>
                   <th>Session span</th>
                   <th>Course</th>
+                  <th>History</th>
                   <th>Programme</th>
                   <th>Trainer</th>
                   <th>Venue / Room</th>
@@ -464,6 +486,7 @@ function PlanningPage({ user }: { user: User }) {
                       <strong>{session.course.name ?? session.course.tmsCode ?? 'Unresolved'}</strong>
                       <span>{session.course.code ?? session.course.tmsCode ?? session.externalRef}</span>
                     </td>
+                    <td><PlanningProfileAnnotation session={session} /></td>
                     <td>{session.course.programmeCode ?? 'Standalone'}</td>
                     <td>{session.trainer.name ?? session.trainer.rawName ?? 'Unassigned'}</td>
                     <td>
@@ -506,7 +529,7 @@ function PlanningSummary({ data, busy }: { data: PlanningResponse | null; busy: 
     ['Unresolved venues', data?.summary.issues.unresolvedVenues ?? '-'],
     ['Unassigned trainers', data?.summary.issues.unassignedTrainers ?? '-'],
     ['Missing owned rooms', data?.summary.issues.ownedVenuesWithoutRooms ?? '-'],
-    ['Capacity overruns', data?.summary.issues.capacityOverruns ?? '-'],
+    ['Room pax over capacity', data?.summary.issues.capacityOverruns ?? '-'],
   ];
 
   return (
@@ -528,6 +551,27 @@ function IssueBadges({ session }: { session: PlanningSession }) {
   return (
     <div className="issue-list">
       {issues.map((issue) => <span className="issue-pill" key={issue}>{issueLabels[issue]}</span>)}
+    </div>
+  );
+}
+
+function PlanningProfileAnnotation({ session }: { session: PlanningSession }) {
+  const profile = session.planningProfile;
+  const hasProfile = profile.source === 'direct' || profile.source === 'ft_proxy';
+
+  return (
+    <div className="profile-annotation">
+      <span className={`profile-source ${profile.source}`}>{profileSourceLabels[profile.source]}</span>
+      {hasProfile ? (
+        <>
+          <span>{profile.profileCourseCode}</span>
+          <span>{formatPercent(profile.confirmationRate)} confirm · {formatNumber(profile.confirmedPerMonth)}/mo</span>
+          <span>Median gap {formatNumber(profile.medianGapDays)} days</span>
+          {profile.lowHistoricalConfirmation && <span className="low-confirmation">Low historical confirmation</span>}
+        </>
+      ) : (
+        <span>{profile.source === 'no_history' ? 'New FT course' : 'No matching course × venue profile'}</span>
+      )}
     </div>
   );
 }
@@ -559,6 +603,15 @@ function SessionDetailPanel({ session, onClose }: { session: PlanningSession | n
     ['Expected pax', session.pax.expected ?? '-'],
     ['Confirmed pax', session.pax.confirmed ?? '-'],
     ['Effective pax', session.pax.effective ?? '-'],
+    ['Planning profile', profileSourceLabels[session.planningProfile.source]],
+    ['Profile course code', session.planningProfile.profileCourseCode ?? '-'],
+    ['Scheduled 18-month count', session.planningProfile.scheduled18MonthCount ?? '-'],
+    ['Confirmation rate', formatPercent(session.planningProfile.confirmationRate)],
+    ['Confirmed per month', formatNumber(session.planningProfile.confirmedPerMonth)],
+    ['Median gap days', formatNumber(session.planningProfile.medianGapDays)],
+    ['Strong months', formatMonths(session.planningProfile.strongMonths)],
+    ['Weak months', formatMonths(session.planningProfile.weakMonths)],
+    ['Historical confirmation flag', session.planningProfile.lowHistoricalConfirmation ? 'Low historical confirmation' : '-'],
   ];
 
   return (
@@ -573,6 +626,7 @@ function SessionDetailPanel({ session, onClose }: { session: PlanningSession | n
         </button>
       </div>
       <IssueBadges session={session} />
+      <PlanningProfileAnnotation session={session} />
       <dl className="detail-list">
         {detailRows.map(([label, value]) => (
           <div key={label}>

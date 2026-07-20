@@ -177,14 +177,18 @@ test('summary is calculated before pagination and issue counts are returned for 
 
 test('allows active roles and denies pending or rejected users', async () => {
   for (const role of ['admin', 'ops', 'finance', 'viewer'] as const) {
-    assert.equal((await request(role, '/planning/sessions?from=2026-08-01&to=2026-08-31')).response.status, 200);
+    const result = await request(role, '/planning/sessions?from=2026-08-01&to=2026-08-31');
+    assert.equal(result.response.status, 200);
+    assert.equal(typeof result.body.sessions[0].planningProfile.source, 'string');
   }
   assert.equal((await request('pending', '/planning/sessions?from=2026-08-01&to=2026-08-31')).response.status, 403);
   assert.equal((await request('rejected', '/planning/sessions?from=2026-08-01&to=2026-08-31')).response.status, 403);
 });
 
-test('does not return trainer fee or economics fields', async () => {
+test('does not return fees, economics, recommendations, conflict details, or perform writes', async () => {
   const result = await request('finance', '/planning/sessions?from=2026-08-01&to=2026-08-31');
+  const combinedSql = result.calls.map((call) => call.sql).join('\n');
   const json = JSON.stringify(result.body).toLowerCase();
-  assert.doesNotMatch(json, /fee|rate|economics|revenue|cost|viability/);
+  assert.doesNotMatch(json, /trainerfee|trainerrate|economics|revenue|cost|viability|recommendation|traineroverlap|roomoverlap|conflicts/);
+  assert.doesNotMatch(combinedSql, /\b(insert|update|delete|upsert|merge)\b/i);
 });

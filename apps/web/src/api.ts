@@ -45,6 +45,8 @@ export type PlanningIssue =
   | 'owned_venue_missing_room'
   | 'capacity_overrun';
 
+export type PlanningProfileSource = 'direct' | 'ft_proxy' | 'no_history' | 'unavailable';
+
 export interface PlanningRequest {
   from: string;
   to: string;
@@ -101,6 +103,17 @@ export interface PlanningSession {
     unresolvedVenue: boolean;
     ownedVenueMissingRoom: boolean;
     capacityOverrun: boolean;
+  };
+  planningProfile: {
+    source: PlanningProfileSource;
+    profileCourseCode: string | null;
+    scheduled18MonthCount: number | null;
+    confirmationRate: number | null;
+    confirmedPerMonth: number | null;
+    medianGapDays: number | null;
+    strongMonths: string[];
+    weakMonths: string[];
+    lowHistoricalConfirmation: boolean;
   };
 }
 

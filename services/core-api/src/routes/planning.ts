@@ -1,6 +1,7 @@
 import { Hono, type MiddlewareHandler } from 'hono';
 import { authMiddleware, getDb, requireRole } from '@training-planner/shared';
 import type { AppEnv, SessionStatus, SqlQuery } from '@training-planner/shared';
+import { resolvePlanningProfile } from '../planning-profiles.js';
 
 const allowedStatuses = new Set<SessionStatus>([
   'draft',
@@ -236,6 +237,7 @@ function mapSession(row: PlanningSessionRow) {
       ownedVenueMissingRoom: row.owned_venue_missing_room,
       capacityOverrun: row.capacity_overrun,
     },
+    planningProfile: resolvePlanningProfile(row.course_code, row.venue_code),
   };
 }
 

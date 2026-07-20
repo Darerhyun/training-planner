@@ -222,7 +222,7 @@ td strong, td span { display: block; }
 }
 
 .planning-table-panel { margin: 0; max-width: none; min-width: 0; }
-.planning-table { min-width: 1120px; }
+.planning-table { min-width: 1280px; }
 
 .selectable-row { cursor: pointer; }
 .selectable-row:hover { background: rgba(255, 255, 255, 0.05); }
@@ -243,6 +243,34 @@ td strong, td span { display: block; }
   font-size: 0.75rem;
   font-weight: 800;
   padding: 4px 8px;
+}
+
+.profile-annotation {
+  display: grid;
+  gap: 4px;
+  min-width: 160px;
+}
+
+.profile-annotation > span { color: #aebbd3; }
+
+.profile-source, .low-confirmation {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.74rem;
+  font-weight: 800;
+  justify-self: start;
+  padding: 4px 8px;
+}
+
+.profile-source.direct { background: rgba(93, 214, 184, 0.16); color: #82f5d6; }
+.profile-source.ft_proxy { background: rgba(121, 169, 255, 0.16); color: #aecaff; }
+.profile-source.no_history { background: rgba(255, 255, 255, 0.1); color: #edf2ff; }
+.profile-source.unavailable { background: rgba(255, 155, 155, 0.13); color: #ffb4b4; }
+
+.low-confirmation {
+  background: rgba(247, 203, 107, 0.15);
+  border: 1px solid rgba(247, 203, 107, 0.22);
+  color: #f7cb6b;
 }
 
 .pagination-row {
