@@ -2,6 +2,13 @@
 
 > This file is the always-loaded project brief. Keep it short. Detailed reference material lives in `docs/` and should be read on demand, not pasted here.
 
+## Mandatory role workflow
+
+- When acting as **Sol** for planning, architecture, implementation specifications, or acceptance reviews, read and follow `SOL_RULES.md` before starting.
+- When acting as **Luna** to execute an approved implementation specification, read and follow `LUNA_RULES.md` before editing.
+- Sol must not implement feature code unless the user explicitly requests implementation.
+- If either rolebook conflicts with this file, stop and escalate the conflict rather than choosing silently.
+
 ## What we are building
 
 An internal **training schedule planning tool** for an adult-education company in Singapore (ASK Training). The Operations team runs roughly 100-150 training sessions per month across several programme families. Today they plan this in a master Excel workbook. We are replacing that with a web app that:
@@ -17,7 +24,7 @@ Excel is an import source only. After import, the Training Planner app is author
 
 - **Ops** (primary users) — plan sessions, assign trainers/rooms. See viability badges, not dollar figures.
 - **Finance** — see full economics including trainer fees.
-- **Admin** — full access, manage users.
+- **Admin** — full access; manage User Access and the Trainer Directory.
 - **Viewer** — read-only.
 
 Multi-user from day one. Roles live on `users.role` (enum: `admin | ops | finance | viewer | pending | rejected`). New signups land as `pending` until an admin approves.
@@ -39,7 +46,7 @@ Do not introduce Vertex AI, Firestore, or Cloudflare — they are explicitly out
 
 ## How to read this project
 
-The product workflow and domain knowledge are captured in `docs/`. **Read the relevant doc before writing code that touches that product or domain area.** Start with `docs/00-INDEX.md`, which maps every file. For Course Planning vs Sessions workflow, Excel/app/TMS ownership, and PR3E–PR3H scope, read `docs/01-product/planning-workflow-roadmap.md`.
+The product workflow and domain knowledge are captured in `docs/`. **Read the relevant doc before writing code that touches that product or domain area.** Start with `docs/00-INDEX.md`, which maps every file. Sol and Luna must also read their root rolebook. For Course Planning vs Sessions workflow, Excel/app/TMS ownership, Admin Area decisions, and PR3E–PR3J scope, read `docs/01-product/planning-workflow-roadmap.md`.
 
 The data model is driven by the CSVs in `docs/` — they are the seed data. The markdown files explain the model and the business rules.
 
@@ -72,9 +79,11 @@ Build in this order. Each PR is independently reviewable. Do not jump ahead.
 	- **PR3C — Planning Dashboard frontend.** Completed: default authenticated Planning view with read-only session table, filters, summaries, and detail panel.
 	- **PR3D — Planning Profile annotations.** Completed: read-only CSV-backed planning profile annotations for direct history, FT proxy history, no-history courses, and unavailable profiles.
 	- **PR3E — Product and data-ownership contract.** Commit the approved Course Planning vs Sessions workflow and ownership roadmap; documentation only.
-	- **PR3F — Session write safety and audit foundation.** Add ownership, optimistic concurrency, session history, Admin/Ops trainer assignment endpoint, and Sync conflict protection.
+	- **PR3F — Session write safety and audit foundation.** Completed and deployed: ownership, optimistic concurrency, session history, Admin/Ops trainer assignment endpoint, and Sync conflict protection.
 	- **PR3G — Sessions UX and navigation consolidation.** Turn the rich Planning dashboard into the enhanced Sessions experience with role-appropriate trainer amendment UI and history/detail states.
 	- **PR3H — Future Course Planning.** Add month-based Course Planning using planning profiles as evidence, with explicit creation of draft Sessions from approved planned runs.
+	- **PR3I — Admin Panel: User Access.** Add the Admin-only workflow to invite, approve, reject, assign roles, deactivate, and reactivate application users.
+	- **PR3J — Admin Panel: Trainer Directory.** Add the Admin-only workflow to register and edit trainers, activate/deactivate records, and manage course links and module exclusions.
 4. **PR4 — Trainer picker drawer** with rules-based suggestions (skills, SME boost, exclusions, tier/cost awareness).
 5. **PR5 — AI assistant chat** (propose → confirm → execute pattern).
 6. **PR6 — Gantt trainers view, Calendar view, Activity page.**
