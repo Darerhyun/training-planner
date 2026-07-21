@@ -78,7 +78,7 @@ Build in this order. Each PR is independently reviewable. Do not jump ahead.
 	- **PR3B — Read-only Planning Dashboard API.** Completed: `/planning/sessions` span-overlap API with filters, pagination, summaries, role access, and deferred training-day conflict detection.
 	- **PR3C — Planning Dashboard frontend.** Completed: default authenticated Planning view with read-only session table, filters, summaries, and detail panel.
 	- **PR3D — Planning Profile annotations.** Completed: read-only CSV-backed planning profile annotations for direct history, FT proxy history, no-history courses, and unavailable profiles.
-	- **PR3E — Product and data-ownership contract.** Commit the approved Course Planning vs Sessions workflow and ownership roadmap; documentation only.
+	- **PR3E — Product and data-ownership contract.** Completed: approved Course Planning vs Sessions workflow and ownership roadmap committed as documentation.
 	- **PR3F — Session write safety and audit foundation.** Completed and deployed: ownership, optimistic concurrency, session history, Admin/Ops trainer assignment endpoint, and Sync conflict protection.
 	- **PR3G — Sessions UX and navigation consolidation.** Turn the rich Planning dashboard into the enhanced Sessions experience with role-appropriate trainer amendment UI and history/detail states.
 	- **PR3H — Future Course Planning.** Add month-based Course Planning using planning profiles as evidence, with explicit creation of draft Sessions from approved planned runs.
