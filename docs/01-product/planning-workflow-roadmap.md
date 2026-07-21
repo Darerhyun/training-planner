@@ -1,6 +1,6 @@
 # Training Planner — Planning and Sessions Roadmap
 
-Status: Approved product direction; PR3E–PR3F complete and deployed; PR3G onward pending
+Status: Approved product direction; PR3E–PR3F complete, PR3F deployed; PR3G onward pending
 Last updated: 21 July 2026
 
 ## 1. Purpose
