@@ -2,9 +2,18 @@
 
 > Read this first. It maps every knowledge file in the project so you know where to look before working on any feature.
 
+## Mandatory operating files
+
+- `../AGENTS.md` — always-loaded project brief and build sequence.
+- `../SOL_RULES.md` — mandatory planning, architecture, specification, and acceptance-review contract for Sol.
+- `../LUNA_RULES.md` — mandatory bounded implementation and escalation contract for Luna.
+
 ## How the knowledge base is organised
 
 ```
+../AGENTS.md                       ← project brief and mandatory role entry point
+../SOL_RULES.md                    ← Sol operating contract
+../LUNA_RULES.md                   ← Luna operating contract
 docs/
 ├── 00-INDEX.md                     ← you are here
 ├── 01-product/
@@ -38,14 +47,15 @@ docs/
 ## Reading order for a new agent
 
 1. **`../AGENTS.md`** — the project brief (what we're building, architecture, build sequence, ground rules)
-2. **This index**
-3. The specific domain doc for whatever you're working on (see the map below)
+2. **The applicable rolebook** — `../SOL_RULES.md` for Sol or `../LUNA_RULES.md` for Luna
+3. **This index**
+4. The specific domain doc for whatever you're working on (see the map below)
 
 ## Which doc to read for which task
 
 | If you are working on... | Read these |
 |---|---|
-| Course Planning / Sessions workflow, Excel/app/TMS ownership, PR3E–PR3H scope | `01-product/planning-workflow-roadmap.md` |
+| Course Planning / Sessions workflow, Excel/app/TMS ownership, Admin Area decisions, PR3E–PR3J scope | `01-product/planning-workflow-roadmap.md` |
 | Database schema, seed data | All four domain `.md` files + every `.csv` |
 | Parsing the master schedule Excel | `courses.md` (to match course codes), `trainers.md` (trainer name aliasing), `venues-rooms.md` (venue codes) |
 | Sessions list / planning grid | `courses.md`, `venues-rooms.md` |
