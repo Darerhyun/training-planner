@@ -22,13 +22,17 @@ function getPool(): Pool {
       throw new Error('DATABASE_URL environment variable is required');
     }
 
-    // node-postgres parses the connection string for both connection styles:
-    //  - Local dev via Cloud SQL Auth Proxy: postgresql://user:pass@localhost:5432/training_planner (TCP)
-    //  - Cloud Run via Cloud SQL connector:  postgresql://user:pass@/training_planner?host=/cloudsql/PROJECT:REGION:INSTANCE (Unix socket)
-    // No TLS config is set: the proxy/connector handle encryption.
-    // max: 5 caps connections per pool (one pool per Cloud Run instance) so the
-    // small Cloud SQL tier's connection limit isn't exhausted under scale-out.
-    const config: PoolConfig = { connectionString: databaseUrl, max: 5 };
+    // node-postgres parses DATABASE_URL for both supported connection styles:
+    //  - Local PostgreSQL: postgresql://user:pass@localhost:5432/training_planner
+    //  - Neon runtime: use the pooled endpoint with sslmode=require.
+    // Cloud Run is capped at two instances and each process opens one pool of
+    // three connections, keeping the documented maximum at six connections.
+    const config: PoolConfig = {
+      connectionString: databaseUrl,
+      max: 3,
+      connectionTimeoutMillis: 10_000,
+      idleTimeoutMillis: 30_000,
+    };
     pool = new Pool(config);
   }
 

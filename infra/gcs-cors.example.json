@@ -1,0 +1,14 @@
+[
+  {
+    "origin": [
+      "https://replace-before-deployment.web.app"
+    ],
+    "method": [
+      "PUT"
+    ],
+    "responseHeader": [
+      "Content-Type"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

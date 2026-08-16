@@ -1,237 +1,230 @@
-# Setup
+# Setup and Infrastructure Recovery
 
-This guide covers the PR1 foundation: Google Cloud SQL (Postgres) schema, shared service utilities, the Hono core API, Firebase Auth admin verification, and Cloud Run deployment.
+This is the single authoritative guide for local development and the future
+Training Planner infrastructure recovery. No live environment currently exists.
+The former Google project was deleted, and this repository change does not
+provision, restore, migrate, or deploy anything.
 
-PR1 does not include file upload, Excel parsing, or planning UI work.
+All provider commands below are examples for a later, separately authorized
+recovery run. Replace placeholders only at that checkpoint and never commit the
+resulting identifiers, endpoints, emails, bucket names, or credentials.
 
-## Prerequisites
+## Locked recovery architecture
 
-- Node.js 22+
-- npm 10+
-- A Google Cloud SQL (Postgres) instance
-- A Firebase project with Authentication enabled
-- Google Cloud SDK for Cloud Run deployment
+| Layer | Approved recovery target |
+|---|---|
+| Database | Neon PostgreSQL in Singapore; pooled TLS URL for runtime |
+| API | Cloud Run in `asia-southeast1`, request-based billing |
+| Frontend | Firebase Hosting |
+| Authentication | Firebase Auth email link plus application role checks |
+| Uploads | Temporary GCS signed uploads with seven-day retention |
 
-On Windows PowerShell, use `npm.cmd` if your execution policy blocks the `npm` shim.
+The machine-readable contract is
+[`infra/cost-guardrails.json`](../infra/cost-guardrails.json):
 
-## Install Dependencies
+- Monthly target: USD 15.
+- Emergency ceiling: USD 25.
+- Billing alerts: USD 5, USD 10, and USD 15.
+- Alerts provide monitoring; they are not hard spending caps.
+- Cloud Run: minimum 0, maximum 2, 1 CPU, 1 GiB memory, concurrency
+  20, request-based billing.
+- Database pool: 3 connections per instance, at most 6 documented runtime
+  connections across two instances.
+- Neon: Singapore, pooled TLS required, five-minute autosuspend, target
+  consumption ceiling USD 10 where the provider supports enforcement.
+- Signed upload URL: 15 minutes.
+- Uploaded workbook retention: 7 days.
+- Container artifact retention: 30 days.
 
-From the repository root:
+Without a new user-approved cost exception, do not create Cloud SQL, Compute
+Engine, GKE, Cloud Run minimum instances above zero, instance-based Cloud Run
+billing, Serverless VPC Access, Cloud NAT, GPUs, or indefinite upload retention.
+
+## Recovery blockers
+
+Do not start provider work until all of these are available and authorized:
+
+- the last confirmed source workbook;
+- the secure source containing real trainer rates;
+- the approved Firebase web and Admin configuration;
+- Neon pooled and direct database credentials;
+- the GCP billing account and authorized service identity;
+- the approved upload bucket and Secret Manager access.
+
+Credentials, real trainer rates, personal emails, provider identifiers, and live
+endpoints must remain outside GitHub.
+
+## Phase 1 — Local development
+
+Prerequisites:
+
+- Node.js 22 or later;
+- npm 10 or later;
+- PostgreSQL client tools;
+- a local PostgreSQL database;
+- Firebase configuration for an approved local development project.
+
+Install dependencies from the repository root:
 
 ```powershell
-npm.cmd install
+npm.cmd ci
 ```
 
-## Environment Variables
-
-Copy [.env.example](../.env.example) to `.env` for local development and fill in real values.
-
-Required for the API:
+Copy [`.env.example`](../.env.example) to an uncommitted `.env`. Use a normal
+local PostgreSQL URL:
 
 ```text
-DATABASE_URL=postgresql://...
-ADMIN_EMAILS=owner@example.com,admin@example.com
-PORT=8080
-ALLOWED_ORIGINS=http://localhost:5173
+DATABASE_URL=postgresql://user:password@localhost:5432/training_planner
 ```
 
-Firebase Admin credentials use one of two paths:
+Local Firebase Admin development may use a service-account JSON value only in
+the uncommitted environment file. Never commit the JSON or paste it into a
+command. A future Cloud Run service must use Application Default Credentials
+through its runtime service identity.
 
-- Local explicit credentials: set `FIREBASE_SERVICE_ACCOUNT` to a one-line Firebase service account JSON string.
-- Application Default Credentials: leave `FIREBASE_SERVICE_ACCOUNT` unset and run `gcloud auth application-default login` locally, or use the Cloud Run runtime service account in production.
-
-The `VITE_FIREBASE_*` and `VITE_API_BASE_URL` variables are reserved for the future Vite SPA. They are documented now so the auth shell has a clear contract, but PR1 only runs the API.
-
-## Database Setup
-
-Local development connects to Cloud SQL through the Cloud SQL Auth Proxy, which
-exposes the instance on `localhost:5432`. Start the proxy in its own terminal
-before running the schema, seed, or API.
-
-Apply the approved schema to Cloud SQL:
+Apply [`db/schema.sql`](../db/schema.sql) only to a new, empty local database:
 
 ```powershell
 psql "$env:DATABASE_URL" -f db/schema.sql
 ```
 
-The schema file is [db/schema.sql](../db/schema.sql). Do not edit it unless a schema change has been explicitly requested and reviewed.
-
-Seed data lives under [docs/02-domain](02-domain). The repo-safe CSVs currently present are:
-
-- [courses_catalog.csv](02-domain/courses_catalog.csv)
-- [courses_fulltime_2026.csv](02-domain/courses_fulltime_2026.csv)
-- [new_courses_2026H2.csv](02-domain/new_courses_2026H2.csv)
-- [course_aliases_ft_2026.csv](02-domain/course_aliases_ft_2026.csv)
-- [trainers.csv](02-domain/trainers.csv)
-- [trainers_new_2026.csv](02-domain/trainers_new_2026.csv)
-- [trainer_aliases_2026aug.csv](02-domain/trainer_aliases_2026aug.csv)
-- [trainer_courses.csv](02-domain/trainer_courses.csv)
-- [venues.csv](02-domain/venues.csv)
-- [rooms.csv](02-domain/rooms.csv)
-- [programme_categories.csv](02-domain/programme_categories.csv)
-- [trainer_tier_assignments.csv](02-domain/trainer_tier_assignments.csv)
-
-Actual trainer rate dollar values are not committed. `trainer_rate_tiers.csv` is intentionally absent; those values live only in Google Cloud SQL.
-
-Seed TMS reference rows after applying the schema, and again only when the CSV reference files change:
-
-```powershell
-npm.cmd run seed-reference-data
-```
-
-This inserts missing courses, course aliases, trainers, trainer aliases, and trainer-course links from the reference CSVs without overwriting existing database rows.
-
-## Firebase Auth Setup
-
-In Firebase Console:
-
-1. Create or select the project used by this app.
-2. Enable Authentication.
-3. Enable the Email/Password provider and turn on email link sign-in.
-4. Add local and hosted domains to the authorized domains list as needed.
-5. Create a service account key for local API development, or grant the Cloud Run runtime service account permission to use Firebase Admin in production.
-
-New Firebase users are mirrored into the `users` table on their first authenticated `/me` request.
-
-- Emails listed in `ADMIN_EMAILS` become `admin`.
-- All other new users become `pending`.
-- Admin approval workflow is implemented in later PRs.
-
-## Run Locally
-
-Build and typecheck everything:
-
-```powershell
-npm.cmd run typecheck
-npm.cmd run build
-```
-
-Start the API in development mode:
+Start the API and web app:
 
 ```powershell
 npm.cmd run dev
-```
-
-The API listens on `http://localhost:8080` by default.
-
-Start the Vite SPA in a second terminal:
-
-```powershell
 npm.cmd run dev:web
 ```
 
-The SPA listens on `http://localhost:5173` by default.
+The default local API and SPA addresses are `http://localhost:8080` and
+`http://localhost:5173`.
 
-Public health check:
+## Phase 2 — Repository validation
 
-```powershell
-Invoke-RestMethod http://localhost:8080/health
-```
-
-Authenticated profile endpoint:
+Run the checks in this order:
 
 ```powershell
-Invoke-RestMethod `
-  -Uri http://localhost:8080/me `
-  -Headers @{ Authorization = "Bearer <firebase-id-token>" }
+npm.cmd ci
+npm.cmd run check:infra
+npm.cmd run typecheck
+npm.cmd test
+npm.cmd run build
+git diff --check
 ```
 
-## API Structure
+The CI workflow repeats `check:infra`, typecheck, tests, and build on pull
+requests to `main` and pushes to `main`.
 
-- [services/shared](../services/shared) contains shared DB, Firebase, auth middleware, and TypeScript types.
-- [services/core-api](../services/core-api) contains the Hono server, route registration, and Cloud Run Dockerfile.
-- `/health` is public and checks database connectivity.
-- `/me` requires a Firebase ID token and creates or returns the corresponding application user.
+## Phase 3 — Future provider provisioning
 
-## Deploy To Cloud Run
+This phase remains blocked until a separate work order authorizes provider
+actions.
 
-Set these shell variables for your project:
+### Neon
+
+Create one PostgreSQL project in Singapore. Configure five-minute autosuspend and
+a USD 10 target consumption ceiling where supported.
+
+Neon provides two connection types:
+
+- **Pooled runtime URL** — used by the API through `DATABASE_URL`; it must
+  include `sslmode=require`.
+- **Direct administrative URL** — used only for approved schema application,
+  `pg_dump`, and restore verification.
+
+Store the pooled runtime URL in Secret Manager during authorized provisioning.
+Do not commit either URL.
+
+### Firebase
+
+Create or select the authorized recovery project, enable Authentication, and
+enable email-link sign-in. Add only approved local and hosted domains.
+
+Cloud Run may be configured with platform-level `--allow-unauthenticated` so
+browser requests can reach the API. That setting does not make protected
+application routes public: Firebase token verification and server-side role
+authorization remain mandatory.
+
+### Temporary uploads
+
+Create a placeholder-named bucket only during authorized provisioning. Before
+enabling browser uploads:
+
+1. Replace the placeholder origin in
+   [`infra/gcs-cors.example.json`](../infra/gcs-cors.example.json) with the
+   actual Firebase Hosting origin in a temporary, uncommitted copy.
+2. Apply [`infra/gcs-lifecycle.json`](../infra/gcs-lifecycle.json), which
+   deletes current objects after seven days.
+3. Apply the temporary CORS file. It must allow only `PUT` with
+   `Content-Type`; wildcard origins are forbidden.
+4. Confirm signed upload URLs expire after 15 minutes.
+
+Example commands for the later authorized checkpoint:
 
 ```powershell
-$PROJECT_ID="your-gcp-project-id"
-$REGION="asia-southeast1"
-$REPOSITORY="training-planner"
-$IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/core-api:latest"
+gcloud storage buckets update gs://YOUR_UPLOAD_BUCKET --lifecycle-file=infra/gcs-lifecycle.json
+gcloud storage buckets update gs://YOUR_UPLOAD_BUCKET --cors-file=path/to/uncommitted-gcs-cors.json
 ```
 
-Create an Artifact Registry repository once:
+Configure Artifact Registry cleanup to remove container artifacts after 30 days.
+
+## Phase 4 — Fresh database restoration
+
+Use a fresh empty Neon database. Restoration order is mandatory:
+
+1. Connect with the direct administrative URL.
+2. Apply `db/schema.sql` exactly once.
+3. **Do not replay files under `db/migrations/`.** The current schema already
+   contains those historical changes.
+4. Run `npm.cmd run seed-reference-data`.
+5. Restore real trainer rates from the approved secure source.
+6. Reimport the last confirmed workbook through the existing Sync workflow.
+7. Recreate Firebase access: bootstrap the authorized first admin, then allow
+   other users to enter as `pending` for later approval.
+8. Reconcile course, trainer, venue, room, session, user, and rate-tier counts
+   against the last accepted evidence.
+9. Create an encrypted `pg_dump` using the direct URL.
+10. Restore that dump into a separate empty verification database and run the
+    health and count checks.
+
+No production rate values, workbook contents, database dump, or credentials may
+be added to GitHub.
+
+## Phase 5 — Future authorized deployment
+
+Deployment remains frozen until restoration is accepted and a separate
+deployment plan identifies the target commit, provider resources, secrets,
+validation, monitoring, rollback, and cost estimate.
+
+The Cloud Run deployment must retain the locked limits. Example only:
 
 ```powershell
-gcloud artifacts repositories create $REPOSITORY `
-  --repository-format=docker `
-  --location=$REGION `
-  --project=$PROJECT_ID
+gcloud run deploy core-api --project=YOUR_PROJECT_ID --region=asia-southeast1 --image=YOUR_IMAGE_REFERENCE --platform=managed --allow-unauthenticated --cpu=1 --memory=1Gi --concurrency=20 --min-instances=0 --max-instances=2 --set-secrets=DATABASE_URL=YOUR_DATABASE_SECRET:latest
 ```
 
-Build and push the container from the repository root. The build context must be the root because the Dockerfile copies both workspaces.
+Use request-based billing. Inject the actual Firebase Hosting origin, bootstrap
+admin email, upload bucket, API endpoint, and Firebase web configuration only at
+the authorized deployment checkpoint. The committed
+`apps/web/.env.production` deliberately uses a `.invalid` endpoint so an
+unconfigured build cannot silently target a deleted service.
 
-```powershell
-gcloud builds submit . `
-  --project=$PROJECT_ID `
-  --tag=$IMAGE `
-  --file=services/core-api/Dockerfile
-```
+Verify the public health endpoint and authenticated role-protected routes.
+Confirm billing alerts, Neon consumption controls, GCS lifecycle, CORS, signed
+URL expiry, and artifact cleanup before users upload a workbook.
 
-Deploy to Cloud Run:
+## Rollback
 
-```powershell
-gcloud run deploy core-api `
-  --project=$PROJECT_ID `
-  --region=$REGION `
-  --image=$IMAGE `
-  --platform=managed `
-  --allow-unauthenticated `
-  --max-instances=10 `
-  --set-env-vars="NODE_ENV=production,PORT=8080,ALLOWED_ORIGINS=https://your-app.web.app,ADMIN_EMAILS=owner@example.com" `
-  --set-secrets="DATABASE_URL=DATABASE_URL:latest"
-```
+Before deployment:
 
-Store sensitive values such as `DATABASE_URL` and `FIREBASE_SERVICE_ACCOUNT` in Secret Manager rather than passing them as plain environment variables.
+- discard or revert the recovery branch;
+- delete no provider resource without a separately approved cleanup plan.
 
-`--max-instances=10` bounds the total number of Cloud Run instances, and therefore
-the total number of database connection pools. Each instance opens one pool
-(`pg.Pool max: 5`), so the worst case is 10 × 5 = 50 connections. Keep this cap in
-line with the Cloud SQL instance's `max_connections` (run `SHOW max_connections;`
-to check) — on a small/shared-core tier, lower `--max-instances` or the pool `max`
-if 50 would exceed the instance limit.
+After an authorized deployment:
 
-After deployment, verify:
+1. route the frontend back to the previously accepted API revision;
+2. roll Cloud Run back to the recorded prior revision;
+3. restore the verified encrypted PostgreSQL dump into a separate database;
+4. update the database secret only after restore validation;
+5. verify authentication, health, row counts, and Sync behaviour;
+6. record the incident and provider cost impact.
 
-```powershell
-Invoke-RestMethod https://<cloud-run-url>/health
-```
-
-## Deploy The SPA To Firebase Hosting
-
-Build the Vite app:
-
-```powershell
-npm.cmd run build --workspace=apps/web
-```
-
-Deploy the generated [apps/web/dist](../apps/web/dist) folder with Firebase Hosting:
-
-```powershell
-firebase deploy --only hosting
-```
-
-[firebase.json](../firebase.json) points Hosting at the Vite build output and rewrites all routes to `index.html`.
-
-Before production uploads are enabled, add the deployed Firebase Hosting origin
-(for example, `https://your-project.web.app`) to the
-`training-planner-499504-uploads` bucket CORS configuration. Keep the local
-development origins and apply the updated configuration with
-`gcloud storage buckets update --cors-file`; otherwise browser `PUT` requests
-from Firebase Hosting will fail their CORS preflight.
-
-## PR1 Completion Checklist
-
-- [x] Approved Postgres schema in [db/schema.sql](../db/schema.sql)
-- [x] Shared service package in [services/shared](../services/shared)
-- [x] Core API package in [services/core-api](../services/core-api)
-- [x] `/health` endpoint
-- [x] `/me` endpoint with Firebase token verification
-- [x] `ADMIN_EMAILS` first-admin allowlist
-- [x] Root [.env.example](../.env.example)
-- [x] Cloud Run Dockerfile
-- [x] Local setup and deploy documentation
+Never overwrite the only database or dump during rollback.
