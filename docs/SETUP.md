@@ -183,10 +183,11 @@ The recovery project, Hosting web app, and email/password plus email-link sign-i
 already exist. Add only approved local and hosted domains, and do not enable
 additional sign-in providers without a separate authorization decision.
 
-Cloud Run may be configured with platform-level `--allow-unauthenticated` so
-browser requests can reach the API. That setting does not make protected
-application routes public: Firebase token verification and server-side role
-authorization remain mandatory.
+Cloud Run must be configured separately with public invocation so browser
+requests can reach the API. That IAM change belongs to the separately authorized
+provider gate and is not performed by the deployment workflow. Public platform
+invocation does not make protected application routes public: Firebase token
+verification and server-side role authorization remain mandatory.
 
 ### Temporary uploads
 
@@ -311,6 +312,27 @@ The committed `apps/web/.env.production` deliberately retains a `.invalid`
 endpoint. The actual API URL and Firebase web configuration are injected only
 into the authorized deployment build.
 
+The remaining recovery work is split into independent gates. Approval at one
+gate does not imply approval for any later gate:
+
+1. **Merge gate** — Terra must approve the actual recovery diff and validation
+   evidence, then Sol must separately accept the implementation and expressly
+   authorize the merge.
+2. **Environment gate** — configure the protected GitHub `production`
+   environment and its reviewers only under a separate work order.
+3. **IAM and provider gate** — grant the reviewed least-privilege IAM roles and
+   verify every already-created provider resource under a separate work order;
+   this workflow does not create resources, secrets, IAM bindings, or database
+   objects.
+4. **Dispatch gate** — Sol and the user must expressly authorize the exact
+   accepted commit and target before Luna may enter the two manual confirmation
+   values and dispatch the workflow.
+
+The workflow also verifies that the approved Artifact Registry repository and
+`core-api` Cloud Run service already exist before it pushes an image or changes
+a service revision. A missing target stops the run; the workflow does not create
+the missing resource.
+
 ### First-deployment preflight evidence
 
 Record and independently review all of the following before dispatch:
@@ -340,6 +362,26 @@ After deployment, verify the public health endpoint, authenticated
 role-protected routes, Firebase Hosting authentication, database connection
 count, billing telemetry, GCS lifecycle/CORS, signed URL expiry, and artifact
 cleanup before users upload a workbook.
+
+## Recovery execution safety checklist
+
+- Verify the remote repository, intended branch, exact base SHA, and
+  clean-equivalent remote tree before edits begin.
+- Enforce the exact three-file allowlist after every edit group:
+  `.github/workflows/deploy-recovery.yml`, `docs/SETUP.md`, and
+  `scripts/check-infra-guardrails.mjs`; stop for a revised Sol decision before
+  touching a fourth file.
+- Run validation as separately reported stages, each with an explicit timeout
+  and captured command result.
+- Never claim a command is running without an active command or session and
+  recent output that proves it is still running.
+- Stop and report lost execution state or missing output instead of silently
+  retrying or leaving a misleading progress message.
+- After validation and separate publication authorization, create a durable
+  branch commit and draft pull request promptly so accepted work is not held
+  only in a temporary workspace.
+- Preserve stalled drafts and compare them with the verified remote tree and
+  blobs; never publish synthetic-baseline diffs or final-newline-only artifacts.
 
 ## Rollback
 

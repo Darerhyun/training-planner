@@ -155,16 +155,56 @@ const scopedText = scopedRuntimeAndDocs
   .map((relativePath) => `--- ${relativePath} ---\n${readText(relativePath)}`)
   .join('\n');
 
-const forbiddenFragments = [
-  ['training-planner-499504', 'deleted Google project identifier'],
-  ['core-api-866735226242.asia-southeast1.run.app', 'deleted Cloud Run endpoint'],
-  ['Cloud SQL Auth Proxy', 'Cloud SQL Auth Proxy assumption'],
-  ['host=/cloudsql/', 'Cloud SQL Unix socket assumption'],
+const forbiddenPatterns = [
+  [/training-planner-\d{5,}/i, 'numeric Google project identifier'],
+  [/https:\/\/core-api-\d+\.[a-z0-9-]+\.run\.app/i, 'live Cloud Run endpoint'],
+  [/Cloud SQL Auth Proxy/i, 'Cloud SQL Auth Proxy assumption'],
+  [/host=\/cloudsql\//i, 'Cloud SQL Unix socket assumption'],
+  [
+    /repository_(?:owner_)?id\s*(?:==|:|=)\s*['"]?\d+/i,
+    'numeric repository or owner identity',
+  ],
 ];
-for (const [fragment, description] of forbiddenFragments) {
-  assert(!scopedText.includes(fragment), `scoped files contain ${description}: ${fragment}`);
+for (const [pattern, description] of forbiddenPatterns) {
+  assert(!pattern.test(scopedText), `scoped files contain ${description}`);
 }
 assert(!/@gmail\.com\b/i.test(scopedText), 'scoped files contain a committed Gmail address');
+
+const setupDocument = readText('docs/SETUP.md');
+const recoverySafetyHeading = '## Recovery execution safety checklist';
+assert(
+  setupDocument.split(recoverySafetyHeading).length === 2,
+  'setup guide must contain exactly one Recovery execution safety checklist section',
+);
+const recoverySafetyStart = setupDocument.indexOf(recoverySafetyHeading);
+const recoverySafetyRemainder = setupDocument.slice(recoverySafetyStart);
+const recoverySafetyEnd = recoverySafetyRemainder.indexOf('\n## ', 1);
+const recoverySafetySection =
+  recoverySafetyEnd === -1
+    ? recoverySafetyRemainder
+    : recoverySafetyRemainder.slice(0, recoverySafetyEnd);
+for (const [fragment, description] of [
+  ['remote repository, intended branch, exact base SHA', 'remote state verification'],
+  ['exact three-file allowlist after every edit group', 'three-file allowlist enforcement'],
+  ['each with an explicit timeout', 'staged validation timeouts'],
+  ['active command or session', 'evidence-based running status'],
+  ['Stop and report lost execution state', 'lost-state fail-closed rule'],
+  ['durable\n  branch commit and draft pull request', 'durable branch and draft PR checkpoint'],
+  ['never publish synthetic-baseline diffs', 'synthetic-baseline diff prohibition'],
+]) {
+  assert(
+    recoverySafetySection.includes(fragment),
+    `recovery safety checklist must preserve ${description}`,
+  );
+}
+for (const gateName of [
+  '**Merge gate**',
+  '**Environment gate**',
+  '**IAM and provider gate**',
+  '**Dispatch gate**',
+]) {
+  assert(setupDocument.includes(gateName), `setup guide must preserve the separate ${gateName}`);
+}
 
 const frontendEnvironment = readText('apps/web/.env.production').trim();
 assert(
@@ -294,6 +334,33 @@ assert(
   deploymentWorkflow.includes('uses: google-github-actions/setup-gcloud@v3'),
   'deployment workflow must use setup-gcloud v3',
 );
+assertOrdered(
+  deploymentWorkflow,
+  [
+    'uses: google-github-actions/setup-gcloud@v3',
+    'name: Verify pre-provisioned deployment targets',
+    'gcloud artifacts repositories describe "$GCP_ARTIFACT_REPOSITORY"',
+    'gcloud run services describe core-api',
+    'name: Build and push immutable API image',
+  ],
+  'deployment workflow must verify existing targets before publishing or deploying',
+);
+for (const forbiddenProvisioningCommand of [
+  'gcloud services enable',
+  'gcloud artifacts repositories create',
+  'gcloud storage buckets create',
+  'gcloud secrets create',
+  'gcloud projects add-iam-policy-binding',
+  'gcloud iam service-accounts create',
+  'firebase projects:create',
+  'psql ',
+  'db/schema.sql',
+]) {
+  assert(
+    !deploymentWorkflow.includes(forbiddenProvisioningCommand),
+    `deployment workflow must not provision or run SQL: ${forbiddenProvisioningCommand}`,
+  );
+}
 assert(
   deploymentWorkflow.includes(
     'workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}',
@@ -319,7 +386,6 @@ for (const fragment of [
   '--project="$GCP_PROJECT_ID"',
   '--region=asia-southeast1',
   '--platform=managed',
-  '--allow-unauthenticated',
   '--cpu=1',
   '--cpu-throttling',
   '--memory=1Gi',
@@ -340,6 +406,11 @@ for (const fragment of [
 assert(
   !deploymentWorkflow.includes('--no-cpu-throttling'),
   'deployment workflow must reject Cloud Run instance-based CPU allocation',
+);
+assert(
+  !deploymentWorkflow.includes('--allow-unauthenticated') &&
+    !deploymentWorkflow.includes('--no-allow-unauthenticated'),
+  'deployment workflow must leave Cloud Run invocation IAM to the separate provider gate',
 );
 
 assertOrdered(

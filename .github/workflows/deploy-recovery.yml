@@ -106,6 +106,19 @@ jobs:
       - name: Setup Google Cloud CLI
         uses: google-github-actions/setup-gcloud@v3
 
+      - name: Verify pre-provisioned deployment targets
+        run: |
+          set -euo pipefail
+          gcloud artifacts repositories describe "$GCP_ARTIFACT_REPOSITORY" \
+            --project="$GCP_PROJECT_ID" \
+            --location=asia-southeast1 \
+            --format='value(name)' >/dev/null
+          gcloud run services describe core-api \
+            --project="$GCP_PROJECT_ID" \
+            --region=asia-southeast1 \
+            --platform=managed \
+            --format='value(metadata.name)' >/dev/null
+
       - name: Build and push immutable API image
         run: |
           set -euo pipefail
@@ -124,7 +137,6 @@ jobs:
             --region=asia-southeast1 \
             --image="$CORE_API_IMAGE" \
             --platform=managed \
-            --allow-unauthenticated \
             --cpu=1 \
             --cpu-throttling \
             --memory=1Gi \
