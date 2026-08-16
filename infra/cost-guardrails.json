@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "currency": "USD",
+  "monthlyCost": {
+    "target": 15,
+    "emergencyCeiling": 25,
+    "alertThresholds": [
+      5,
+      10,
+      15
+    ],
+    "alertsAreHardCaps": false
+  },
+  "cloudRun": {
+    "region": "asia-southeast1",
+    "billing": "request-based",
+    "minInstances": 0,
+    "maxInstances": 2,
+    "cpu": 1,
+    "memory": "1Gi",
+    "concurrency": 20,
+    "databasePoolPerInstance": 3,
+    "maximumDocumentedDatabaseConnections": 6
+  },
+  "database": {
+    "provider": "Neon",
+    "region": "Singapore",
+    "pooledConnectionRequired": true,
+    "tlsRequired": true,
+    "autoSuspendMinutes": 5,
+    "monthlyTargetCeiling": 10,
+    "ceilingEnforcedWhereSupported": true
+  },
+  "uploads": {
+    "signedUrlMinutes": 15,
+    "retentionDays": 7
+  },
+  "artifactRegistry": {
+    "retentionDays": 30
+  },
+  "prohibitedWithoutUserApprovedException": [
+    "Cloud SQL",
+    "Compute Engine",
+    "GKE",
+    "Cloud Run minimum instances greater than 0",
+    "Cloud Run instance-based billing",
+    "Serverless VPC Access",
+    "Cloud NAT",
+    "GPUs",
+    "indefinite upload retention"
+  ]
+}

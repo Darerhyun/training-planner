@@ -18,11 +18,15 @@
 ../SOL_RULES.md                    ← Sol operating contract
 ../LUNA_RULES.md                   ← Luna operating contract
 ../TERRA_RULES.md                  ← Terra operating contract
+../infra/
+├── cost-guardrails.json           ← locked cost and scaling limits
+├── gcs-lifecycle.json             ← seven-day upload deletion policy
+└── gcs-cors.example.json          ← placeholder-only upload CORS example
 docs/
 ├── 00-INDEX.md                     ← you are here
 ├── 01-product/
 │   └── planning-workflow-roadmap.md ← approved Course Planning vs Sessions workflow and ownership contract
-├── SETUP.md                        ← how to run the project locally + deploy (to be written in PR1)
+├── SETUP.md                        ← local setup and authorized infrastructure-recovery guide
 └── 02-domain/                      ← the domain model: what the business actually is
     ├── courses.md                  ← courses, programmes, modules, fees, durations
     ├── courses_catalog.csv         ← seed data: 142 original courses/modules
@@ -61,6 +65,7 @@ docs/
 | If you are working on... | Read these |
 |---|---|
 | Delivery workflow, review, acceptance, merge, or deployment | `../WORKFLOW_HARNESS.md` and the applicable rolebooks |
+| Infrastructure recovery, cost controls, GCS lifecycle, or CORS | `SETUP.md`, `../infra/cost-guardrails.json`, `../infra/gcs-lifecycle.json`, `../infra/gcs-cors.example.json` |
 | Course Planning / Sessions workflow, Excel/app/TMS ownership, Admin Area decisions, PR3E–PR3J scope | `01-product/planning-workflow-roadmap.md` |
 | Database schema, seed data | All four domain `.md` files + every `.csv` |
 | Parsing the master schedule Excel | `courses.md` (to match course codes), `trainers.md` (trainer name aliasing), `venues-rooms.md` (venue codes) |

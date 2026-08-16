@@ -12,6 +12,7 @@
     "dev": "npm run dev --workspace=services/core-api",
     "dev:web": "npm run dev --workspace=apps/web",
     "build": "npm run build --workspace=services/shared && npm run build --workspace=services/core-api && npm run build --workspace=apps/web",
+    "check:infra": "node scripts/check-infra-guardrails.mjs",
     "seed-reference-data": "npm run seed-reference-data --workspace=services/core-api",
     "start": "npm run start --workspace=services/core-api",
     "test": "npm run test --workspace=services/core-api",
