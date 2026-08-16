@@ -1,7 +1,7 @@
 # Training Planner — Planning and Sessions Roadmap
 
-Status: Approved product direction; PR3E–PR3F complete, PR3F deployed; PR3G onward pending
-Last updated: 21 July 2026
+Status: Approved product direction; PR3E–PR3F complete, PR3F historically deployed; no live deployment currently exists; PR3G onward pending
+Last updated: 16 August 2026
 
 ## 1. Purpose
 
@@ -113,8 +113,9 @@ outside GitHub.
 
 ## 6. Admin Area
 
-Use one Admin navigation area with two separate sections and implementation PRs.
-Only active Admin users may access or modify either section.
+Approved Admin Area option 3 uses one Admin navigation area with two separate
+sections and implementation PRs. Only active Admin users may access or modify
+either section.
 
 ### User Access
 
@@ -213,6 +214,11 @@ simpler workflow for non-technical Operations users.
 Historical PRs remain unchanged. Continue with PR3 sub-parts so the existing PR4
 Trainer Picker milestone keeps its original identity.
 
+The next product feature is PR3G — Sessions UX. It may begin only after this
+workflow documentation is merged and a separate, approved infrastructure-recovery
+prerequisite has established a safe development and deployment environment.
+Infrastructure recovery and PR3G must remain separate work orders and PRs.
+
 ### PR3E — Product and data-ownership contract (completed)
 
 - Commit this roadmap and update the documentation index.
@@ -221,7 +227,7 @@ Trainer Picker milestone keeps its original identity.
 - Preserve the statement that TMS is the official regulated record.
 - No runtime, schema, database, or deployment changes.
 
-### PR3F — Session write safety and audit foundation (completed and deployed)
+### PR3F — Session write safety and audit foundation (completed; historically deployed)
 
 - Added application-managed/import-managed session ownership.
 - Added optimistic concurrency/versioning.
@@ -231,6 +237,8 @@ Trainer Picker milestone keeps its original identity.
 - Changed Sync so incoming Excel differences cannot silently overwrite an
   application-managed session; conflicts are explicitly reported.
 - Delivered backend and focused tests without a UI redesign.
+- The historical Google deployment was deleted; no live deployment currently
+  exists. This status does not reopen or undo PR3F's completed implementation.
 
 ### PR3G — Sessions UX and navigation consolidation
 
@@ -277,6 +285,7 @@ Trainer Picker milestone keeps its original identity.
   absence of authoritative individual training dates.
 
 PR5 and PR6 remain AI assistant and Calendar/Gantt/Activity work respectively.
+Their identities and numbering are unchanged.
 
 ## 11. Non-goals for PR3E–PR3J
 

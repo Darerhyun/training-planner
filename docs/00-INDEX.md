@@ -5,15 +5,19 @@
 ## Mandatory operating files
 
 - `../AGENTS.md` — always-loaded project brief and build sequence.
-- `../SOL_RULES.md` — mandatory planning, architecture, specification, and acceptance-review contract for Sol.
-- `../LUNA_RULES.md` — mandatory bounded implementation and escalation contract for Luna.
+- `../WORKFLOW_HARNESS.md` — mandatory Sol → Luna → Terra delivery gates.
+- `../SOL_RULES.md` — mandatory planning, architecture, work-order, and acceptance contract for Sol.
+- `../LUNA_RULES.md` — mandatory pre-edit, implementation, escalation, and release contract for Luna.
+- `../TERRA_RULES.md` — mandatory independent review and post-deployment verification contract for Terra.
 
 ## How the knowledge base is organised
 
 ```
 ../AGENTS.md                       ← project brief and mandatory role entry point
+../WORKFLOW_HARNESS.md              ← Sol → Luna → Terra delivery harness
 ../SOL_RULES.md                    ← Sol operating contract
 ../LUNA_RULES.md                   ← Luna operating contract
+../TERRA_RULES.md                  ← Terra operating contract
 docs/
 ├── 00-INDEX.md                     ← you are here
 ├── 01-product/
@@ -40,21 +44,23 @@ docs/
     ├── rooms.csv                   ← seed data: 15 rooms
     ├── trainer-rates.md            ← pricing model, tiers, viability badges, session economics
     ├── programme_categories.csv    ← seed data: 5 pricing categories
-    ├── trainer_rate_tiers.csv      ← (NOT in repo — schema only; real rates live in Google Cloud SQL)
+    ├── trainer_rate_tiers.csv      ← NOT in repo — schema only; real rates live in the protected production database, outside GitHub
     └── trainer_tier_assignments.csv← seed data: which trainer is in which tier
 ```
 
 ## Reading order for a new agent
 
-1. **`../AGENTS.md`** — the project brief (what we're building, architecture, build sequence, ground rules)
-2. **The applicable rolebook** — `../SOL_RULES.md` for Sol or `../LUNA_RULES.md` for Luna
-3. **This index**
-4. The specific domain doc for whatever you're working on (see the map below)
+1. **`../AGENTS.md`** — the project brief
+2. **`../WORKFLOW_HARNESS.md`** — mandatory delivery gates
+3. **The applicable rolebook** — `../SOL_RULES.md`, `../LUNA_RULES.md`, or `../TERRA_RULES.md`
+4. **This index**
+5. The specific domain doc for the work
 
 ## Which doc to read for which task
 
 | If you are working on... | Read these |
 |---|---|
+| Delivery workflow, review, acceptance, merge, or deployment | `../WORKFLOW_HARNESS.md` and the applicable rolebooks |
 | Course Planning / Sessions workflow, Excel/app/TMS ownership, Admin Area decisions, PR3E–PR3J scope | `01-product/planning-workflow-roadmap.md` |
 | Database schema, seed data | All four domain `.md` files + every `.csv` |
 | Parsing the master schedule Excel | `courses.md` (to match course codes), `trainers.md` (trainer name aliasing), `venues-rooms.md` (venue codes) |
@@ -72,7 +78,7 @@ docs/
 | 1 | Courses + programmes | `courses.md`, `courses_catalog.csv`, `courses_fulltime_2026.csv`, `new_courses_2026H2.csv`, `course_aliases_ft_2026.csv`, `obsolete_programmes_2026.csv` | Complete |
 | 2 | Course rates | folded into courses (fee_with_gst column) | Complete |
 | 3 | Trainers + skills + SME | `trainers.md`, `trainers.csv`, `trainers_new_2026.csv`, `trainer_courses.csv`, `trainer_aliases_2026aug.csv` | Complete |
-| 4 | Trainer rates + tiers | `trainer-rates.md`, `programme_categories.csv`, `trainer_rate_tiers.csv`, `trainer_tier_assignments.csv` | Complete (rates entered in Google Cloud SQL, not repo) |
+| 4 | Trainer rates + tiers | `trainer-rates.md`, `programme_categories.csv`, `trainer_rate_tiers.csv`, `trainer_tier_assignments.csv` | Complete; actual rates live in the protected production database, outside GitHub |
 | 5 | Venues + rooms | `venues-rooms.md`, `venues.csv`, `rooms.csv` | Complete |
 | 6 | Training assistants | — | NOT yet modelled |
 
@@ -83,7 +89,7 @@ docs/
 - **All fees include 9% GST.** No funding/subsidy math in this tool — that's TMS's job.
 - **No SSG/TGS codes stored.** Those are TMS data, not planning data.
 - **Sessions are dynamic** (from Excel upload); **catalog is static** (rarely changes). The catalog must be solid so the parser has something reliable to match against.
-- **Trainer fees are sensitive.** The repo has the rate *model* and *tier groupings*; the actual dollar rates live only in Google Cloud SQL and are surfaced to users only as viability badges (except for finance/admin roles).
+- **Trainer fees are sensitive.** The repo has the rate *model* and *tier groupings*; the actual dollar rates live only in the protected production database, outside GitHub, and are surfaced to users only as viability badges (except for finance/admin roles).
 
 ## Known gaps / to-do (documented in the domain files)
 

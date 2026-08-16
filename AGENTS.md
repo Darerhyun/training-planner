@@ -2,12 +2,16 @@
 
 > This file is the always-loaded project brief. Keep it short. Detailed reference material lives in `docs/` and should be read on demand, not pasted here.
 
-## Mandatory role workflow
+## Mandatory delivery workflow
 
-- When acting as **Sol** for planning, architecture, implementation specifications, or acceptance reviews, read and follow `SOL_RULES.md` before starting.
-- When acting as **Luna** to execute an approved implementation specification, read and follow `LUNA_RULES.md` before editing.
-- Sol must not implement feature code unless the user explicitly requests implementation.
-- If either rolebook conflicts with this file, stop and escalate the conflict rather than choosing silently.
+- Read and follow `WORKFLOW_HARNESS.md` for every change to application code, infrastructure, database schema, GitHub state, or deployment.
+- Sol must read `SOL_RULES.md` before planning, architecture, work orders, or acceptance.
+- Luna must read `LUNA_RULES.md`, perform read-only inspection, send a pre-edit notice, and wait for `APPROVED_TO_EDIT` before editing.
+- Terra must read `TERRA_RULES.md` and independently review the actual diff and evidence without editing.
+- Sol must not record implementation acceptance before Terra approves.
+- Only Luna may merge or deploy, and only after Terra approval plus separate Sol acceptance and express merge/deployment authorization.
+- Any scope or repository-state deviation returns to Sol.
+- If a rolebook or the harness conflicts with this file, stop and escalate.
 
 ## What we are building
 
@@ -29,24 +33,19 @@ Excel is an import source only. After import, the Training Planner app is author
 
 Multi-user from day one. Roles live on `users.role` (enum: `admin | ops | finance | viewer | pending | rejected`). New signups land as `pending` until an admin approves.
 
-## Architecture (target)
+## Architecture and recovery state
 
-Cost target: **$0/month** on free tiers where possible.
+The application uses standard PostgreSQL contracts. The former Google project has been deleted, so no live Training Planner deployment currently exists. Deployment and provisioning are frozen until a separate infrastructure-recovery PR is specified, reviewed, and expressly approved.
 
-| Layer | Choice | Notes |
-|---|---|---|
-| Database | **Google Cloud SQL** (Postgres) | Single schema. No Firestore. |
-| API | **Cloud Run** — Node 22 + TypeScript + Hono | `services/shared` + `services/core-api` |
-| Frontend | **Vite SPA** on **Firebase Hosting** | Dark navy/indigo glass-morphism aesthetic preferred |
-| Auth | **Firebase Auth** — email magic link | `ADMIN_EMAILS` env allowlist for first admins |
-| File upload | **GCS signed-URL uploads** | For the master schedule Excel |
-| AI | **Google AI Studio — Gemini direct** | NOT Vertex AI. NOT a gateway. Direct API. |
+The approved recovery target is a cost-controlled **Neon PostgreSQL database in Singapore**, but it has not been provisioned. Existing Cloud Run, Firebase Hosting, Firebase Auth, GCS upload, and Gemini integrations are historical application choices and repository contracts; their recreation or replacement belongs to the separate infrastructure-recovery work.
 
-Do not introduce Vertex AI, Firestore, or Cloudflare — they are explicitly out of scope.
+Do not recreate Cloud SQL without a new, explicit user-approved cost exception. Cloud SQL, Compute Engine, GKE, minimum Cloud Run instances, instance-based Cloud Run billing, Serverless VPC Access connectors, and Cloud NAT all require an explicit user-approved cost estimate, ceiling, monitoring, and rollback plan.
+
+Do not introduce Vertex AI, Firestore, or Cloudflare without a separately approved architecture change.
 
 ## How to read this project
 
-The product workflow and domain knowledge are captured in `docs/`. **Read the relevant doc before writing code that touches that product or domain area.** Start with `docs/00-INDEX.md`, which maps every file. Sol and Luna must also read their root rolebook. For Course Planning vs Sessions workflow, Excel/app/TMS ownership, Admin Area decisions, and PR3E–PR3J scope, read `docs/01-product/planning-workflow-roadmap.md`.
+The product workflow and domain knowledge are captured in `docs/`. **Read the relevant doc before writing code that touches that product or domain area.** Start with `docs/00-INDEX.md`, which maps every file. Sol, Luna, and Terra must read `WORKFLOW_HARNESS.md` and their root rolebook. For Course Planning vs Sessions workflow, Excel/app/TMS ownership, Admin Area decisions, and PR3E–PR3J scope, read `docs/01-product/planning-workflow-roadmap.md`.
 
 The data model is driven by the CSVs in `docs/` — they are the seed data. The markdown files explain the model and the business rules.
 
@@ -56,7 +55,7 @@ The data model is driven by the CSVs in `docs/` — they are the seed data. The 
 2. **Work in small, reviewable batches.** One PR's worth of scope at a time. Validate each batch (it builds, it runs) before moving on.
 3. **Ask before deleting** files or making destructive schema changes.
 4. **Report honestly.** If something failed, say so. Do not silently retry or paper over errors.
-5. **Sensitive data stays out of the repo.** Real trainer fees are never committed. They live only in the Google Cloud SQL database. The repo contains the rate *model* and *tier groupings*, never the dollar amounts. See `docs/02-domain/trainer-rates.md`.
+5. **Sensitive data stays out of the repo.** Real trainer fees are never committed. They live only in the protected production database, outside GitHub. The repo contains the rate *model* and *tier groupings*, never the dollar amounts. See `docs/02-domain/trainer-rates.md`.
 6. **Honour the standardised conventions** (below) so the codebase stays consistent.
 
 ## Naming & layout conventions (locked)
@@ -79,14 +78,16 @@ Build in this order. Each PR is independently reviewable. Do not jump ahead.
 	- **PR3C — Planning Dashboard frontend.** Completed: default authenticated Planning view with read-only session table, filters, summaries, and detail panel.
 	- **PR3D — Planning Profile annotations.** Completed: read-only CSV-backed planning profile annotations for direct history, FT proxy history, no-history courses, and unavailable profiles.
 	- **PR3E — Product and data-ownership contract.** Completed: approved Course Planning vs Sessions workflow and ownership roadmap committed as documentation.
-	- **PR3F — Session write safety and audit foundation.** Completed and deployed: ownership, optimistic concurrency, session history, Admin/Ops trainer assignment endpoint, and Sync conflict protection.
-	- **PR3G — Sessions UX and navigation consolidation.** Turn the rich Planning dashboard into the enhanced Sessions experience with role-appropriate trainer amendment UI and history/detail states.
+	- **PR3F — Session write safety and audit foundation.** Completed and historically deployed: ownership, optimistic concurrency, session history, Admin/Ops trainer assignment endpoint, and Sync conflict protection. The former deployment no longer exists.
+	- **PR3G — Sessions UX and navigation consolidation.** Next product feature after the workflow and infrastructure-recovery prerequisites. Turn the rich Planning dashboard into the enhanced Sessions experience with role-appropriate trainer amendment UI and history/detail states.
 	- **PR3H — Future Course Planning.** Add month-based Course Planning using planning profiles as evidence, with explicit creation of draft Sessions from approved planned runs.
 	- **PR3I — Admin Panel: User Access.** Add the Admin-only workflow to invite, approve, reject, assign roles, deactivate, and reactivate application users.
 	- **PR3J — Admin Panel: Trainer Directory.** Add the Admin-only workflow to register and edit trainers, activate/deactivate records, and manage course links and module exclusions.
 4. **PR4 — Trainer picker drawer** with rules-based suggestions (skills, SME boost, exclusions, tier/cost awareness).
 5. **PR5 — AI assistant chat** (propose → confirm → execute pattern).
 6. **PR6 — Gantt trainers view, Calendar view, Activity page.**
+
+Do not begin PR3G until this workflow documentation is merged and a separate, approved infrastructure-recovery prerequisite has established a safe development and deployment environment. PR3I and PR3J remain separate; PR4–PR6 retain their historical identities and numbering.
 
 ## Key domain concepts (one-liners — details in docs/)
 
