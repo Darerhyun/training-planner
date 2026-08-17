@@ -11,6 +11,14 @@ on:
         description: Confirm the configured target project ID
         required: true
         type: string
+      expected_commit_sha:
+        description: Confirm the expected commit SHA for the selected main ref
+        required: true
+        type: string
+      cost_acknowledgement:
+        description: Type I ACKNOWLEDGE LOW-COST LIMITS to continue
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -24,7 +32,7 @@ jobs:
   deploy:
     name: Validate and deploy approved recovery
     runs-on: ubuntu-latest
-    environment: production
+    timeout-minutes: 30
     env:
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -41,10 +49,31 @@ jobs:
     steps:
       - name: Verify manual confirmation and configuration
         env:
+          ACTOR: ${{ github.actor }}
+          REF: ${{ github.ref }}
+          EXPECTED_COMMIT_SHA: ${{ inputs.expected_commit_sha }}
+          GITHUB_SHA_VALUE: ${{ github.sha }}
+          COST_ACKNOWLEDGEMENT: ${{ inputs.cost_acknowledgement }}
           CONFIRMATION: ${{ inputs.confirmation }}
           TARGET_PROJECT_ID: ${{ inputs.target_project_id }}
         run: |
           set -euo pipefail
+          if [[ "$ACTOR" != 'Darerhyun' ]]; then
+            echo 'Recovery deployment actor must be Darerhyun.' >&2
+            exit 1
+          fi
+          if [[ "$REF" != 'refs/heads/main' ]]; then
+            echo 'Recovery deployment ref must be refs/heads/main.' >&2
+            exit 1
+          fi
+          if [[ -z "$EXPECTED_COMMIT_SHA" || "$EXPECTED_COMMIT_SHA" != "$GITHUB_SHA_VALUE" ]]; then
+            echo 'Expected commit SHA did not match github.sha.' >&2
+            exit 1
+          fi
+          if [[ "$COST_ACKNOWLEDGEMENT" != 'I ACKNOWLEDGE LOW-COST LIMITS' ]]; then
+            echo 'Low-cost acknowledgement did not match.' >&2
+            exit 1
+          fi
           if [[ "$CONFIRMATION" != 'DEPLOY TRAINING PLANNER' ]]; then
             echo 'Manual deployment confirmation did not match.' >&2
             exit 1

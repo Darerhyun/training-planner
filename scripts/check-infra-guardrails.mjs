@@ -199,14 +199,30 @@ for (const [fragment, description] of [
 }
 for (const gateName of [
   '**Merge gate**',
-  '**Environment gate**',
+  '**Repository configuration gate**',
   '**IAM and provider gate**',
   '**Dispatch gate**',
 ]) {
   assert(setupDocument.includes(gateName), `setup guide must preserve the separate ${gateName}`);
 }
 
-const frontendEnvironment = readText('apps/web/.env.production').trim();
+const frontendEnvironment = readText('apps/web/.env.production').trim();assert(
+  !setupDocument.includes('**Environment gate**'),
+  'setup guide must replace the Environment gate name',
+);
+for (const [fragment, description] of [
+  ['### GitHub repository configuration', 'repository configuration section'],
+  ['private GitHub Free initial phase', 'private-Free configuration context'],
+  ['repository-level Actions variables', 'repository-level variable documentation'],
+  ['not equivalent to independent GitHub-native approval', 'single-owner residual-risk wording'],
+  ['residual risk is single-owner control', 'single-owner residual-risk contract'],
+  ['fresh explicit authorization', 'fresh user authorization process gate'],
+  ['Sol performs preflight', 'Sol preflight process gate'],
+  ['Terra performs an independent read-only verification', 'Terra read-only process gate'],
+]) {
+  assert(setupDocument.includes(fragment), `setup guide must document ${description}`);
+}
+
 assert(
   frontendEnvironment.endsWith(
     'VITE_API_BASE_URL=https://replace-before-deployment.invalid',
@@ -264,8 +280,12 @@ assert(
   'deployment workflow must serialize production deployments without cancellation',
 );
 assert(
-  /environment: production/.test(deploymentWorkflow),
-  'deployment workflow must use the production environment',
+  !/^\s*environment\s*:/m.test(deploymentWorkflow),
+  'deployment workflow must not reference a GitHub environment',
+);
+assert(
+  /timeout-minutes: 30/.test(deploymentWorkflow),
+  'deployment workflow must set a 30-minute job timeout',
 );
 
 assert(
@@ -279,6 +299,40 @@ assert(
     deploymentWorkflow,
   ),
   'deployment workflow must require the target project input',
+);
+assert(
+  /expected_commit_sha:\n\s+description: [^\n]+\n\s+required: true\n\s+type: string/.test(
+    deploymentWorkflow,
+  ),
+  'deployment workflow must require the expected commit SHA input',
+);
+assert(
+  /cost_acknowledgement:\n\s+description: Type I ACKNOWLEDGE LOW-COST LIMITS to continue\n\s+required: true\n\s+type: string/.test(
+    deploymentWorkflow,
+  ),
+  'deployment workflow must require the exact low-cost acknowledgement input',
+);
+for (const [fragment, description] of [
+  ['ACTOR: ${{ github.actor }}', 'github.actor input binding'],
+  ['REF: ${{ github.ref }}', 'github.ref input binding'],
+  ['EXPECTED_COMMIT_SHA: ${{ inputs.expected_commit_sha }}', 'expected commit input binding'],
+  ['GITHUB_SHA_VALUE: ${{ github.sha }}', 'github.sha input binding'],
+  ['COST_ACKNOWLEDGEMENT: ${{ inputs.cost_acknowledgement }}', 'cost acknowledgement input binding'],
+  ['if [[ "$ACTOR" != \'Darerhyun\' ]]', 'exact actor comparison'],
+  ['if [[ "$REF" != \'refs/heads/main\' ]]', 'exact ref comparison'],
+  ['if [[ -z "$EXPECTED_COMMIT_SHA" || "$EXPECTED_COMMIT_SHA" != "$GITHUB_SHA_VALUE" ]]', 'exact SHA comparison'],
+  ['if [[ "$COST_ACKNOWLEDGEMENT" != \'I ACKNOWLEDGE LOW-COST LIMITS\' ]]', 'exact cost comparison'],
+]) {
+  assert(deploymentWorkflow.includes(fragment), `deployment workflow must enforce ${description}`);
+}
+assertOrdered(
+  deploymentWorkflow,
+  [
+    'name: Verify manual confirmation and configuration',
+    'name: Checkout',
+    'name: Authenticate to Google Cloud without a key',
+  ],
+  'manual/configuration verification must precede checkout and authentication',
 );
 assert(
   deploymentWorkflow.includes(`"$CONFIRMATION" != 'DEPLOY TRAINING PLANNER'`),
