@@ -218,7 +218,9 @@ for (const [fragment, description] of [
   ['residual risk is single-owner control', 'single-owner residual-risk contract'],
   ['fresh explicit authorization', 'fresh user authorization process gate'],
   ['Sol performs preflight', 'Sol preflight process gate'],
-  ['Terra performs an independent read-only verification', 'Terra read-only process gate'],
+  // FIX: match the documented Terra wording across wrapped lines.
+  ['Terra performs', 'Terra read-only process gate'],
+  ['independent read-only verification', 'Terra read-only verification wording'],
 ]) {
   assert(setupDocument.includes(fragment), `setup guide must document ${description}`);
 }
