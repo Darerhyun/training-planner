@@ -1,0 +1,199 @@
+name: Deploy Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type DEPLOY TRAINING PLANNER to continue
+        required: true
+        type: string
+      target_project_id:
+        description: Confirm the configured target project ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: training-planner-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Validate and deploy approved recovery
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+      GCP_RUNTIME_SERVICE_ACCOUNT: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}
+      GCP_ARTIFACT_REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY }}
+      GCP_DATABASE_SECRET: ${{ vars.GCP_DATABASE_SECRET }}
+      GCP_ADMIN_EMAILS_SECRET: ${{ vars.GCP_ADMIN_EMAILS_SECRET }}
+      GCS_UPLOAD_BUCKET: ${{ vars.GCS_UPLOAD_BUCKET }}
+      FIREBASE_HOSTING_ORIGIN: ${{ vars.FIREBASE_HOSTING_ORIGIN }}
+      FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
+      FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
+
+    steps:
+      - name: Verify manual confirmation and configuration
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          TARGET_PROJECT_ID: ${{ inputs.target_project_id }}
+        run: |
+          set -euo pipefail
+          if [[ "$CONFIRMATION" != 'DEPLOY TRAINING PLANNER' ]]; then
+            echo 'Manual deployment confirmation did not match.' >&2
+            exit 1
+          fi
+          if [[ -z "$GCP_PROJECT_ID" || "$TARGET_PROJECT_ID" != "$GCP_PROJECT_ID" ]]; then
+            echo 'Target project confirmation did not match the configured project.' >&2
+            exit 1
+          fi
+          required_variables=(
+            GCP_PROJECT_ID
+            GCP_WORKLOAD_IDENTITY_PROVIDER
+            GCP_DEPLOYER_SERVICE_ACCOUNT
+            GCP_RUNTIME_SERVICE_ACCOUNT
+            GCP_ARTIFACT_REPOSITORY
+            GCP_DATABASE_SECRET
+            GCP_ADMIN_EMAILS_SECRET
+            GCS_UPLOAD_BUCKET
+            FIREBASE_HOSTING_ORIGIN
+            FIREBASE_API_KEY
+            FIREBASE_AUTH_DOMAIN
+          )
+          for variable_name in "${required_variables[@]}"; do
+            if [[ -z "${!variable_name:-}" ]]; then
+              echo "Required deployment variable is missing: $variable_name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check infrastructure guardrails
+        run: npm run check:infra
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Authenticate to Google Cloud without a key
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+
+      - name: Setup Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Verify pre-provisioned deployment targets
+        run: |
+          set -euo pipefail
+          gcloud artifacts repositories describe "$GCP_ARTIFACT_REPOSITORY" \
+            --project="$GCP_PROJECT_ID" \
+            --location=asia-southeast1 \
+            --format='value(name)' >/dev/null
+          gcloud run services describe core-api \
+            --project="$GCP_PROJECT_ID" \
+            --region=asia-southeast1 \
+            --platform=managed \
+            --format='value(metadata.name)' >/dev/null
+
+      - name: Build and push immutable API image
+        run: |
+          set -euo pipefail
+          registry_host='asia-southeast1-docker.pkg.dev'
+          image_uri="${registry_host}/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REPOSITORY}/core-api:${GITHUB_SHA}"
+          gcloud auth configure-docker "$registry_host" --quiet
+          docker build --file services/core-api/Dockerfile --tag "$image_uri" .
+          docker push "$image_uri"
+          echo "CORE_API_IMAGE=$image_uri" >> "$GITHUB_ENV"
+
+      - name: Deploy locked Cloud Run service
+        run: |
+          set -euo pipefail
+          gcloud run deploy core-api \
+            --project="$GCP_PROJECT_ID" \
+            --region=asia-southeast1 \
+            --image="$CORE_API_IMAGE" \
+            --platform=managed \
+            --cpu=1 \
+            --cpu-throttling \
+            --memory=1Gi \
+            --concurrency=20 \
+            --min-instances=0 \
+            --max-instances=2 \
+            --service-account="$GCP_RUNTIME_SERVICE_ACCOUNT" \
+            --set-secrets="DATABASE_URL=${GCP_DATABASE_SECRET}:latest,ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:latest" \
+            --set-env-vars="ALLOWED_ORIGINS=${FIREBASE_HOSTING_ORIGIN},GCS_UPLOAD_BUCKET=${GCS_UPLOAD_BUCKET}" \
+            --quiet
+
+      - name: Verify Cloud Run health
+        run: |
+          set -euo pipefail
+          echo 'HEALTH_STATUS=failed' >> "$GITHUB_ENV"
+          cloud_run_url="$(gcloud run services describe core-api \
+            --project="$GCP_PROJECT_ID" \
+            --region=asia-southeast1 \
+            --platform=managed \
+            --format='value(status.url)')"
+          if [[ -z "$cloud_run_url" ]]; then
+            echo 'Cloud Run did not return a service URL.' >&2
+            exit 1
+          fi
+          echo "::add-mask::$cloud_run_url"
+          curl --fail --silent --show-error --output /dev/null "${cloud_run_url}/health"
+          echo "CLOUD_RUN_URL=$cloud_run_url" >> "$GITHUB_ENV"
+          echo 'HEALTH_STATUS=passed' >> "$GITHUB_ENV"
+
+      - name: Build web for the verified API
+        env:
+          VITE_API_BASE_URL: ${{ env.CLOUD_RUN_URL }}
+          VITE_FIREBASE_API_KEY: ${{ env.FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ env.FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
+        run: npm run build --workspace=apps/web
+
+      - name: Deploy Firebase Hosting only
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@15.27.0 deploy \
+            --only hosting \
+            --project "$GCP_PROJECT_ID" \
+            --non-interactive
+          echo 'HOSTING_STATUS=passed' >> "$GITHUB_ENV"
+
+      - name: Record non-secret deployment evidence
+        if: always()
+        run: |
+          {
+            echo '## Recovery deployment evidence'
+            echo
+            echo "- Commit SHA: ${GITHUB_SHA}"
+            echo '- Region: asia-southeast1'
+            echo '- Cloud Run service: core-api'
+            echo "- Image tag: ${GITHUB_SHA}"
+            echo "- Health check: ${HEALTH_STATUS:-not reached}"
+            echo '- Hosting target: hosting'
+            echo "- Hosting deploy: ${HOSTING_STATUS:-not reached}"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -33,6 +33,18 @@ function assertArray(actual, expected, message) {
   );
 }
 
+function assertOrdered(text, fragments, message) {
+  let previousIndex = -1;
+  for (const fragment of fragments) {
+    const currentIndex = text.indexOf(fragment, previousIndex + 1);
+    if (currentIndex === -1 || currentIndex <= previousIndex) {
+      errors.push(`${message}: ${fragment}`);
+      return;
+    }
+    previousIndex = currentIndex;
+  }
+}
+
 const guardrails = readJson('infra/cost-guardrails.json');
 const lifecycle = readJson('infra/gcs-lifecycle.json');
 const cors = readJson('infra/gcs-cors.example.json');
@@ -137,21 +149,62 @@ const scopedRuntimeAndDocs = [
   'db/schema.sql',
   'package.json',
   '.github/workflows/build.yml',
+  '.github/workflows/deploy-recovery.yml',
 ];
 const scopedText = scopedRuntimeAndDocs
   .map((relativePath) => `--- ${relativePath} ---\n${readText(relativePath)}`)
   .join('\n');
 
-const forbiddenFragments = [
-  ['training-planner-499504', 'deleted Google project identifier'],
-  ['core-api-866735226242.asia-southeast1.run.app', 'deleted Cloud Run endpoint'],
-  ['Cloud SQL Auth Proxy', 'Cloud SQL Auth Proxy assumption'],
-  ['host=/cloudsql/', 'Cloud SQL Unix socket assumption'],
+const forbiddenPatterns = [
+  [/training-planner-\d{5,}/i, 'numeric Google project identifier'],
+  [/https:\/\/core-api-\d+\.[a-z0-9-]+\.run\.app/i, 'live Cloud Run endpoint'],
+  [/Cloud SQL Auth Proxy/i, 'Cloud SQL Auth Proxy assumption'],
+  [/host=\/cloudsql\//i, 'Cloud SQL Unix socket assumption'],
+  [
+    /repository_(?:owner_)?id\s*(?:==|:|=)\s*['"]?\d+/i,
+    'numeric repository or owner identity',
+  ],
 ];
-for (const [fragment, description] of forbiddenFragments) {
-  assert(!scopedText.includes(fragment), `scoped files contain ${description}: ${fragment}`);
+for (const [pattern, description] of forbiddenPatterns) {
+  assert(!pattern.test(scopedText), `scoped files contain ${description}`);
 }
 assert(!/@gmail\.com\b/i.test(scopedText), 'scoped files contain a committed Gmail address');
+
+const setupDocument = readText('docs/SETUP.md');
+const recoverySafetyHeading = '## Recovery execution safety checklist';
+assert(
+  setupDocument.split(recoverySafetyHeading).length === 2,
+  'setup guide must contain exactly one Recovery execution safety checklist section',
+);
+const recoverySafetyStart = setupDocument.indexOf(recoverySafetyHeading);
+const recoverySafetyRemainder = setupDocument.slice(recoverySafetyStart);
+const recoverySafetyEnd = recoverySafetyRemainder.indexOf('\n## ', 1);
+const recoverySafetySection =
+  recoverySafetyEnd === -1
+    ? recoverySafetyRemainder
+    : recoverySafetyRemainder.slice(0, recoverySafetyEnd);
+for (const [fragment, description] of [
+  ['remote repository, intended branch, exact base SHA', 'remote state verification'],
+  ['exact three-file allowlist after every edit group', 'three-file allowlist enforcement'],
+  ['each with an explicit timeout', 'staged validation timeouts'],
+  ['active command or session', 'evidence-based running status'],
+  ['Stop and report lost execution state', 'lost-state fail-closed rule'],
+  ['durable\n  branch commit and draft pull request', 'durable branch and draft PR checkpoint'],
+  ['never publish synthetic-baseline diffs', 'synthetic-baseline diff prohibition'],
+]) {
+  assert(
+    recoverySafetySection.includes(fragment),
+    `recovery safety checklist must preserve ${description}`,
+  );
+}
+for (const gateName of [
+  '**Merge gate**',
+  '**Environment gate**',
+  '**IAM and provider gate**',
+  '**Dispatch gate**',
+]) {
+  assert(setupDocument.includes(gateName), `setup guide must preserve the separate ${gateName}`);
+}
 
 const frontendEnvironment = readText('apps/web/.env.production').trim();
 assert(
@@ -174,6 +227,243 @@ assert(
 assert(!/Cloud SQL Auth Proxy|host=\/cloudsql\//.test(databaseSource), 'database source contains a Cloud SQL proxy or socket assumption');
 assert(!/rejectUnauthorized\s*:\s*false/.test(databaseSource), 'database source disables TLS certificate validation');
 assert(!/@neondatabase\//.test(databaseSource), 'database source must not add a Neon SDK');
+
+const deploymentWorkflow = readText('.github/workflows/deploy-recovery.yml');
+const triggerSection = deploymentWorkflow.match(/^on:\n([\s\S]*?)^permissions:\n/m)?.[1] ?? '';
+const topLevelTriggers = triggerSection.match(/^  [a-z_]+:/gm) ?? [];
+assert(
+  topLevelTriggers.length === 1 && topLevelTriggers[0] === '  workflow_dispatch:',
+  'deployment workflow trigger must be workflow_dispatch only',
+);
+for (const forbiddenTrigger of [
+  'push',
+  'pull_request',
+  'schedule',
+  'workflow_run',
+  'repository_dispatch',
+]) {
+  assert(
+    !new RegExp(`^\\s{2}${forbiddenTrigger}:`, 'm').test(triggerSection),
+    `deployment workflow contains forbidden automatic trigger: ${forbiddenTrigger}`,
+  );
+}
+
+const permissionsSection = deploymentWorkflow.match(
+  /^permissions:\n([\s\S]*?)^concurrency:\n/m,
+)?.[1] ?? '';
+const permissionEntries = permissionsSection.match(/^  [a-z-]+: [a-z-]+$/gm) ?? [];
+assertArray(
+  permissionEntries,
+  ['  contents: read', '  id-token: write'],
+  'deployment workflow permissions must be contents read and id-token write only',
+);
+assert(
+  /concurrency:\n  group: training-planner-production\n  cancel-in-progress: false/.test(
+    deploymentWorkflow,
+  ),
+  'deployment workflow must serialize production deployments without cancellation',
+);
+assert(
+  /environment: production/.test(deploymentWorkflow),
+  'deployment workflow must use the production environment',
+);
+
+assert(
+  /confirmation:\n\s+description: Type DEPLOY TRAINING PLANNER to continue\n\s+required: true\n\s+type: string/.test(
+    deploymentWorkflow,
+  ),
+  'deployment workflow must require the manual confirmation input',
+);
+assert(
+  /target_project_id:\n\s+description: Confirm the configured target project ID\n\s+required: true\n\s+type: string/.test(
+    deploymentWorkflow,
+  ),
+  'deployment workflow must require the target project input',
+);
+assert(
+  deploymentWorkflow.includes(`"$CONFIRMATION" != 'DEPLOY TRAINING PLANNER'`),
+  'deployment workflow must enforce the literal confirmation gate',
+);
+assert(
+  deploymentWorkflow.includes(`"$TARGET_PROJECT_ID" != "$GCP_PROJECT_ID"`),
+  'deployment workflow must compare the target input with GCP_PROJECT_ID',
+);
+
+const requiredDeploymentVariables = [
+  'GCP_PROJECT_ID',
+  'GCP_WORKLOAD_IDENTITY_PROVIDER',
+  'GCP_DEPLOYER_SERVICE_ACCOUNT',
+  'GCP_RUNTIME_SERVICE_ACCOUNT',
+  'GCP_ARTIFACT_REPOSITORY',
+  'GCP_DATABASE_SECRET',
+  'GCP_ADMIN_EMAILS_SECRET',
+  'GCS_UPLOAD_BUCKET',
+  'FIREBASE_HOSTING_ORIGIN',
+  'FIREBASE_API_KEY',
+  'FIREBASE_AUTH_DOMAIN',
+];
+for (const variableName of requiredDeploymentVariables) {
+  assert(
+    deploymentWorkflow.includes('${{ vars.' + variableName + ' }}'),
+    `deployment workflow must source required variable: ${variableName}`,
+  );
+}
+assert(
+  deploymentWorkflow.includes('required_variables=(') &&
+    deploymentWorkflow.includes('${!variable_name:-}'),
+  'deployment workflow must reject empty required variables before authentication',
+);
+
+assert(
+  deploymentWorkflow.includes('node-version: 22'),
+  'deployment workflow validation must use Node 22',
+);
+assertOrdered(
+  deploymentWorkflow,
+  [
+    'run: npm ci',
+    'run: npm run check:infra',
+    'run: npm run typecheck',
+    'run: npm test',
+    'run: npm run build',
+    'uses: google-github-actions/auth@v3',
+  ],
+  'deployment workflow must run repository validation before authentication',
+);
+assert(
+  deploymentWorkflow.includes('uses: google-github-actions/setup-gcloud@v3'),
+  'deployment workflow must use setup-gcloud v3',
+);
+assertOrdered(
+  deploymentWorkflow,
+  [
+    'uses: google-github-actions/setup-gcloud@v3',
+    'name: Verify pre-provisioned deployment targets',
+    'gcloud artifacts repositories describe "$GCP_ARTIFACT_REPOSITORY"',
+    'gcloud run services describe core-api',
+    'name: Build and push immutable API image',
+  ],
+  'deployment workflow must verify existing targets before publishing or deploying',
+);
+for (const forbiddenProvisioningCommand of [
+  'gcloud services enable',
+  'gcloud artifacts repositories create',
+  'gcloud storage buckets create',
+  'gcloud secrets create',
+  'gcloud projects add-iam-policy-binding',
+  'gcloud iam service-accounts create',
+  'firebase projects:create',
+  'psql ',
+  'db/schema.sql',
+]) {
+  assert(
+    !deploymentWorkflow.includes(forbiddenProvisioningCommand),
+    `deployment workflow must not provision or run SQL: ${forbiddenProvisioningCommand}`,
+  );
+}
+assert(
+  deploymentWorkflow.includes(
+    'workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}',
+  ) &&
+    deploymentWorkflow.includes(
+      'service_account: ${{ env.GCP_DEPLOYER_SERVICE_ACCOUNT }}',
+    ),
+  'deployment workflow must authenticate with Workload Identity Federation',
+);
+assert(
+  !/\$\{\{\s*secrets\./.test(deploymentWorkflow) &&
+    !/credentials_json|service_account_key|service-account-key|--key-file|GOOGLE_APPLICATION_CREDENTIALS/i.test(
+      deploymentWorkflow,
+    ),
+  'deployment workflow must not use a GitHub credential secret or service-account key',
+);
+
+for (const fragment of [
+  "registry_host='asia-southeast1-docker.pkg.dev'",
+  'services/core-api/Dockerfile',
+  '/core-api:${GITHUB_SHA}',
+  'gcloud run deploy core-api',
+  '--project="$GCP_PROJECT_ID"',
+  '--region=asia-southeast1',
+  '--platform=managed',
+  '--cpu=1',
+  '--cpu-throttling',
+  '--memory=1Gi',
+  '--concurrency=20',
+  '--min-instances=0',
+  '--max-instances=2',
+  '--service-account="$GCP_RUNTIME_SERVICE_ACCOUNT"',
+  'DATABASE_URL=${GCP_DATABASE_SECRET}:latest',
+  'ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:latest',
+  'ALLOWED_ORIGINS=${FIREBASE_HOSTING_ORIGIN}',
+  'GCS_UPLOAD_BUCKET=${GCS_UPLOAD_BUCKET}',
+]) {
+  assert(
+    deploymentWorkflow.includes(fragment),
+    `deployment workflow is missing locked deployment contract: ${fragment}`,
+  );
+}
+assert(
+  !deploymentWorkflow.includes('--no-cpu-throttling'),
+  'deployment workflow must reject Cloud Run instance-based CPU allocation',
+);
+assert(
+  !deploymentWorkflow.includes('--allow-unauthenticated') &&
+    !deploymentWorkflow.includes('--no-allow-unauthenticated'),
+  'deployment workflow must leave Cloud Run invocation IAM to the separate provider gate',
+);
+
+assertOrdered(
+  deploymentWorkflow,
+  [
+    'gcloud run deploy core-api',
+    'gcloud run services describe core-api',
+    '"${cloud_run_url}/health"',
+    'name: Build web for the verified API',
+    'name: Deploy Firebase Hosting only',
+  ],
+  'deployment workflow must pass health before building and deploying Hosting',
+);
+for (const webVariable of [
+  'VITE_API_BASE_URL',
+  'VITE_FIREBASE_API_KEY',
+  'VITE_FIREBASE_AUTH_DOMAIN',
+  'VITE_FIREBASE_PROJECT_ID',
+]) {
+  assert(
+    deploymentWorkflow.includes(webVariable),
+    `deployment workflow must inject web build variable: ${webVariable}`,
+  );
+}
+
+const firebaseToolVersions = [
+  ...deploymentWorkflow.matchAll(/firebase-tools@([^\s]+)/g),
+].map((match) => match[1]);
+assertArray(
+  firebaseToolVersions,
+  ['15.27.0'],
+  'deployment workflow must pin firebase-tools exactly to 15.27.0',
+);
+assert(
+  deploymentWorkflow.includes('--only hosting') &&
+    deploymentWorkflow.includes('--non-interactive') &&
+    !/--only\s+(?!hosting\b)/.test(deploymentWorkflow),
+  'deployment workflow must deploy Firebase Hosting only and non-interactively',
+);
+
+const summarySection = deploymentWorkflow.slice(
+  deploymentWorkflow.indexOf('name: Record non-secret deployment evidence'),
+);
+assert(
+  summarySection.includes('$GITHUB_STEP_SUMMARY'),
+  'deployment workflow must write non-secret deployment evidence to the job summary',
+);
+for (const prohibitedSummaryValue of requiredDeploymentVariables) {
+  assert(
+    !summarySection.includes(prohibitedSummaryValue),
+    `deployment summary must not include restricted value: ${prohibitedSummaryValue}`,
+  );
+}
 
 if (errors.length > 0) {
   console.error('Infrastructure guardrail validation failed:');

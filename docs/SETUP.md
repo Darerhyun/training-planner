@@ -1,9 +1,11 @@
 # Setup and Infrastructure Recovery
 
-This is the single authoritative guide for local development and the future
-Training Planner infrastructure recovery. No live environment currently exists.
-The former Google project was deleted, and this repository change does not
-provision, restore, migrate, or deploy anything.
+This is the single authoritative guide for local development and the gated
+Training Planner infrastructure recovery. The former Google project was
+deleted. A replacement project and selected identity/database foundations now
+exist, but there is still no deployed Training Planner environment. This
+repository change does not provision, restore, migrate, grant access, create
+secrets, dispatch a workflow, or deploy anything.
 
 All provider commands below are examples for a later, separately authorized
 recovery run. Replace placeholders only at that checkpoint and never commit the
@@ -16,7 +18,7 @@ resulting identifiers, endpoints, emails, bucket names, or credentials.
 | Database | Neon PostgreSQL in Singapore; pooled TLS URL for runtime |
 | API | Cloud Run in `asia-southeast1`, request-based billing |
 | Frontend | Firebase Hosting |
-| Authentication | Firebase Auth email link plus application role checks |
+| Authentication | Firebase Auth email/password and email link plus application role checks |
 | Uploads | Temporary GCS signed uploads with seven-day retention |
 
 The machine-readable contract is
@@ -40,16 +42,54 @@ Without a new user-approved cost exception, do not create Cloud SQL, Compute
 Engine, GKE, Cloud Run minimum instances above zero, instance-based Cloud Run
 billing, Serverless VPC Access, Cloud NAT, GPUs, or indefinite upload retention.
 
+## Recovery state
+
+The following foundations were created manually and have been verified without
+committing their live identifiers:
+
+- a replacement Firebase/Google Cloud project and registered Firebase Hosting
+  web app;
+- Firebase Authentication with email/password and passwordless email-link
+  sign-in enabled;
+- the Secret Manager API;
+- separate runtime and deployment service accounts, both with no user-managed
+  keys;
+- a GitHub Actions Workload Identity Federation pool, OIDC provider, and
+  repository-scoped deployer binding;
+- a Neon PostgreSQL 17 project on AWS in Singapore, with the live production
+  compute limited to 0.25-0.5 CU and Free-plan autosuspend.
+
+The following resources or controls are still absent or have not been verified:
+
+- restored database schema and data, restricted runtime roles, and recovery
+  reconciliation evidence;
+- Secret Manager secrets for the pooled database URL and bootstrap admin
+  allowlist;
+- the temporary upload bucket, its seven-day lifecycle, restricted CORS, and
+  signed-URL service-account capability;
+- the Artifact Registry repository and its 30-day cleanup policy;
+- the Cloud Run service and Firebase Hosting release;
+- exact least-privilege IAM grants for the deployment and runtime identities.
+
+The project-wide default Neon compute range may remain higher on the Free plan;
+only the verified live production compute is approved. Do not create another
+branch, endpoint, or compute without a new review.
+
 ## Recovery blockers
 
-Do not start provider work until all of these are available and authorized:
+Do not continue provider work or run the recovery deployment workflow until all
+of these are available, verified, and separately authorized:
 
 - the last confirmed source workbook;
 - the secure source containing real trainer rates;
 - the approved Firebase web and Admin configuration;
-- Neon pooled and direct database credentials;
-- the GCP billing account and authorized service identity;
-- the approved upload bucket and Secret Manager access.
+- Neon pooled and direct database credentials transferred only through approved
+  secret-handling paths;
+- accepted database restoration, runtime-role, reconciliation, dump, and restore
+  evidence;
+- project budget controls and the exact least-privilege IAM grants;
+- the approved upload bucket, lifecycle, CORS, and Secret Manager resources;
+- the Artifact Registry cleanup policy and a recorded rollback baseline.
 
 Credentials, real trainer rates, personal emails, provider identifiers, and live
 endpoints must remain outside GitHub.
@@ -114,15 +154,17 @@ git diff --check
 The CI workflow repeats `check:infra`, typecheck, tests, and build on pull
 requests to `main` and pushes to `main`.
 
-## Phase 3 — Future provider provisioning
+## Phase 3 — Remaining provider preparation
 
-This phase remains blocked until a separate work order authorizes provider
-actions.
+The manually created foundations listed above are not authorization to continue.
+Every remaining provider action stays blocked until a separate work order names
+the resource, IAM impact, cost impact, validation, and rollback.
 
 ### Neon
 
-Create one PostgreSQL project in Singapore. Configure five-minute autosuspend and
-a USD 10 target consumption ceiling where supported.
+The approved PostgreSQL 17 project already exists in Singapore. Retain the live
+0.25-0.5 CU compute range and Free-plan autosuspend. Do not create another
+project, branch, endpoint, or compute as part of deployment readiness.
 
 Neon provides two connection types:
 
@@ -131,18 +173,21 @@ Neon provides two connection types:
 - **Direct administrative URL** — used only for approved schema application,
   `pg_dump`, and restore verification.
 
-Store the pooled runtime URL in Secret Manager during authorized provisioning.
-Do not commit either URL.
+Create restricted application roles through separately authorized SQL, restore
+and reconcile the database, then store the pooled runtime URL in Secret Manager
+during authorized provisioning. Do not commit either URL.
 
 ### Firebase
 
-Create or select the authorized recovery project, enable Authentication, and
-enable email-link sign-in. Add only approved local and hosted domains.
+The recovery project, Hosting web app, and email/password plus email-link sign-in
+already exist. Add only approved local and hosted domains, and do not enable
+additional sign-in providers without a separate authorization decision.
 
-Cloud Run may be configured with platform-level `--allow-unauthenticated` so
-browser requests can reach the API. That setting does not make protected
-application routes public: Firebase token verification and server-side role
-authorization remain mandatory.
+Cloud Run must be configured separately with public invocation so browser
+requests can reach the API. That IAM change belongs to the separately authorized
+provider gate and is not performed by the deployment workflow. Public platform
+invocation does not make protected application routes public: Firebase token
+verification and server-side role authorization remain mandatory.
 
 ### Temporary uploads
 
@@ -167,6 +212,64 @@ gcloud storage buckets update gs://YOUR_UPLOAD_BUCKET --cors-file=path/to/uncomm
 
 Configure Artifact Registry cleanup to remove container artifacts after 30 days.
 
+### GitHub production environment
+
+The manual recovery workflow reads non-secret configuration from GitHub's
+`production` environment. Configure the following variable keys only after the
+resources and IAM plan are separately approved. Do not place passwords,
+connection strings, admin emails, service-account keys, or secret values in
+these variables.
+
+| Variable | Purpose |
+|---|---|
+| `GCP_PROJECT_ID` | Target recovery project selected by the manual confirmation gate. |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | Full Workload Identity provider resource used for keyless GitHub OIDC. |
+| `GCP_DEPLOYER_SERVICE_ACCOUNT` | Deployer service-account email impersonated through Workload Identity Federation. |
+| `GCP_RUNTIME_SERVICE_ACCOUNT` | Runtime service-account email attached to the Cloud Run service. |
+| `GCP_ARTIFACT_REPOSITORY` | Name of the pre-approved regional container repository. |
+| `GCP_DATABASE_SECRET` | Secret Manager secret name containing the pooled TLS database URL. |
+| `GCP_ADMIN_EMAILS_SECRET` | Secret Manager secret name containing the bootstrap admin allowlist. |
+| `GCS_UPLOAD_BUCKET` | Approved temporary-upload bucket name. |
+| `FIREBASE_HOSTING_ORIGIN` | Exact approved Hosting origin used by API CORS. |
+| `FIREBASE_API_KEY` | Firebase web API key for the registered web app. |
+| `FIREBASE_AUTH_DOMAIN` | Firebase Auth domain for the registered web app. |
+
+The secret-name variables identify Secret Manager resources; the corresponding
+secret values remain only in Secret Manager. Environment protection and required
+reviewers must be configured before the first workflow dispatch.
+
+### Least-privilege IAM plan
+
+Do not grant these roles merely because they are documented. IAM remains frozen
+until this pull request is approved and a separate provider work order confirms
+the exact resource scopes.
+
+The deployer identity requires only:
+
+- Artifact Registry Writer on the single approved repository;
+- Cloud Run Admin on the target project or service scope required for the first
+  `core-api` creation;
+- Firebase Hosting Admin;
+- Service Usage Consumer only if the Firebase CLI verification proves it is
+  required;
+- Service Account User only on the Training Planner runtime service account.
+
+The existing Workload Identity User binding remains outside committed
+configuration and scoped to the repository's stable numeric identity. Do not
+commit that numeric repository or owner identity.
+
+The runtime identity requires only:
+
+- Secret Manager Secret Accessor on the two named application secrets;
+- Storage Object Creator and Storage Object Viewer on the single temporary
+  upload bucket;
+- Service Account Token Creator on itself only if a controlled signed-URL test
+  proves it is required for V4 signing.
+
+Do not grant project-wide storage access, secret access to any other secret,
+service-account keys, owner/editor roles, database administration, role
+creation, or unrelated API permissions.
+
 ## Phase 4 — Fresh database restoration
 
 Use a fresh empty Neon database. Restoration order is mandatory:
@@ -189,27 +292,96 @@ Use a fresh empty Neon database. Restoration order is mandatory:
 No production rate values, workbook contents, database dump, or credentials may
 be added to GitHub.
 
-## Phase 5 — Future authorized deployment
+## Phase 5 — Gated deployment readiness
 
-Deployment remains frozen until restoration is accepted and a separate
-deployment plan identifies the target commit, provider resources, secrets,
-validation, monitoring, rollback, and cost estimate.
+Deployment remains frozen. Merging the recovery workflow, configuring the
+GitHub environment, changing provider resources, and dispatching the workflow
+each require their own express authorization. The workflow is manual-only and
+requires both the literal confirmation `DEPLOY TRAINING PLANNER` and the target
+project ID to match the configured GitHub variable before cloud authentication.
 
-The Cloud Run deployment must retain the locked limits. Example only:
+After those gates pass, the workflow validates the repository, authenticates
+keylessly through Workload Identity Federation, builds an immutable image tagged
+with the commit SHA, and deploys `core-api` with the locked Cloud Run limits. It
+uses request-based billing with CPU throttling, verifies `/health`, rebuilds the
+web app with the resolved API URL, and deploys Firebase Hosting only. It does not
+provision resources, apply SQL, create secrets, assign IAM, or deploy any other
+Firebase product.
 
-```powershell
-gcloud run deploy core-api --project=YOUR_PROJECT_ID --region=asia-southeast1 --image=YOUR_IMAGE_REFERENCE --platform=managed --allow-unauthenticated --cpu=1 --memory=1Gi --concurrency=20 --min-instances=0 --max-instances=2 --set-secrets=DATABASE_URL=YOUR_DATABASE_SECRET:latest
-```
+The committed `apps/web/.env.production` deliberately retains a `.invalid`
+endpoint. The actual API URL and Firebase web configuration are injected only
+into the authorized deployment build.
 
-Use request-based billing. Inject the actual Firebase Hosting origin, bootstrap
-admin email, upload bucket, API endpoint, and Firebase web configuration only at
-the authorized deployment checkpoint. The committed
-`apps/web/.env.production` deliberately uses a `.invalid` endpoint so an
-unconfigured build cannot silently target a deleted service.
+The remaining recovery work is split into independent gates. Approval at one
+gate does not imply approval for any later gate:
 
-Verify the public health endpoint and authenticated role-protected routes.
-Confirm billing alerts, Neon consumption controls, GCS lifecycle, CORS, signed
-URL expiry, and artifact cleanup before users upload a workbook.
+1. **Merge gate** — Terra must approve the actual recovery diff and validation
+   evidence, then Sol must separately accept the implementation and expressly
+   authorize the merge.
+2. **Environment gate** — configure the protected GitHub `production`
+   environment and its reviewers only under a separate work order.
+3. **IAM and provider gate** — grant the reviewed least-privilege IAM roles and
+   verify every already-created provider resource under a separate work order;
+   this workflow does not create resources, secrets, IAM bindings, or database
+   objects.
+4. **Dispatch gate** — Sol and the user must expressly authorize the exact
+   accepted commit and target before Luna may enter the two manual confirmation
+   values and dispatch the workflow.
+
+The workflow also verifies that the approved Artifact Registry repository and
+`core-api` Cloud Run service already exist before it pushes an image or changes
+a service revision. A missing target stops the run; the workflow does not create
+the missing resource.
+
+### First-deployment preflight evidence
+
+Record and independently review all of the following before dispatch:
+
+- the accepted commit SHA, approved workflow ref, protected `production`
+  environment, and required reviewer evidence;
+- the replacement project, regional provider resources, keyless Workload
+  Identity binding, and confirmation that both service accounts still have no
+  user-managed keys;
+- exact IAM policy evidence matching the least-privilege plan above;
+- budget alerts, applicable spend controls, locked Cloud Run limits, Neon live
+  compute range and autosuspend, and the expected first-month cost;
+- successful schema application, reference-data seed, secure trainer-rate
+  restoration, workbook reimport, row-count reconciliation, restricted runtime
+  role test, encrypted dump, and restore-verification evidence;
+- both Secret Manager resources, the pooled TLS database connection test, and
+  confirmation that no secret value entered GitHub or command output;
+- upload bucket lifecycle, restricted CORS, 15-minute signed-URL test, and
+  runtime bucket permissions;
+- regional Artifact Registry repository and 30-day cleanup policy;
+- all required GitHub production-environment variables populated, without
+  printing their values;
+- an absent-state or prior-state capture for Cloud Run traffic and Firebase
+  Hosting releases, plus the rollback evidence below.
+
+After deployment, verify the public health endpoint, authenticated
+role-protected routes, Firebase Hosting authentication, database connection
+count, billing telemetry, GCS lifecycle/CORS, signed URL expiry, and artifact
+cleanup before users upload a workbook.
+
+## Recovery execution safety checklist
+
+- Verify the remote repository, intended branch, exact base SHA, and
+  clean-equivalent remote tree before edits begin.
+- Enforce the exact three-file allowlist after every edit group:
+  `.github/workflows/deploy-recovery.yml`, `docs/SETUP.md`, and
+  `scripts/check-infra-guardrails.mjs`; stop for a revised Sol decision before
+  touching a fourth file.
+- Run validation as separately reported stages, each with an explicit timeout
+  and captured command result.
+- Never claim a command is running without an active command or session and
+  recent output that proves it is still running.
+- Stop and report lost execution state or missing output instead of silently
+  retrying or leaving a misleading progress message.
+- After validation and separate publication authorization, create a durable
+  branch commit and draft pull request promptly so accepted work is not held
+  only in a temporary workspace.
+- Preserve stalled drafts and compare them with the verified remote tree and
+  blobs; never publish synthetic-baseline diffs or final-newline-only artifacts.
 
 ## Rollback
 
@@ -217,6 +389,19 @@ Before deployment:
 
 - discard or revert the recovery branch;
 - delete no provider resource without a separately approved cleanup plan.
+
+The first-deployment approval packet must preserve:
+
+- the exact accepted commit and container image digest;
+- the pre-deployment Cloud Run revision/traffic state, including evidence when
+  no prior service exists;
+- the pre-deployment Firebase Hosting release state, including evidence when no
+  prior release exists;
+- a verified encrypted PostgreSQL dump and the separate restore-verification
+  result;
+- the current database secret version identifier without its value;
+- the person authorized to stop rollout and the post-rollback verification
+  checklist.
 
 After an authorized deployment:
 
@@ -227,4 +412,6 @@ After an authorized deployment:
 5. verify authentication, health, row counts, and Sync behaviour;
 6. record the incident and provider cost impact.
 
-Never overwrite the only database or dump during rollback.
+For a first deployment with no prior API revision or Hosting release, stop the
+rollout and require a new bounded recovery decision; do not improvise cleanup or
+resource deletion. Never overwrite the only database or dump during rollback.
