@@ -212,13 +212,13 @@ gcloud storage buckets update gs://YOUR_UPLOAD_BUCKET --cors-file=path/to/uncomm
 
 Configure Artifact Registry cleanup to remove container artifacts after 30 days.
 
-### GitHub production environment
+### GitHub repository configuration
 
-The manual recovery workflow reads non-secret configuration from GitHub's
-`production` environment. Configure the following variable keys only after the
-resources and IAM plan are separately approved. Do not place passwords,
-connection strings, admin emails, service-account keys, or secret values in
-these variables.
+For the private GitHub Free initial phase, the manual recovery workflow reads
+these 11 approved non-secret values from repository-level Actions variables
+under the repository's Actions Variables settings. They are repository-level
+variables, not environment variables, and their values must be supplied and
+validated through a separately authorized configuration step.
 
 | Variable | Purpose |
 |---|---|
@@ -234,10 +234,45 @@ these variables.
 | `FIREBASE_API_KEY` | Firebase web API key for the registered web app. |
 | `FIREBASE_AUTH_DOMAIN` | Firebase Auth domain for the registered web app. |
 
-The secret-name variables identify Secret Manager resources; the corresponding
-secret values remain only in Secret Manager. Environment protection and required
-reviewers must be configured before the first workflow dispatch.
+Do not place passwords, connection strings, admin email allowlists,
+service-account keys, or secret values in these variables. Secret-name variables
+identify Secret Manager resources; the corresponding secret values remain only
+in Secret Manager.
 
+For this private repository on GitHub Free, required environment reviewers and
+environment-scoped variables/secrets are unavailable. No `production` GitHub
+environment is created or referenced for this design. Repository-level variables
+and the workflow's mechanical checks therefore cannot provide true independent
+GitHub-native approval.
+
+The residual risk is single-owner control: `Darerhyun` is the sole nominated
+actor and repository owner, so the same owner can ultimately dispatch the manual
+workflow. This compensating control reduces accidental deployment and scope
+drift, but it is not equivalent to independent GitHub-native approval.
+
+The four required workflow inputs and their exact gates are:
+
+1. `confirmation` must equal `DEPLOY TRAINING PLANNER`.
+2. `target_project_id` must be non-empty through the existing exact comparison
+   with `GCP_PROJECT_ID`.
+3. `expected_commit_sha` must be non-empty and exactly equal to
+   `github.sha`.
+4. `cost_acknowledgement` must equal `I ACKNOWLEDGE LOW-COST LIMITS`.
+
+Before checkout and before cloud authentication, the manual/configuration
+verification step also requires `github.actor` exactly `Darerhyun`,
+`github.ref` exactly `refs/heads/main`, and all 11 repository variables to be
+non-empty.
+
+#### Separate user/Sol/Terra process gate
+
+Before every dispatch, the user must provide fresh explicit authorization for
+the exact accepted commit and target. Sol performs preflight against the
+recorded repository-variable names and deployment contract, and Terra performs
+an independent read-only verification of the accepted commit, configuration
+evidence, and preflight evidence. This process gate is a compensating control,
+not independent GitHub-native approval, and it does not authorize merge,
+deployment, provider changes, or workflow dispatch by itself.
 ### Least-privilege IAM plan
 
 Do not grant these roles merely because they are documented. IAM remains frozen
@@ -295,10 +330,13 @@ be added to GitHub.
 ## Phase 5 — Gated deployment readiness
 
 Deployment remains frozen. Merging the recovery workflow, configuring the
-GitHub environment, changing provider resources, and dispatching the workflow
-each require their own express authorization. The workflow is manual-only and
-requires both the literal confirmation `DEPLOY TRAINING PLANNER` and the target
-project ID to match the configured GitHub variable before cloud authentication.
+repository-level Actions variables, changing provider resources, and dispatching
+the workflow each require their own express authorization. The workflow is
+manual-only and requires all four inputs: the literal confirmation
+`DEPLOY TRAINING PLANNER`, the target project ID to match the configured
+`GCP_PROJECT_ID` variable, a non-empty `expected_commit_sha` exactly matching
+`github.sha`, and the exact cost acknowledgement
+`I ACKNOWLEDGE LOW-COST LIMITS` before checkout or cloud authentication.
 
 After those gates pass, the workflow validates the repository, authenticates
 keylessly through Workload Identity Federation, builds an immutable image tagged
@@ -318,8 +356,11 @@ gate does not imply approval for any later gate:
 1. **Merge gate** — Terra must approve the actual recovery diff and validation
    evidence, then Sol must separately accept the implementation and expressly
    authorize the merge.
-2. **Environment gate** — configure the protected GitHub `production`
-   environment and its reviewers only under a separate work order.
+2. **Repository configuration gate** — configure and verify the 11
+   repository-level Actions variable names and record the external
+   authorization and preflight evidence under a separate work order. GitHub
+   Free does not provide independent environment reviewers or environment-scoped
+   variables/secrets for this private repository.
 3. **IAM and provider gate** — grant the reviewed least-privilege IAM roles and
    verify every already-created provider resource under a separate work order;
    this workflow does not create resources, secrets, IAM bindings, or database
@@ -337,8 +378,8 @@ the missing resource.
 
 Record and independently review all of the following before dispatch:
 
-- the accepted commit SHA, approved workflow ref, protected `production`
-  environment, and required reviewer evidence;
+- the accepted commit SHA, approved workflow ref, repository-level Actions
+  variable names, and recorded external authorization/preflight evidence;
 - the replacement project, regional provider resources, keyless Workload
   Identity binding, and confirmation that both service accounts still have no
   user-managed keys;
@@ -353,7 +394,7 @@ Record and independently review all of the following before dispatch:
 - upload bucket lifecycle, restricted CORS, 15-minute signed-URL test, and
   runtime bucket permissions;
 - regional Artifact Registry repository and 30-day cleanup policy;
-- all required GitHub production-environment variables populated, without
+- all 11 required repository-level Actions variable names populated, without
   printing their values;
 - an absent-state or prior-state capture for Cloud Run traffic and Firebase
   Hosting releases, plus the rollback evidence below.
