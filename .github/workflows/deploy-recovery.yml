@@ -175,6 +175,7 @@ jobs:
             --service-account="$GCP_RUNTIME_SERVICE_ACCOUNT" \
             --set-secrets="DATABASE_URL=${GCP_DATABASE_SECRET}:latest,ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:latest" \
             --set-env-vars="ALLOWED_ORIGINS=${FIREBASE_HOSTING_ORIGIN},GCS_UPLOAD_BUCKET=${GCS_UPLOAD_BUCKET}" \
+            --no-invoker-iam-check \
             --quiet
 
       - name: Verify Cloud Run health

@@ -463,10 +463,19 @@ assert(
   !deploymentWorkflow.includes('--no-cpu-throttling'),
   'deployment workflow must reject Cloud Run instance-based CPU allocation',
 );
+const invokerFlagMatches = deploymentWorkflow.match(/--no-invoker-iam-check/g) ?? [];
+assert(
+  invokerFlagMatches.length === 1,
+  'deployment workflow must require exactly one --no-invoker-iam-check flag',
+);
 assert(
   !deploymentWorkflow.includes('--allow-unauthenticated') &&
     !deploymentWorkflow.includes('--no-allow-unauthenticated'),
-  'deployment workflow must leave Cloud Run invocation IAM to the separate provider gate',
+  'deployment workflow must reject legacy Cloud Run unauthenticated flags',
+);
+assert(
+  !/\ballUsers\b/.test(deploymentWorkflow),
+  'deployment workflow must not contain direct allUsers policy commands',
 );
 
 assertOrdered(

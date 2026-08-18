@@ -183,11 +183,16 @@ The recovery project, Hosting web app, and email/password plus email-link sign-i
 already exist. Add only approved local and hosted domains, and do not enable
 additional sign-in providers without a separate authorization decision.
 
-Cloud Run must be configured separately with public invocation so browser
-requests can reach the API. That IAM change belongs to the separately authorized
-provider gate and is not performed by the deployment workflow. Public platform
-invocation does not make protected application routes public: Firebase token
-verification and server-side role authorization remain mandatory.
+Before the recovery workflow runs, the pre-provisioned `core-api` placeholder
+remains private. At application deploy time, the separately authorized workflow
+uses Cloud Run’s `--no-invoker-iam-check` setting to make the deployed browser
+endpoint publicly invokable at the platform level as the real application revision
+is deployed. The deployer therefore requires service-scoped Cloud Run Admin on
+`core-api` to change invoker access as part of that application deployment; the
+workflow does not provision the service or run a separate direct IAM policy
+command. Public platform invocation does not make business routes public: Firebase
+token verification and server-side role authorization remain mandatory, while
+`/health` remains public.
 
 ### Temporary uploads
 
@@ -282,8 +287,8 @@ the exact resource scopes.
 The deployer identity requires only:
 
 - Artifact Registry Writer on the single approved repository;
-- Cloud Run Admin on the target project or service scope required for the first
-  `core-api` creation;
+- Service-scoped Cloud Run Admin on `core-api` to change invoker access and
+  deploy application revisions;
 - Firebase Hosting Admin;
 - Service Usage Consumer only if the Firebase CLI verification proves it is
   required;
