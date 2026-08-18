@@ -25,7 +25,8 @@
 docs/
 ├── 00-INDEX.md                     ← you are here
 ├── 01-product/
-│   └── planning-workflow-roadmap.md ← approved Course Planning vs Sessions workflow and ownership contract
+│   ├── planning-workflow-roadmap.md ← approved Course Planning, Sessions, Admin Area, and ownership roadmap
+│   └── trainer-rate-reconciliation.md ← Admin-only protected rate import, identity reconciliation, preview, audit, and atomic-apply contract
 ├── SETUP.md                        ← local setup and authorized infrastructure-recovery guide
 └── 02-domain/                      ← the domain model: what the business actually is
     ├── courses.md                  ← courses, programmes, modules, fees, durations
@@ -66,7 +67,8 @@ docs/
 |---|---|
 | Delivery workflow, review, acceptance, merge, or deployment | `../WORKFLOW_HARNESS.md` and the applicable rolebooks |
 | Infrastructure recovery, cost controls, GCS lifecycle, or CORS | `SETUP.md`, `../infra/cost-guardrails.json`, `../infra/gcs-lifecycle.json`, `../infra/gcs-cors.example.json` |
-| Course Planning / Sessions workflow, Excel/app/TMS ownership, Admin Area decisions, PR3E–PR3J scope | `01-product/planning-workflow-roadmap.md` |
+| Course Planning / Sessions workflow, Excel/app/TMS ownership, Admin Area decisions, PR3E–PR3K scope | `01-product/planning-workflow-roadmap.md` |
+| Trainer-rate workbook upload, name/alias/new-trainer reconciliation, category/profile mapping, effective dating, preview, audit, or atomic apply | `01-product/trainer-rate-reconciliation.md`, `02-domain/trainer-rates.md`, `02-domain/trainers.md` |
 | Database schema, seed data | All four domain `.md` files + every `.csv` |
 | Parsing the master schedule Excel | `courses.md` (to match course codes), `trainers.md` (trainer name aliasing), `venues-rooms.md` (venue codes) |
 | Sessions list / planning grid | `courses.md`, `venues-rooms.md` |
@@ -83,7 +85,7 @@ docs/
 | 1 | Courses + programmes | `courses.md`, `courses_catalog.csv`, `courses_fulltime_2026.csv`, `new_courses_2026H2.csv`, `course_aliases_ft_2026.csv`, `obsolete_programmes_2026.csv` | Complete |
 | 2 | Course rates | folded into courses (fee_with_gst column) | Complete |
 | 3 | Trainers + skills + SME | `trainers.md`, `trainers.csv`, `trainers_new_2026.csv`, `trainer_courses.csv`, `trainer_aliases_2026aug.csv` | Complete |
-| 4 | Trainer rates + tiers | `trainer-rates.md`, `programme_categories.csv`, `trainer_rate_tiers.csv`, `trainer_tier_assignments.csv` | Complete; actual rates live in the protected production database, outside GitHub |
+| 4 | Trainer rates + tiers | `trainer-rates.md`, `programme_categories.csv`, `trainer_rate_tiers.csv`, `trainer_tier_assignments.csv`, `../01-product/trainer-rate-reconciliation.md` | Domain model complete; Admin reconciliation requirements approved, implementation pending; actual rates live in the protected production database, outside GitHub |
 | 5 | Venues + rooms | `venues-rooms.md`, `venues.csv`, `rooms.csv` | Complete |
 | 6 | Training assistants | — | NOT yet modelled |
 
@@ -95,12 +97,13 @@ docs/
 - **No SSG/TGS codes stored.** Those are TMS data, not planning data.
 - **Sessions are dynamic** (from Excel upload); **catalog is static** (rarely changes). The catalog must be solid so the parser has something reliable to match against.
 - **Trainer fees are sensitive.** The repo has the rate *model* and *tier groupings*; the actual dollar rates live only in the protected production database, outside GitHub, and are surfaced to users only as viability badges (except for finance/admin roles).
+- **Trainer-rate reconciliation is Admin-only.** Supported category mapping includes `AI` and `WSQ-Writing`; AI workbook column B is ignored for every calculation and profile decision. The protected workflow is specified in `01-product/trainer-rate-reconciliation.md`.
 
 ## Known gaps / to-do (documented in the domain files)
 
 - PR3 polish: surface API authentication/authorization failures in the UI (for example, "Your account isn't authorised — contact admin") instead of reporting them only in the browser console.
 - 10 catalog courses have no trainer assignments yet (4 capstones + 2 new AI courses + 4 name-variant mismatches) — see `trainers.md`.
-- Trainer name aliasing needed: the rate Excel uses short names ("Winnie", "Philip") that differ from the roster ("Winnie Liu", "Philip Gan") — see `trainer-rates.md`. A `trainer_aliases` table is the planned fix.
+- Trainer-rate reconciliation implementation is pending: permanent aliases, explicit new-trainer handling, category/profile deduplication, effective dating, protected preview/audit, and atomic apply are specified in `01-product/trainer-rate-reconciliation.md`. Real workbook names and values remain outside GitHub.
 - 11 JTC rooms have no capacity captured yet — see `venues-rooms.md`.
 - Leadership / personal-development courses (~50 ASK courses) have no tier-based rates in the fee sheet — see `trainer-rates.md` open questions.
 - Training Assistants entity (#6) not yet modelled.
