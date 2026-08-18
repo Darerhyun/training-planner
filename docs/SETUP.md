@@ -19,7 +19,7 @@ resulting identifiers, endpoints, emails, bucket names, or credentials.
 | API | Cloud Run in `asia-southeast1`, request-based billing |
 | Frontend | Firebase Hosting |
 | Authentication | Firebase Auth email/password and email link plus application role checks |
-| Uploads | Temporary GCS signed uploads with seven-day retention |
+| Uploads | Temporary GCS signed uploads with one-day retention |
 
 The machine-readable contract is
 [`infra/cost-guardrails.json`](../infra/cost-guardrails.json):
@@ -35,7 +35,7 @@ The machine-readable contract is
 - Neon: Singapore, pooled TLS required, five-minute autosuspend, target
   consumption ceiling USD 10 where the provider supports enforcement.
 - Signed upload URL: 15 minutes.
-- Uploaded workbook retention: 7 days.
+- Uploaded workbook retention: 1 day.
 - Container artifact retention: 30 days.
 
 Without a new user-approved cost exception, do not create Cloud SQL, Compute
@@ -65,7 +65,7 @@ The following resources or controls are still absent or have not been verified:
   reconciliation evidence;
 - Secret Manager secrets for the pooled database URL and bootstrap admin
   allowlist;
-- the temporary upload bucket, its seven-day lifecycle, restricted CORS, and
+- the temporary upload bucket, its one-day lifecycle, restricted CORS, and
   signed-URL service-account capability;
 - the Artifact Registry repository and its 30-day cleanup policy;
 - the Cloud Run service and Firebase Hosting release;
@@ -198,7 +198,7 @@ enabling browser uploads:
    [`infra/gcs-cors.example.json`](../infra/gcs-cors.example.json) with the
    actual Firebase Hosting origin in a temporary, uncommitted copy.
 2. Apply [`infra/gcs-lifecycle.json`](../infra/gcs-lifecycle.json), which
-   deletes current objects after seven days.
+   deletes current objects after one day.
 3. Apply the temporary CORS file. It must allow only `PUT` with
    `Content-Type`; wildcard origins are forbidden.
 4. Confirm signed upload URLs expire after 15 minutes.

@@ -11,7 +11,7 @@ updates are reflected in the company's official training management system.
 - A tightly limited Cloud Run API using Node 22, TypeScript, and Hono
 - A Vite SPA on Firebase Hosting
 - Firebase Auth for email magic-link sign-in and role-based access
-- Temporary Google Cloud Storage signed uploads with seven-day retention
+- Temporary Google Cloud Storage signed uploads with one-day retention
 
 No live Training Planner environment currently exists. The former Google project
 was deleted. This repository records the approved recovery design and cost
