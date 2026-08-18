@@ -33,7 +33,7 @@
   },
   "uploads": {
     "signedUrlMinutes": 15,
-    "retentionDays": 7
+    "retentionDays": 1
   },
   "artifactRegistry": {
     "retentionDays": 30
