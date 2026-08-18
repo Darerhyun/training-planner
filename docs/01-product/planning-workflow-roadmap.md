@@ -142,12 +142,17 @@ Rate Reconciliation workflow.
 - Register and edit trainer records.
 - Activate or deactivate trainers without deleting their historical assignments.
 - Manage trainer-to-course links and module exclusions.
+- Complete **Needs eligibility setup** handoffs for trainers created by rate
+  reconciliation; require active status, at least one explicitly approved course
+  link, applicable exclusions, and Admin confirmation before scheduling readiness.
 - Keep trainer fee values outside these workflows and outside GitHub.
 
 ### Trainer Rate Reconciliation
 
 - Allow active Admin users only to upload a protected trainer-rate workbook.
 - Reconcile exact names, permanent aliases, and explicitly confirmed new trainers.
+- Put each newly created trainer into **Needs eligibility setup**, keep them unavailable
+  to Trainer Picker, and provide a direct handoff to their Trainer Directory record.
 - Map controlled categories including `AI` and `WSQ-Writing`; AI column B is ignored
   for calculations, profile fingerprints, deduplication, and assignments.
 - Deduplicate category-specific pax 3–20 profiles and create effective-dated,
@@ -309,6 +314,10 @@ Infrastructure recovery and PR3G must remain separate work orders and PRs.
   apply workflow specified in `trainer-rate-reconciliation.md`.
 - Resolve canonical names and permanent aliases, and require explicit confirmation
   before creating a genuine new trainer.
+- Give every newly created trainer **Needs eligibility setup** status and a direct
+  Trainer Directory handoff. Keep the trainer unavailable for session assignment
+  until an Admin explicitly approves course links, exclusions, active status, and
+  scheduling readiness.
 - Support `IIO`, `DM`, `IT-Normal`, `IT-WSQ`, `IT-Special`, `WSQ-Writing`, and `AI`.
 - Ignore AI column B for all calculations and profile decisions.
 - Deduplicate category plus pax 3–20 rate profiles and use non-overlapping effective
@@ -368,4 +377,7 @@ Before PR4 begins, confirm that:
 - AI column B cannot affect calculations or profile decisions;
 - rate reconciliation requires an effective-dated preview, immutable audit, stale-
   preview protection, and full transactional rollback;
-- new trainers created during reconciliation receive no automatic course eligibility.
+- new trainers created during reconciliation receive no automatic course eligibility;
+- every newly created trainer remains unavailable to Trainer Picker until the Admin
+  completes the audited Trainer Directory eligibility setup and explicitly marks
+  the trainer ready for scheduling.
