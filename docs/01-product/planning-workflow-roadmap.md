@@ -1,12 +1,13 @@
 # Training Planner — Planning and Sessions Roadmap
 
 Status: Approved product direction; PR3E–PR3F complete, PR3F historically deployed; no live deployment currently exists; PR3G onward pending
-Last updated: 16 August 2026
+Last updated: 18 August 2026
 
 ## 1. Purpose
 
 This document defines the distinction between future course planning, individual
-class sessions, trainer assignment, Excel ingestion, and the Admin Area.
+class sessions, trainer assignment, Excel ingestion, trainer-rate reconciliation,
+and the Admin Area.
 
 It extends the existing roadmap. It does not replace or renumber completed PR1,
 PR2, or PR3 work.
@@ -17,6 +18,12 @@ PR2, or PR3 work.
   data that cannot yet be obtained from another source.
 - The Training Planner website is the authoritative source for **internal planning
   changes made after import**, including trainer assignments.
+- A trainer-rate workbook is also an **import source only**. After an approved atomic
+  apply, the application is authoritative for trainer identities, permanent aliases,
+  rate categories, deduplicated profiles, effective-dated assignments, and audit
+  history.
+- A later schedule or rate workbook is a proposed change set and must never silently
+  replace application-managed records.
 - The website does not need to write changes back to an Excel workbook or generate
   an updated master workbook.
 - The TMS remains the official record for funding, SSG codes, claims, and other
@@ -91,7 +98,8 @@ Target primary navigation:
 1. **Course Planning** — future-month planning.
 2. **Sessions** — individual classes, trainers, venues, pax, and status.
 3. **Sync** — Excel import and reconciliation.
-4. **Admin** — Admin-only User Access and Trainer Directory management.
+4. **Admin** — Admin-only User Access, Trainer Directory, and confidential Trainer
+   Rate Reconciliation management.
 
 The existing rich Planning dashboard should become the enhanced Sessions
 experience. The old basic Sessions page must remain until the enhanced replacement
@@ -109,13 +117,16 @@ reviewable change.
 | Pending/Rejected | No access | No access | No access | No access | No access |
 
 No trainer fee values may be returned to Viewer or Ops. Trainer fee values remain
-outside GitHub.
+outside GitHub. Uploading, resolving, previewing, and applying a trainer-rate
+workbook are Admin-only operations; Finance retains read-only economics visibility
+but cannot run reconciliation.
 
 ## 6. Admin Area
 
-Approved Admin Area option 3 uses one Admin navigation area with two separate
-sections and implementation PRs. Only active Admin users may access or modify
-either section.
+Approved Admin Area option 3 uses one Admin navigation area with three separate
+sections and implementation PRs. Only active Admin users may access or modify any
+section. Confidential rate values are available only inside the protected Trainer
+Rate Reconciliation workflow.
 
 ### User Access
 
@@ -133,8 +144,23 @@ either section.
 - Manage trainer-to-course links and module exclusions.
 - Keep trainer fee values outside these workflows and outside GitHub.
 
-User Access and Trainer Directory must remain separate PRs so authentication risk,
-trainer-reference-data changes, and rollback are independently reviewable.
+### Trainer Rate Reconciliation
+
+- Allow active Admin users only to upload a protected trainer-rate workbook.
+- Reconcile exact names, permanent aliases, and explicitly confirmed new trainers.
+- Map controlled categories including `AI` and `WSQ-Writing`; AI column B is ignored
+  for calculations, profile fingerprints, deduplication, and assignments.
+- Deduplicate category-specific pax 3–20 profiles and create effective-dated,
+  non-overlapping trainer assignments.
+- Require a protected preview with zero unresolved blockers, immutable audit, stale-
+  preview protection, and one atomic apply with full rollback on error or mismatch.
+- Never infer course eligibility, delete missing records, or expose confidential
+  values to Ops or Viewer.
+
+The detailed contract is in `trainer-rate-reconciliation.md`. User Access, Trainer
+Directory, and Trainer Rate Reconciliation must remain separate implementation PRs
+so authentication risk, trainer-reference-data changes, confidential economics,
+and rollback are independently reviewable.
 
 ## 7. Session amendment workflow
 
@@ -277,6 +303,24 @@ Infrastructure recovery and PR3G must remain separate work orders and PRs.
 - Manage eligible course links and module exclusions.
 - Do not expose trainer fees or mix User Access changes into this PR.
 
+### PR3K — Admin Panel: Trainer Rate Reconciliation
+
+- Add an Admin-only protected workbook upload, reconciliation preview, and atomic
+  apply workflow specified in `trainer-rate-reconciliation.md`.
+- Resolve canonical names and permanent aliases, and require explicit confirmation
+  before creating a genuine new trainer.
+- Support `IIO`, `DM`, `IT-Normal`, `IT-WSQ`, `IT-Special`, `WSQ-Writing`, and `AI`.
+- Ignore AI column B for all calculations and profile decisions.
+- Deduplicate category plus pax 3–20 rate profiles and use non-overlapping effective
+  dates rather than overwriting history.
+- Audit every resolution and state change; reject stale previews and duplicate
+  applied source hashes; roll back the complete batch on any error or count mismatch.
+- Keep workbook values outside GitHub and unavailable to Ops or Viewer.
+- Do not create trainer-course eligibility, user accounts, or session assignments
+  when a new trainer is created through reconciliation.
+- Any schema/backend and Admin UI implementation must remain separately reviewable
+  within the PR3K milestone and require their own approved work orders.
+
 ### PR4 — Trainer Picker
 
 - Keep the existing PR4 milestone.
@@ -287,7 +331,7 @@ Infrastructure recovery and PR3G must remain separate work orders and PRs.
 PR5 and PR6 remain AI assistant and Calendar/Gantt/Activity work respectively.
 Their identities and numbering are unchanged.
 
-## 11. Non-goals for PR3E–PR3J
+## 11. Non-goals for PR3E–PR3K
 
 - Writing back to Excel or generating a replacement Excel workbook.
 - Treating Excel as authoritative after import.
@@ -295,7 +339,12 @@ Their identities and numbering are unchanged.
 - Trainer or room conflict claims based on every date inside a session span.
 - Trainer fee values in GitHub or unrestricted API/frontend responses.
 - Drag-and-drop scheduling.
-- Combining User Access and Trainer Directory into one implementation PR.
+- Combining User Access, Trainer Directory, or Trainer Rate Reconciliation into one
+  implementation PR.
+- Storing confidential rate values or real rate workbooks in GitHub.
+- Letting Ops or Viewer access rate values or reconciliation actions.
+- Automatically accepting fuzzy name matches, inferring trainer-course eligibility,
+  or deleting records that are missing from a later workbook.
 - Removing historical PR documentation or renumbering completed work.
 
 ## 12. Acceptance checkpoints
@@ -312,5 +361,11 @@ Before PR4 begins, confirm that:
 - Excel re-import cannot silently replace application-managed changes;
 - the existing session and sync behaviours remain covered by regression tests;
 - no individual training dates have been inferred from session spans;
-- the Admin Area has separate User Access and Trainer Directory sections;
-- only Admin users can manage user access or trainer reference records.
+- the Admin Area has separate User Access, Trainer Directory, and Trainer Rate
+  Reconciliation sections;
+- only Admin users can manage user access, trainer reference records, or rate
+  reconciliation;
+- AI column B cannot affect calculations or profile decisions;
+- rate reconciliation requires an effective-dated preview, immutable audit, stale-
+  preview protection, and full transactional rollback;
+- new trainers created during reconciliation receive no automatic course eligibility.
