@@ -91,9 +91,28 @@ Creating a trainer from a rate workbook:
 - grants no application access;
 - creates no trainer-to-course eligibility or module-exclusion record;
 - does not assign the trainer to a session;
-- does not infer skills from the rate category.
+- does not infer skills from the rate category;
+- places the trainer in the product state **Needs eligibility setup**.
 
-Course eligibility remains a separate Trainer Directory decision.
+**Needs eligibility setup** is a scheduling-safety state, not evidence that the trainer record or rate assignment failed. The implementation may store or derive the state, but its behavior is mandatory: the trainer is unavailable in Trainer Picker and cannot be assigned to a session until an Admin completes the eligibility handoff.
+
+### Eligibility setup handoff
+
+After an atomic rate apply creates a trainer, the result page must list the trainer under **Needs eligibility setup** and provide a direct **Configure course eligibility** action. The action opens that trainer in Admin > Trainer Directory.
+
+The Admin must then:
+
+1. review the canonical trainer identity and active status;
+2. select each eligible course explicitly;
+3. record any applicable module exclusions;
+4. save the eligibility changes with the Trainer Directory audit/concurrency controls;
+5. explicitly mark the trainer ready for scheduling.
+
+A trainer becomes **Ready for scheduling** only when the trainer is active, at least one approved trainer-to-course link exists, and the eligibility setup has been explicitly completed. Until then, all session-assignment and suggestion flows must treat the trainer as ineligible.
+
+Rate categories may help the Admin filter the course list, but they must not preselect, infer, or automatically create course links. A later rate reconciliation must not reset or expand previously approved eligibility. Mapping a source name to an existing trainer or permanent alias must also leave that trainer's activation and course eligibility unchanged.
+
+Eligibility setup is a separate audited Admin action. Rate reconciliation audit identifies that follow-up is required; Trainer Directory audit records the courses, exclusions, actor, timestamp, and readiness transition.
 
 ## 7. Category mapping
 
@@ -148,7 +167,7 @@ Before confirmation, the Admin receives a protected preview containing:
 
 - source filename, template version, file hash, upload time, and uploader;
 - parsed and excluded row totals by sheet/section and category;
-- exact canonical matches, alias matches, suggestions, permanent aliases to create, and new trainers to create;
+- exact canonical matches, alias matches, suggestions, permanent aliases to create, new trainers to create, and the resulting **Needs eligibility setup** count;
 - reused, new, unchanged, and conflicting rate profiles;
 - effective-date changes and overlap/backdating warnings;
 - current versus proposed assignment counts;
@@ -176,6 +195,8 @@ Within the transaction, the server must:
 9. verify expected post-apply counts before commit.
 
 Any validation error, uniqueness conflict, stale preview, unexpected existing record, count mismatch, or audit failure rolls back every change. Last-write-wins behavior is prohibited. The Admin must reload and regenerate the preview after a concurrency failure.
+
+A successfully created trainer remains **Needs eligibility setup** after the rate transaction. Course links and scheduling readiness are not added inside the rate transaction; they are completed through the separately audited Trainer Directory handoff.
 
 Missing workbook rows never cause automatic deletion, deactivation, or expiry. There is no partial apply.
 
@@ -232,6 +253,9 @@ The implementation is acceptable only when:
 - fuzzy suggestions never auto-apply;
 - an Admin can permanently alias a source name or explicitly create a new trainer;
 - new trainers receive no automatic course eligibility, user account, or session assignment;
+- every trainer created by reconciliation enters **Needs eligibility setup** and is unavailable to Trainer Picker;
+- the apply result provides an Admin handoff to Trainer Directory;
+- a trainer becomes ready for scheduling only after explicit course selection, required exclusions, active status, and completion confirmation;
 - rate profiles deduplicate by category plus pax 3–20 values;
 - assignments are effective-dated and non-overlapping;
 - missing rows do not remove existing data;
