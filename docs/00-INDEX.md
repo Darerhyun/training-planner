@@ -85,7 +85,7 @@ docs/
 | 1 | Courses + programmes | `courses.md`, `courses_catalog.csv`, `courses_fulltime_2026.csv`, `new_courses_2026H2.csv`, `course_aliases_ft_2026.csv`, `obsolete_programmes_2026.csv` | Complete |
 | 2 | Course rates | folded into courses (fee_with_gst column) | Complete |
 | 3 | Trainers + skills + SME | `trainers.md`, `trainers.csv`, `trainers_new_2026.csv`, `trainer_courses.csv`, `trainer_aliases_2026aug.csv` | Complete |
-| 4 | Trainer rates + tiers | `trainer-rates.md`, `programme_categories.csv`, `trainer_rate_tiers.csv`, `trainer_tier_assignments.csv`, `../01-product/trainer-rate-reconciliation.md` | Domain model complete; Admin reconciliation requirements approved, implementation pending; actual rates live in the protected production database, outside GitHub |
+| 4 | Trainer rates + tiers | `trainer-rates.md`, `programme_categories.csv`, `trainer_rate_tiers.csv`, `trainer_tier_assignments.csv`, `01-product/trainer-rate-reconciliation.md` | Domain model complete; Admin reconciliation requirements approved, implementation pending; actual rates live in the protected production database, outside GitHub |
 | 5 | Venues + rooms | `venues-rooms.md`, `venues.csv`, `rooms.csv` | Complete |
 | 6 | Training assistants | — | NOT yet modelled |
 
