@@ -94,7 +94,7 @@ if (guardrails) {
   );
 
   assert(guardrails.uploads?.signedUrlMinutes === 15, 'signed upload URL must expire after 15 minutes');
-  assert(guardrails.uploads?.retentionDays === 7, 'upload retention must be 7 days');
+  assert(guardrails.uploads?.retentionDays === 1, 'upload retention must be 1 day');
   assert(guardrails.artifactRegistry?.retentionDays === 30, 'artifact retention must be 30 days');
 
   assertArray(
@@ -118,7 +118,7 @@ if (lifecycle) {
   assert(Array.isArray(lifecycle.rule), 'GCS lifecycle: rule must be an array');
   assert(lifecycle.rule?.length === 1, 'GCS lifecycle: exactly one rule is required');
   assert(lifecycle.rule?.[0]?.action?.type === 'Delete', 'GCS lifecycle: action must be Delete');
-  assert(lifecycle.rule?.[0]?.condition?.age === 7, 'GCS lifecycle: age must be 7 days');
+  assert(lifecycle.rule?.[0]?.condition?.age === 1, 'GCS lifecycle: age must be 1 day');
   assert(lifecycle.rule?.[0]?.condition?.isLive === true, 'GCS lifecycle: current objects must be targeted');
 }
 
