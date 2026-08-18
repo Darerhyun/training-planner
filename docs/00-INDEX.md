@@ -20,7 +20,7 @@
 ../TERRA_RULES.md                  ← Terra operating contract
 ../infra/
 ├── cost-guardrails.json           ← locked cost and scaling limits
-├── gcs-lifecycle.json             ← seven-day upload deletion policy
+├── gcs-lifecycle.json             ← one-day upload deletion policy
 └── gcs-cors.example.json          ← placeholder-only upload CORS example
 docs/
 ├── 00-INDEX.md                     ← you are here
