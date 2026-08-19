@@ -135,6 +135,36 @@ jobs:
       - name: Setup Google Cloud CLI
         uses: google-github-actions/setup-gcloud@v3
 
+      - name: Verify public Cloud Run invocation prerequisite
+        run: |
+          set -euo pipefail
+          policy_file="$(mktemp)"
+          trap 'rm -f "$policy_file"' EXIT
+          gcloud run services get-iam-policy core-api \
+            --project="$GCP_PROJECT_ID" \
+            --region=asia-southeast1 \
+            --platform=managed \
+            --format=json > "$policy_file"
+          POLICY_FILE="$policy_file" node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+
+          const policy = JSON.parse(readFileSync(process.env.POLICY_FILE, 'utf8'));
+          const hasPublicInvoker = (policy.bindings ?? []).some(
+            (binding) =>
+              binding.role === 'roles/run.invoker' &&
+              Array.isArray(binding.members) &&
+              binding.members.includes('allUsers') &&
+              binding.condition == null,
+          );
+
+          if (!hasPublicInvoker) {
+            console.error(
+              'core-api must have allUsers in roles/run.invoker before deployment.',
+            );
+            process.exit(1);
+          }
+          NODE
+
       - name: Verify pre-provisioned deployment targets
         run: |
           set -euo pipefail
@@ -173,7 +203,7 @@ jobs:
             --min-instances=0 \
             --max-instances=2 \
             --service-account="$GCP_RUNTIME_SERVICE_ACCOUNT" \
-            --set-secrets="DATABASE_URL=${GCP_DATABASE_SECRET}:latest,ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:latest" \
+            --set-secrets="DATABASE_URL=${GCP_DATABASE_SECRET}:2,ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:2" \
             --set-env-vars="ALLOWED_ORIGINS=${FIREBASE_HOSTING_ORIGIN},GCS_UPLOAD_BUCKET=${GCS_UPLOAD_BUCKET}" \
             --quiet
 
