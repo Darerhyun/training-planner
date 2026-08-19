@@ -418,6 +418,44 @@ for (const forbiddenProvisioningCommand of [
   );
 }
 assert(
+  deploymentWorkflow.includes('name: Verify public Cloud Run invocation prerequisite') &&
+    deploymentWorkflow.includes('gcloud run services get-iam-policy core-api') &&
+    deploymentWorkflow.includes('--format=json') &&
+    deploymentWorkflow.includes("binding.role === 'roles/run.invoker'") &&
+    deploymentWorkflow.includes("binding.members.includes('allUsers')") &&
+    deploymentWorkflow.includes('binding.condition == null'),
+  'deployment workflow must perform an unconditional read-only public invocation IAM preflight',
+);
+assertOrdered(
+  deploymentWorkflow,
+  [
+    'uses: google-github-actions/setup-gcloud@v3',
+    'name: Verify public Cloud Run invocation prerequisite',
+    'gcloud run services get-iam-policy core-api',
+    'name: Verify pre-provisioned deployment targets',
+    'name: Build and push immutable API image',
+    'name: Deploy locked Cloud Run service',
+  ],
+  'public invocation IAM preflight must run after WIF/setup-gcloud and before image publication or Cloud Run deployment',
+);
+const forbiddenIamCommandPattern =
+  /^[ \t]*gcloud\b[^\n]*(?:add-iam-policy-binding|remove-iam-policy-binding|set-iam-policy)\b/m;
+assert(
+  !forbiddenIamCommandPattern.test(deploymentWorkflow),
+  'deployment workflow must not contain any gcloud IAM policy mutation command',
+);
+for (const forbiddenIamFlag of [
+  '--allow-unauthenticated',
+  '--no-allow-unauthenticated',
+  '--no-invoker-iam-check',
+]) {
+  assert(
+    !deploymentWorkflow.includes(forbiddenIamFlag),
+    'deployment workflow must not use public-auth flag: ' + forbiddenIamFlag,
+  );
+}
+
+assert(
   deploymentWorkflow.includes(
     'workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}',
   ) &&
@@ -449,8 +487,9 @@ for (const fragment of [
   '--min-instances=0',
   '--max-instances=2',
   '--service-account="$GCP_RUNTIME_SERVICE_ACCOUNT"',
-  'DATABASE_URL=${GCP_DATABASE_SECRET}:latest',
-  'ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:latest',
+  // FIX: require the exact numeric version-2 secret pin after updating the workflow.
+  'DATABASE_URL=${GCP_DATABASE_SECRET}:2',
+  'ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:2',
   'ALLOWED_ORIGINS=${FIREBASE_HOSTING_ORIGIN}',
   'GCS_UPLOAD_BUCKET=${GCS_UPLOAD_BUCKET}',
 ]) {
@@ -459,6 +498,17 @@ for (const fragment of [
     `deployment workflow is missing locked deployment contract: ${fragment}`,
   );
 }
+assert(
+  deploymentWorkflow.includes(
+    'DATABASE_URL=${GCP_DATABASE_SECRET}:2,ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:2',
+  ),
+  'deployment workflow must pin both Secret Manager mappings to version :2',
+);
+assert(
+  !deploymentWorkflow.includes(':latest'),
+  'deployment workflow must not use floating Secret Manager :latest pins',
+);
+
 assert(
   !deploymentWorkflow.includes('--no-cpu-throttling'),
   'deployment workflow must reject Cloud Run instance-based CPU allocation',

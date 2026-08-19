@@ -184,10 +184,14 @@ already exist. Add only approved local and hosted domains, and do not enable
 additional sign-in providers without a separate authorization decision.
 
 Cloud Run must be configured separately with public invocation so browser
-requests can reach the API. That IAM change belongs to the separately authorized
-provider gate and is not performed by the deployment workflow. Public platform
-invocation does not make protected application routes public: Firebase token
-verification and server-side role authorization remain mandatory.
+requests can reach the API. Before dispatch, the separate manual provider/IAM gate
+must establish and record an unconditional `roles/run.invoker` binding
+containing `allUsers` with no condition for `core-api`. The deployment workflow
+performs only a read-only
+`gcloud run services get-iam-policy` preflight for that prerequisite and cannot
+change IAM. Public platform invocation does not make protected application routes
+public: Firebase token verification and server-side role authorization remain
+mandatory.
 
 ### Temporary uploads
 
@@ -264,6 +268,35 @@ verification step also requires `github.actor` exactly `Darerhyun`,
 `github.ref` exactly `refs/heads/main`, and all 11 repository variables to be
 non-empty.
 
+### Numeric Secret Manager pins and rotation
+
+The workflow pins both Cloud Run secret mappings to Secret Manager version `:2`:
+`DATABASE_URL=${GCP_DATABASE_SECRET}:2` and
+`ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:2`. It never uses `:latest`, so the
+deployed revision cannot silently follow an unreviewed secret rotation. Version
+2 of both approved secrets must exist and be verified before an authorized
+dispatch.
+
+This initial recovery PR starts from a base whose workflow used
+`:latest`. Reverting this PR therefore restores floating pins, so dispatch must
+remain prohibited until a separately reviewed numeric-pin change is accepted.
+
+For a future rotation, use the separately authorized provider procedure to create
+and validate a new numeric version, then use a reviewed numeric-pin PR to select
+a previously verified enabled version for rollback or rollout. Any provider
+secret-version state change remains separately authorized; do not commit secret
+values or mutate provider state as part of this PR.
+
+### Separate public-invocation provider gate
+
+Public invocation is a manual provider/IAM prerequisite, not a workflow action.
+The provider gate must verify that `core-api` has an unconditional
+`roles/run.invoker` binding containing `allUsers` with no condition before
+dispatch. The workflow only reads the IAM policy after Workload Identity
+Federation authentication and fails closed when the prerequisite is absent. It
+cannot grant, remove, or otherwise mutate IAM; no `roles/run.invoker` binding
+is created by this PR.
+
 #### Separate user/Sol/Terra process gate
 
 Before every dispatch, the user must provide fresh explicit authorization for
@@ -282,8 +315,8 @@ the exact resource scopes.
 The deployer identity requires only:
 
 - Artifact Registry Writer on the single approved repository;
-- Cloud Run Admin on the target project or service scope required for the first
-  `core-api` creation;
+- Cloud Run Developer (`roles/run.developer`) on the target project or
+  service scope required for the first `core-api` revision;
 - Firebase Hosting Admin;
 - Service Usage Consumer only if the Firebase CLI verification proves it is
   required;
@@ -338,13 +371,18 @@ manual-only and requires all four inputs: the literal confirmation
 `github.sha`, and the exact cost acknowledgement
 `I ACKNOWLEDGE LOW-COST LIMITS` before checkout or cloud authentication.
 
-After those gates pass, the workflow validates the repository, authenticates
-keylessly through Workload Identity Federation, builds an immutable image tagged
-with the commit SHA, and deploys `core-api` with the locked Cloud Run limits. It
-uses request-based billing with CPU throttling, verifies `/health`, rebuilds the
-web app with the resolved API URL, and deploys Firebase Hosting only. It does not
-provision resources, apply SQL, create secrets, assign IAM, or deploy any other
-Firebase product.
+The earlier `npm run build` remains before cloud authentication as
+repository validation; it is not container image publication. After Workload
+Identity Federation and `setup-gcloud`, the workflow performs a read-only check
+that the manually established unconditional `allUsers` /
+`roles/run.invoker` prerequisite exists with no condition. That preflight runs
+before container image build/push and before Cloud Run deployment. The workflow
+then builds an immutable image tagged with the commit SHA and deploys `core-api`
+with the locked Cloud Run limits and numeric secret pins. It uses request-based
+billing with CPU throttling, verifies `/health`, rebuilds the web app with the
+resolved API URL, and deploys Firebase Hosting only. It does not provision
+resources, apply SQL, create secrets, assign IAM, or deploy any other Firebase
+product.
 
 The committed `apps/web/.env.production` deliberately retains a `.invalid`
 endpoint. The actual API URL and Firebase web configuration are injected only
@@ -428,8 +466,14 @@ cleanup before users upload a workbook.
 
 Before deployment:
 
-- discard or revert the recovery branch;
-- delete no provider resource without a separately approved cleanup plan.
+- for this initial recovery PR, reverting the commit restores the old floating
+  `:latest` workflow; dispatch must remain prohibited until a reviewed
+  numeric-pin change is accepted;
+- for future rotations, rollback requires a reviewed numeric-pin PR selecting a
+  previously verified enabled version; any provider secret-version state change
+  remains separately authorized;
+- delete no provider resource, secret version, or IAM binding without a
+  separately approved cleanup plan.
 
 The first-deployment approval packet must preserve:
 
