@@ -1144,12 +1144,13 @@ function SyncPage({ user }: { user: User }) {
 
 function Summary({ result }: { result: ParseResult }) {
   const summary = result.summary;
+  const conflicts = combineImportConflicts(result);
   const metrics = [
     ['Rows', summary.totalRows],
     ['Valid', summary.validRows],
     ['Changes', summary.changeCount],
     ['Cancelled', summary.cancellations],
-    ['Conflicts', summary.conflicts],
+    ['Conflicts', conflicts.length],
     ['Skipped', summary.skipped],
   ];
 
@@ -1174,13 +1175,13 @@ function Summary({ result }: { result: ParseResult }) {
           </div>
         ))}
       </div>
-      {result.conflicts.length > 0 && (
+      {conflicts.length > 0 && (
         <section className="conflict-section" aria-labelledby="import-conflicts-heading">
           <h3 id="import-conflicts-heading">Protected import conflicts</h3>
           <p className="empty">Application-managed sessions were not overwritten by this upload.</p>
           <div className="conflict-list">
-            {result.conflicts.map((conflict) => (
-              <article className="conflict-card" key={`${conflict.sessionId}-${conflict.rowNumber}`}>
+            {conflicts.map((conflict) => (
+              <article className="conflict-card" key={getImportConflictKey(conflict)}>
                 <strong>{conflict.externalRef}</strong>
                 <span>Session {conflict.sessionId} · workbook row {conflict.rowNumber}</span>
                 <p>This application-managed session was not overwritten.</p>
@@ -1200,6 +1201,38 @@ function Summary({ result }: { result: ParseResult }) {
       )}
     </>
   );
+}
+
+function combineImportConflicts(result: ParseResult): ParseResult['conflicts'] {
+  const seen = new Set<string>();
+  const combined: ParseResult['conflicts'] = [];
+
+  for (const conflict of [...result.conflicts, ...(result.applied?.conflicts ?? [])]) {
+    const key = getImportConflictKey(conflict);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    combined.push(conflict);
+  }
+
+  return combined;
+}
+
+function getImportConflictKey(conflict: ParseResult['conflicts'][number]): string {
+  const fields = conflict.fields
+    .map((field) => [field.field, field.current, field.incoming] as const)
+    .sort((left, right) => {
+      const leftKey = JSON.stringify(left);
+      const rightKey = JSON.stringify(right);
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    });
+
+  return JSON.stringify([
+    conflict.sessionId,
+    conflict.externalRef,
+    conflict.rowNumber,
+    conflict.reason,
+    fields,
+  ]);
 }
 
 function formatConflictValue(value: string | number | null): string {
