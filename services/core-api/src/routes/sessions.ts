@@ -27,6 +27,16 @@ type TrainerValidationRow = {
   course_linked: boolean;
 };
 
+type TrainerOptionSessionRow = {
+  id: string;
+  course_code: string | null;
+};
+
+type TrainerOptionRow = {
+  trainer_id: string;
+  name: string;
+};
+
 type UpdatedSessionRow = {
   id: string;
   trainer_id: string | null;
@@ -144,6 +154,44 @@ export function createSessionsRoutes(options: SessionRouteOptions = {}): Hono<Ap
 
     return c.json({ history: rows.map(mapHistory) });
   });
+
+  sessionsRoutes.get(
+    '/sessions/:id/trainer-options',
+    options.writeRoles ?? requireRole('admin', 'ops'),
+    async (c) => {
+      const sessionRows = await db<TrainerOptionSessionRow>(
+        'SELECT id, course_code FROM sessions WHERE id = $1',
+        [c.req.param('id')],
+      );
+      const session = sessionRows[0];
+      if (!session) return c.json({ error: 'Session not found' }, 404);
+      if (!session.course_code) {
+        return c.json({
+          error: 'Unresolved courses cannot provide trainer options.',
+          code: 'unresolved_session_course',
+        }, 422);
+      }
+
+      const rows = await db<TrainerOptionRow>(
+        `SELECT
+          t.trainer_id,
+          t.name
+         FROM trainers t
+         INNER JOIN trainer_courses tc
+           ON tc.trainer_id = t.trainer_id
+          AND tc.course_code = $1
+         WHERE t.is_active = true
+           AND NOT ($1 = ANY(COALESCE(t.module_excludes, ARRAY[]::text[])))
+         GROUP BY t.trainer_id, t.name
+         ORDER BY lower(t.name) ASC, t.trainer_id ASC`,
+        [session.course_code],
+      );
+
+      return c.json({
+        trainers: rows.map((row) => ({ id: row.trainer_id, name: row.name })),
+      });
+    },
+  );
 
   sessionsRoutes.patch(
     '/sessions/:id/trainer',

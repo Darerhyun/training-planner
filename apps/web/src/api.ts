@@ -15,7 +15,12 @@ export interface AppProfile {
 }
 
 export class ApiError extends Error {
-  constructor(message: string, public readonly status: number | null = null) {
+  constructor(
+    message: string,
+    public readonly status: number | null = null,
+    public readonly code: string | null = null,
+    public readonly currentVersion: number | null = null,
+  ) {
     super(message);
     this.name = 'ApiError';
   }
@@ -98,6 +103,8 @@ export interface PlanningSession {
     effective: number | null;
   };
   status: PlanningStatus;
+  managementSource: 'import' | 'application';
+  version: number;
   issues: {
     unassignedTrainer: boolean;
     unresolvedVenue: boolean;
@@ -157,6 +164,7 @@ export interface ParseResult {
     unchanged: number;
     skipped: number;
     cancellations: number;
+    conflicts: number;
     changeCount: number;
     autoApplied: boolean;
     requiresConfirmation: boolean;
@@ -169,7 +177,62 @@ export interface ParseResult {
     rowNumber: number;
     rawValue: string | null;
   }>;
-  applied?: { applied: number; skipped: number };
+  conflicts: ScheduleImportConflict[];
+  applied?: {
+    applied: number;
+    skipped: number;
+    unchanged: number;
+    conflicts: ScheduleImportConflict[];
+  };
+}
+
+export interface ScheduleImportConflict {
+  externalRef: string;
+  rowNumber: number;
+  sessionId: string;
+  reason: 'application_managed_difference';
+  fields: Array<{
+    field: string;
+    current: string | number | null;
+    incoming: string | number | null;
+  }>;
+}
+
+export interface SessionHistoryEntry {
+  id: string;
+  sessionId: string;
+  action: 'trainer_assigned' | 'trainer_replaced' | 'trainer_unassigned';
+  actor: {
+    id: string;
+    email: string | null;
+    displayName: string | null;
+  } | null;
+  previousTrainer: { id: string; name: string | null } | null;
+  newTrainer: { id: string; name: string | null } | null;
+  note: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface TrainerOption {
+  id: string;
+  name: string;
+}
+
+export interface SessionTrainerUpdateResponse {
+  session: {
+    id: string;
+    trainer: TrainerOption | null;
+    previousTrainer: TrainerOption | null;
+    managementSource: 'import' | 'application';
+    version: number;
+    updatedAt: string;
+  };
+  history: {
+    id: string;
+    action: SessionHistoryEntry['action'];
+    createdAt: string;
+  };
 }
 
 export async function apiFetch<T>(user: User, path: string, init: RequestInit = {}): Promise<T> {
@@ -192,7 +255,12 @@ export async function apiFetch<T>(user: User, path: string, init: RequestInit = 
   const data = await readResponseBody(response);
 
   if (!response.ok && response.status !== 409) {
-    throw new ApiError(getApiMessage(response, data), response.status);
+    throw new ApiError(
+      getApiMessage(response, data),
+      response.status,
+      getResponseCode(data),
+      getCurrentVersion(data),
+    );
   }
 
   return data as T;
@@ -269,6 +337,50 @@ export async function fetchPlanningSessions(user: User, request: PlanningRequest
   return apiFetch<PlanningResponse>(user, `/planning/sessions?${query.toString()}`);
 }
 
+export async function fetchSessionHistory(user: User, sessionId: string): Promise<SessionHistoryEntry[]> {
+  const data = await apiFetch<{ history: SessionHistoryEntry[] }>(
+    user,
+    `/sessions/${encodeURIComponent(sessionId)}/history`,
+  );
+  return data.history;
+}
+
+export async function fetchTrainerOptions(user: User, sessionId: string): Promise<TrainerOption[]> {
+  const data = await apiFetch<{ trainers: TrainerOption[] }>(
+    user,
+    `/sessions/${encodeURIComponent(sessionId)}/trainer-options`,
+  );
+  return data.trainers;
+}
+
+export async function updateSessionTrainer(
+  user: User,
+  sessionId: string,
+  trainerId: string | null,
+  expectedVersion: number,
+  note: string,
+): Promise<SessionTrainerUpdateResponse> {
+  const data = await apiFetch<SessionTrainerUpdateResponse | Record<string, unknown>>(
+    user,
+    `/sessions/${encodeURIComponent(sessionId)}/trainer`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ trainerId, expectedVersion, note }),
+    },
+  );
+
+  if (getResponseCode(data) === 'stale_session_version') {
+    throw new ApiError(
+      getResponseMessage(data) ?? 'This session changed after you opened it. Reload before trying again.',
+      409,
+      'stale_session_version',
+      getCurrentVersion(data),
+    );
+  }
+
+  return data as SessionTrainerUpdateResponse;
+}
+
 async function readResponseBody(response: Response): Promise<unknown> {
   const text = await response.text().catch(() => '');
 
@@ -307,4 +419,16 @@ function getResponseMessage(data: unknown): string | null {
   }
 
   return typeof data === 'string' ? data : null;
+}
+
+function getResponseCode(data: unknown): string | null {
+  if (typeof data !== 'object' || !data || !('code' in data)) return null;
+  const code = (data as { code?: unknown }).code;
+  return typeof code === 'string' ? code : null;
+}
+
+function getCurrentVersion(data: unknown): number | null {
+  if (typeof data !== 'object' || !data || !('currentVersion' in data)) return null;
+  const currentVersion = (data as { currentVersion?: unknown }).currentVersion;
+  return typeof currentVersion === 'number' ? currentVersion : null;
 }

@@ -11,16 +11,23 @@ import {
   type PlanningResponse,
   type PlanningSession,
   type PlanningStatus,
+  type SessionHistoryEntry,
+  type TrainerOption,
   cancelSchedule,
   confirmSchedule,
   fetchMe,
   fetchPlanningSessions,
+  fetchSessionHistory,
   fetchSessions,
+  fetchTrainerOptions,
+  updateSessionTrainer,
   uploadMasterSchedule,
 } from './api.js';
 import { auth, completeMagicLink, isSignInWithEmailLink, sendMagicLink, signInWithPassword, signOut } from './firebase.js';
 
-type View = 'planning' | 'sync' | 'sessions';
+type View = 'sessions' | 'sync' | 'legacy-sessions';
+type ActiveRole = 'admin' | 'ops' | 'finance' | 'viewer';
+type DateMode = 'upcoming' | 'past' | 'custom';
 
 const planningStatuses: PlanningStatus[] = ['draft', 'confirmed', 'cancelled', 'completed'];
 const planningIssues: PlanningIssue[] = [
@@ -53,7 +60,7 @@ export default function App() {
   const [authMessage, setAuthMessage] = useState('');
   const [authError, setAuthError] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
-  const [view, setView] = useState<View>('planning');
+  const [view, setView] = useState<View>('sessions');
 
   useEffect(() => onAuthStateChanged(auth, (nextUser) => {
     setUser(nextUser);
@@ -194,26 +201,26 @@ export default function App() {
           <p>{profile.display_name || profile.email} · {profile.role}</p>
         </div>
         <nav className="tabs" aria-label="Primary">
-          <button className={view === 'planning' ? 'active' : ''} onClick={() => setView('planning')}>
+          <button className={view === 'sessions' ? 'active' : ''} onClick={() => setView('sessions')}>
             <CalendarDays size={16} />
-            Planning
+            Sessions
           </button>
           <button className={view === 'sync' ? 'active' : ''} onClick={() => setView('sync')}>
             <Upload size={16} />
             Sync
           </button>
-          <button className={view === 'sessions' ? 'active' : ''} onClick={() => setView('sessions')}>
+          <button className={view === 'legacy-sessions' ? 'active' : ''} onClick={() => setView('legacy-sessions')}>
             <ListFilter size={16} />
-            Sessions
+            Legacy sessions
           </button>
         </nav>
         <button className="icon-button" onClick={() => signOut(auth)} aria-label="Sign out" title="Sign out">
           <LogOut size={18} />
         </button>
       </header>
-      {view === 'planning' && <PlanningPage user={user} />}
+      {view === 'sessions' && <SessionsPage user={user} role={profile.role as ActiveRole} />}
       {view === 'sync' && <SyncPage user={user} />}
-      {view === 'sessions' && <SessionsPage user={user} />}
+      {view === 'legacy-sessions' && <LegacySessionsPage user={user} />}
     </main>
   );
 }
@@ -235,6 +242,18 @@ function addCalendarMonths(dateText: string, months: number): string {
   const lastDay = new Date(Date.UTC(year, targetMonthIndex + 1, 0)).getUTCDate();
   const date = new Date(Date.UTC(year, targetMonthIndex, Math.min(day, lastDay)));
   return date.toISOString().slice(0, 10);
+}
+
+function addCalendarDays(dateText: string, days: number): string {
+  const date = new Date(`${dateText}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function daysBetweenInclusive(from: string, to: string): number {
+  const fromTime = Date.parse(`${from}T00:00:00.000Z`);
+  const toTime = Date.parse(`${to}T00:00:00.000Z`);
+  return Math.floor((toTime - fromTime) / 86_400_000) + 1;
 }
 
 function formatDateRange(from: string, to: string): string {
@@ -268,9 +287,12 @@ function formatMonths(months: string[]): string {
   return months.length ? months.join(', ') : '-';
 }
 
-function PlanningPage({ user }: { user: User }) {
+function SessionsPage({ user, role }: { user: User; role: ActiveRole }) {
   const initialFrom = useMemo(() => getSingaporeDate(), []);
   const initialTo = useMemo(() => addCalendarMonths(initialFrom, 6), [initialFrom]);
+  const initialPastFrom = useMemo(() => addCalendarMonths(initialFrom, -6), [initialFrom]);
+  const initialPastTo = useMemo(() => addCalendarDays(initialFrom, -1), [initialFrom]);
+  const [dateMode, setDateMode] = useState<DateMode>('upcoming');
   const [from, setFrom] = useState(initialFrom);
   const [to, setTo] = useState(initialTo);
   const [statuses, setStatuses] = useState<PlanningStatus[]>([]);
@@ -301,6 +323,18 @@ function PlanningPage({ user }: { user: User }) {
       setBusy(true);
     }
     setError('');
+    if (!from || !to || from > to) {
+      setError('Choose a valid session span with the start date on or before the end date.');
+      setBusy(false);
+      setLoadingMore(false);
+      return;
+    }
+    if (daysBetweenInclusive(from, to) > 366) {
+      setError('Custom session spans must not exceed one year. Choose another date window for older sessions.');
+      setBusy(false);
+      setLoadingMore(false);
+      return;
+    }
     try {
       const result = await fetchPlanningSessions(user, {
         from,
@@ -330,6 +364,7 @@ function PlanningPage({ user }: { user: User }) {
   }
 
   function clearFilters() {
+    setDateMode('upcoming');
     setFrom(initialFrom);
     setTo(initialTo);
     setStatuses([]);
@@ -338,6 +373,17 @@ function PlanningPage({ user }: { user: User }) {
     setVenueCode('');
     setRoomId('');
     setIssues([]);
+  }
+
+  function changeDateMode(nextMode: DateMode) {
+    setDateMode(nextMode);
+    if (nextMode === 'upcoming') {
+      setFrom(initialFrom);
+      setTo(initialTo);
+    } else if (nextMode === 'past') {
+      setFrom(initialPastFrom);
+      setTo(initialPastTo);
+    }
   }
 
   useEffect(() => {
@@ -350,7 +396,7 @@ function PlanningPage({ user }: { user: User }) {
     <section className="planning-stack">
       <div className="panel planning-hero">
         <div>
-          <h2>Planning</h2>
+          <h2>Sessions</h2>
           <span>Session span · {formatDateRange(from, to)}</span>
         </div>
         <div className="toolbar">
@@ -358,7 +404,7 @@ function PlanningPage({ user }: { user: User }) {
             <X size={16} />
             Clear filters
           </button>
-          <button className="icon-button" onClick={() => load(null)} disabled={busy || loadingMore} aria-label="Refresh planning" title="Refresh planning">
+          <button className="icon-button" onClick={() => load(null)} disabled={busy || loadingMore} aria-label="Refresh sessions" title="Refresh sessions">
             <RefreshCw size={17} className={busy ? 'spin' : ''} />
           </button>
         </div>
@@ -367,14 +413,45 @@ function PlanningPage({ user }: { user: User }) {
       <PlanningSummary data={data} busy={busy} />
 
       <div className="panel filter-panel">
+        <fieldset className="date-mode-fieldset">
+          <legend>Session period</legend>
+          <div className="date-mode-row">
+            {(['upcoming', 'past', 'custom'] as DateMode[]).map((mode) => (
+              <label className="date-mode-option" key={mode}>
+                <input
+                  type="radio"
+                  name="session-period"
+                  checked={dateMode === mode}
+                  onChange={() => changeDateMode(mode)}
+                />
+                {mode[0].toUpperCase() + mode.slice(1)}
+              </label>
+            ))}
+          </div>
+          <span className="field-help">
+            {dateMode === 'upcoming' && 'Singapore today through six calendar months ahead.'}
+            {dateMode === 'past' && 'The preceding six calendar months through yesterday.'}
+            {dateMode === 'custom' && 'Choose any retained period up to one year; use another window to reach older sessions.'}
+          </span>
+        </fieldset>
         <div className="filter-grid">
           <label>
             Session span from
-            <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+            <input
+              type="date"
+              value={from}
+              disabled={dateMode !== 'custom'}
+              onChange={(event) => setFrom(event.target.value)}
+            />
           </label>
           <label>
             Session span to
-            <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+            <input
+              type="date"
+              value={to}
+              disabled={dateMode !== 'custom'}
+              onChange={(event) => setTo(event.target.value)}
+            />
           </label>
           <label>
             Programme
@@ -460,23 +537,37 @@ function PlanningPage({ user }: { user: User }) {
           {error && <p className="error">{error}</p>}
           {!busy && !error && sessions.length === 0 && <p className="empty">No sessions match this session span and filter set.</p>}
           <div className="table-wrap">
-            <table className="planning-table">
+            <table className="planning-table sessions-table">
               <thead>
                 <tr>
                   <th>Session span</th>
                   <th>Course</th>
-                  <th>History</th>
-                  <th>Programme</th>
+                  <th className="mobile-hide">History</th>
+                  <th className="mobile-hide">Programme</th>
                   <th>Trainer</th>
-                  <th>Venue / Room</th>
-                  <th>Pax</th>
+                  <th className="mobile-hide">Venue / Room</th>
+                  <th className="mobile-hide">Pax</th>
                   <th>Status</th>
-                  <th>Issues</th>
+                  <th className="mobile-hide">Issues</th>
                 </tr>
               </thead>
               <tbody>
                 {sessions.map((session) => (
-                  <tr key={session.id} className="selectable-row" onClick={() => setSelectedSession(session)}>
+                  <tr
+                    key={session.id}
+                    className="selectable-row"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open ${session.course.name ?? session.course.tmsCode ?? 'session'} details`}
+                    aria-selected={selectedSession?.id === session.id}
+                    onClick={() => setSelectedSession(session)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedSession(session);
+                      }
+                    }}
+                  >
                     <td>
                       <strong>{session.dates.start}</strong>
                       <span>to {session.dates.end}</span>
@@ -486,16 +577,16 @@ function PlanningPage({ user }: { user: User }) {
                       <strong>{session.course.name ?? session.course.tmsCode ?? 'Unresolved'}</strong>
                       <span>{session.course.code ?? session.course.tmsCode ?? session.externalRef}</span>
                     </td>
-                    <td><PlanningProfileAnnotation session={session} /></td>
-                    <td>{session.course.programmeCode ?? 'Standalone'}</td>
+                    <td className="mobile-hide"><PlanningProfileAnnotation session={session} /></td>
+                    <td className="mobile-hide">{session.course.programmeCode ?? 'Standalone'}</td>
                     <td>{session.trainer.name ?? session.trainer.rawName ?? 'Unassigned'}</td>
-                    <td>
+                    <td className="mobile-hide">
                       <strong>{session.venue.name ?? session.venue.rawText ?? 'Unresolved'}</strong>
                       <span>{session.room.name ?? (session.room.id ? session.room.id : 'No room')}</span>
                     </td>
-                    <td>{session.pax.confirmed ?? session.pax.expected ?? '-'}</td>
+                    <td className="mobile-hide">{session.pax.confirmed ?? session.pax.expected ?? '-'}</td>
                     <td><span className="status-pill">{session.status}</span></td>
-                    <td><IssueBadges session={session} /></td>
+                    <td className="mobile-hide"><IssueBadges session={session} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -509,7 +600,17 @@ function PlanningPage({ user }: { user: User }) {
           </div>
         </div>
 
-        <SessionDetailPanel session={selectedSession} onClose={() => setSelectedSession(null)} />
+        <SessionDetailPanel
+          user={user}
+          role={role}
+          session={selectedSession}
+          onClose={() => setSelectedSession(null)}
+          onReload={() => load(null)}
+          onSessionUpdated={(updated) => {
+            setSessions((current) => current.map((session) => session.id === updated.id ? updated : session));
+            setSelectedSession(updated);
+          }}
+        />
       </div>
     </section>
   );
@@ -576,7 +677,81 @@ function PlanningProfileAnnotation({ session }: { session: PlanningSession }) {
   );
 }
 
-function SessionDetailPanel({ session, onClose }: { session: PlanningSession | null; onClose: () => void }) {
+function SessionDetailPanel({
+  user,
+  role,
+  session,
+  onClose,
+  onReload,
+  onSessionUpdated,
+}: {
+  user: User;
+  role: ActiveRole;
+  session: PlanningSession | null;
+  onClose: () => void;
+  onReload: () => void;
+  onSessionUpdated: (session: PlanningSession) => void;
+}) {
+  const canEditTrainer = role === 'admin' || role === 'ops';
+  const [history, setHistory] = useState<SessionHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [trainerOptions, setTrainerOptions] = useState<TrainerOption[]>([]);
+  const [optionsLoading, setOptionsLoading] = useState(false);
+  const [optionsError, setOptionsError] = useState('');
+  const [proposedTrainerId, setProposedTrainerId] = useState('');
+  const [note, setNote] = useState('');
+  const [trainerSaving, setTrainerSaving] = useState(false);
+  const [trainerError, setTrainerError] = useState('');
+  const [trainerMessage, setTrainerMessage] = useState('');
+  const [reloadRequired, setReloadRequired] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setHistory([]);
+    setHistoryError('');
+    setTrainerOptions([]);
+    setOptionsError('');
+    setTrainerError('');
+    setTrainerMessage('');
+    setReloadRequired(false);
+    setNote('');
+    setProposedTrainerId(session?.trainer.id ?? '');
+    if (!session) return () => { cancelled = true; };
+
+    setHistoryLoading(true);
+    fetchSessionHistory(user, session.id)
+      .then((entries) => {
+        if (!cancelled) setHistory(entries);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) void handleApiError(error, setHistoryError);
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+
+    if (canEditTrainer) {
+      setOptionsLoading(true);
+      fetchTrainerOptions(user, session.id)
+        .then((options) => {
+          if (!cancelled) setTrainerOptions(options);
+        })
+        .catch((error: unknown) => {
+          if (!cancelled) void handleApiError(error, setOptionsError);
+        })
+        .finally(() => {
+          if (!cancelled) setOptionsLoading(false);
+        });
+    } else {
+      setOptionsLoading(false);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canEditTrainer, session?.id, user]);
+
   if (!session) {
     return (
       <aside className="panel detail-panel muted-detail">
@@ -586,12 +761,80 @@ function SessionDetailPanel({ session, onClose }: { session: PlanningSession | n
     );
   }
 
+  const currentTrainerId = session.trainer.id ?? '';
+  const currentTrainerName = session.trainer.name ?? session.trainer.rawName ?? 'Unassigned';
+  const selectedTrainer = trainerOptions.find((trainer) => trainer.id === proposedTrainerId);
+  const proposedTrainerName = proposedTrainerId
+    ? selectedTrainer?.name ?? (proposedTrainerId === currentTrainerId ? currentTrainerName : 'Unknown trainer')
+    : 'Unassigned';
+  const trainerChanged = proposedTrainerId !== currentTrainerId;
+  const trainerAction = !currentTrainerId && proposedTrainerId
+    ? 'Assign trainer'
+    : currentTrainerId && !proposedTrainerId
+      ? 'Unassign trainer'
+      : 'Change trainer';
+
+  async function saveTrainer(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session || !trainerChanged) return;
+    setTrainerSaving(true);
+    setTrainerError('');
+    setTrainerMessage('');
+    setReloadRequired(false);
+
+    try {
+      const result = await updateSessionTrainer(
+        user,
+        session.id,
+        proposedTrainerId || null,
+        session.version,
+        note,
+      );
+      const updated: PlanningSession = {
+        ...session,
+        trainer: result.session.trainer
+          ? { id: result.session.trainer.id, name: result.session.trainer.name, rawName: null }
+          : { id: null, name: null, rawName: null },
+        managementSource: result.session.managementSource,
+        version: result.session.version,
+        issues: {
+          ...session.issues,
+          unassignedTrainer: result.session.trainer === null,
+        },
+      };
+      onSessionUpdated(updated);
+      setProposedTrainerId(result.session.trainer?.id ?? '');
+      setNote('');
+      setTrainerMessage(`${trainerAction} saved.`);
+      setHistoryLoading(true);
+      try {
+        setHistory(await fetchSessionHistory(user, session.id));
+        setHistoryError('');
+      } catch (historyFailure) {
+        void handleApiError(historyFailure, setHistoryError);
+      } finally {
+        setHistoryLoading(false);
+      }
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'stale_session_version') {
+        setTrainerError('This session changed after you opened it. Reload the session before saving again.');
+        setReloadRequired(true);
+      } else {
+        void handleApiError(error, setTrainerError);
+      }
+    } finally {
+      setTrainerSaving(false);
+    }
+  }
+
   const detailRows = [
     ['Course', session.course.name ?? 'Unresolved'],
     ['Course code', session.course.code ?? '-'],
     ['TMS code', session.course.tmsCode ?? '-'],
     ['External ref', session.externalRef ?? '-'],
     ['Status', session.status],
+    ['Management source', session.managementSource],
+    ['Version', session.version],
     ['Session span', `${session.dates.start} to ${session.dates.end}`],
     ['Span length', `${session.dates.spanDays} day span`],
     ['Time', session.dates.timeText ?? '-'],
@@ -615,18 +858,98 @@ function SessionDetailPanel({ session, onClose }: { session: PlanningSession | n
   ];
 
   return (
-    <aside className="panel detail-panel">
+    <aside
+      className="panel detail-panel"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onClose();
+      }}
+    >
       <div className="panel-heading">
         <div>
           <h2>Session details</h2>
-          <span>Read-only</span>
+          <span>{canEditTrainer ? 'Trainer changes enabled' : 'Read-only'}</span>
         </div>
-        <button className="icon-button secondary" onClick={onClose} aria-label="Close details" title="Close details">
+        <button
+          className="icon-button secondary"
+          onClick={onClose}
+          aria-label="Close details"
+          title="Close details"
+          autoFocus
+        >
           <X size={16} />
         </button>
       </div>
       <IssueBadges session={session} />
       <PlanningProfileAnnotation session={session} />
+      {canEditTrainer && (
+        <form className="trainer-editor" onSubmit={saveTrainer}>
+          <div className="panel-heading">
+            <div>
+              <h3>Trainer amendment</h3>
+              <span>Eligible trainers for this course only</span>
+            </div>
+          </div>
+          {optionsLoading && <p className="empty">Loading eligible trainers...</p>}
+          {optionsError && <p className="error">{optionsError}</p>}
+          {!optionsLoading && !optionsError && trainerOptions.length === 0 && (
+            <p className="empty">No eligible trainers are currently available for this course.</p>
+          )}
+          <label>
+            Proposed trainer
+            <select
+              value={proposedTrainerId}
+              disabled={optionsLoading || trainerSaving || Boolean(optionsError) || reloadRequired}
+              onChange={(event) => {
+                setProposedTrainerId(event.target.value);
+                setTrainerError('');
+                setTrainerMessage('');
+              }}
+            >
+              <option value="">Unassigned</option>
+              {currentTrainerId && !trainerOptions.some((trainer) => trainer.id === currentTrainerId) && (
+                <option value={currentTrainerId} disabled>{currentTrainerName} (current; not eligible)</option>
+              )}
+              {trainerOptions.map((trainer) => (
+                <option value={trainer.id} key={trainer.id}>{trainer.name}</option>
+              ))}
+            </select>
+          </label>
+          <div className="trainer-preview" aria-live="polite">
+            <span>Current</span>
+            <strong>{currentTrainerName}</strong>
+            <span aria-hidden="true">→</span>
+            <span>Proposed</span>
+            <strong>{proposedTrainerName}</strong>
+          </div>
+          <label>
+            Optional note
+            <textarea
+              value={note}
+              maxLength={500}
+              disabled={trainerSaving || reloadRequired}
+              onChange={(event) => setNote(event.target.value)}
+            />
+            <span className="field-help">{note.length}/500 characters</span>
+          </label>
+          {trainerMessage && <p className="message" role="status">{trainerMessage}</p>}
+          {trainerError && <p className="error" role="alert">{trainerError}</p>}
+          <div className="action-row">
+            <button
+              type="submit"
+              disabled={!trainerChanged || trainerSaving || optionsLoading || Boolean(optionsError) || reloadRequired}
+            >
+              {trainerSaving ? <RefreshCw size={16} className="spin" /> : <Check size={16} />}
+              {trainerAction}
+            </button>
+            {reloadRequired && (
+              <button type="button" className="secondary" onClick={onReload}>
+                <RefreshCw size={16} />
+                Reload sessions
+              </button>
+            )}
+          </div>
+        </form>
+      )}
       <dl className="detail-list">
         {detailRows.map(([label, value]) => (
           <div key={label}>
@@ -635,8 +958,57 @@ function SessionDetailPanel({ session, onClose }: { session: PlanningSession | n
           </div>
         ))}
       </dl>
+      <section className="history-section" aria-labelledby="session-history-heading">
+        <div className="panel-heading">
+          <div>
+            <h3 id="session-history-heading">Session history</h3>
+            <span>Newest first</span>
+          </div>
+          {historyLoading && <RefreshCw size={16} className="spin" aria-label="Loading history" />}
+        </div>
+        {historyError && <p className="error">{historyError}</p>}
+        {!historyLoading && !historyError && history.length === 0 && (
+          <p className="empty">No trainer changes have been recorded for this session.</p>
+        )}
+        {!historyError && history.length > 0 && (
+          <ol className="history-list">
+            {history.map((entry) => (
+              <li key={entry.id}>
+                <strong>{formatHistoryAction(entry.action)}</strong>
+                <span>{formatHistoryTime(entry.createdAt)}</span>
+                <span>By {entry.actor?.displayName ?? entry.actor?.email ?? entry.actor?.id ?? 'Unknown actor'}</span>
+                <span>
+                  {entry.previousTrainer?.name ?? entry.previousTrainer?.id ?? 'Unassigned'}
+                  {' → '}
+                  {entry.newTrainer?.name ?? entry.newTrainer?.id ?? 'Unassigned'}
+                </span>
+                {entry.note && <p>{entry.note}</p>}
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
     </aside>
   );
+}
+
+function formatHistoryAction(action: SessionHistoryEntry['action']): string {
+  const labels: Record<SessionHistoryEntry['action'], string> = {
+    trainer_assigned: 'Trainer assigned',
+    trainer_replaced: 'Trainer changed',
+    trainer_unassigned: 'Trainer unassigned',
+  };
+  return labels[action];
+}
+
+function formatHistoryTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('en-SG', {
+    timeZone: 'Asia/Singapore',
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
 }
 
 async function handleApiError(error: unknown, setError: (message: string) => void): Promise<void> {
@@ -777,6 +1149,7 @@ function Summary({ result }: { result: ParseResult }) {
     ['Valid', summary.validRows],
     ['Changes', summary.changeCount],
     ['Cancelled', summary.cancellations],
+    ['Conflicts', summary.conflicts],
     ['Skipped', summary.skipped],
   ];
 
@@ -801,11 +1174,39 @@ function Summary({ result }: { result: ParseResult }) {
           </div>
         ))}
       </div>
+      {result.conflicts.length > 0 && (
+        <section className="conflict-section" aria-labelledby="import-conflicts-heading">
+          <h3 id="import-conflicts-heading">Protected import conflicts</h3>
+          <p className="empty">Application-managed sessions were not overwritten by this upload.</p>
+          <div className="conflict-list">
+            {result.conflicts.map((conflict) => (
+              <article className="conflict-card" key={`${conflict.sessionId}-${conflict.rowNumber}`}>
+                <strong>{conflict.externalRef}</strong>
+                <span>Session {conflict.sessionId} · workbook row {conflict.rowNumber}</span>
+                <p>This application-managed session was not overwritten.</p>
+                <dl>
+                  {conflict.fields.map((field) => (
+                    <div key={field.field}>
+                      <dt>{field.field}</dt>
+                      <dd>Current: {formatConflictValue(field.current)}</dd>
+                      <dd>Incoming: {formatConflictValue(field.incoming)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
     </>
   );
 }
 
-function SessionsPage({ user }: { user: User }) {
+function formatConflictValue(value: string | number | null): string {
+  return value === null || value === '' ? 'blank' : String(value);
+}
+
+function LegacySessionsPage({ user }: { user: User }) {
   const [sessions, setSessions] = useState<ApiSession[]>([]);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
