@@ -64,6 +64,8 @@ function createFakeStore(overrides: Partial<SessionState> = {}) {
   const trainers = new Map<string, TrainerState>([
     ['trainer-1', { trainer_id: 'trainer-1', name: 'Trainer One', is_active: true, module_excludes: null, linkedCourses: ['ASKMEI'] }],
     ['trainer-2', { trainer_id: 'trainer-2', name: 'Trainer Two', is_active: true, module_excludes: [], linkedCourses: ['ASKMEI'] }],
+    ['alpha-2', { trainer_id: 'alpha-2', name: 'alpha trainer', is_active: true, module_excludes: [], linkedCourses: ['ASKMEI'] }],
+    ['alpha-1', { trainer_id: 'alpha-1', name: 'Alpha Trainer', is_active: true, module_excludes: [], linkedCourses: ['ASKMEI', 'ASKMEI'] }],
     ['inactive', { trainer_id: 'inactive', name: 'Inactive Trainer', is_active: false, module_excludes: null, linkedCourses: ['ASKMEI'] }],
     ['unlinked', { trainer_id: 'unlinked', name: 'Unlinked Trainer', is_active: true, module_excludes: null, linkedCourses: ['OTHER'] }],
     ['excluded', { trainer_id: 'excluded', name: 'Excluded Trainer', is_active: true, module_excludes: ['ASKMEI'], linkedCourses: ['ASKMEI'] }],
@@ -100,6 +102,23 @@ function createFakeStore(overrides: Partial<SessionState> = {}) {
     }
     if (sql.includes('SELECT id FROM sessions WHERE id = $1')) {
       return (params[0] === session.id ? [{ id: session.id }] : []) as T[];
+    }
+    if (sql.includes('SELECT id, course_code FROM sessions WHERE id = $1')) {
+      return (params[0] === session.id ? [{ id: session.id, course_code: session.course_code }] : []) as T[];
+    }
+    if (sql.includes('INNER JOIN trainer_courses tc')) {
+      const courseCode = String(params[0]);
+      return [...trainers.values()]
+        .filter((trainer) => (
+          trainer.is_active &&
+          trainer.linkedCourses.includes(courseCode) &&
+          !(trainer.module_excludes ?? []).includes(courseCode)
+        ))
+        .sort((left, right) => (
+          left.name.localeCompare(right.name, 'en', { sensitivity: 'base' }) ||
+          left.trainer_id.localeCompare(right.trainer_id)
+        ))
+        .map((trainer) => ({ trainer_id: trainer.trainer_id, name: trainer.name })) as T[];
     }
     if (sql.includes('FROM session_change_history')) {
       return history.map((entry) => ({
@@ -227,6 +246,55 @@ test('finance, viewer, pending, rejected, and unauthenticated users cannot write
   const unauthenticated = createSessionsRoutes({ db: createFakeStore().query });
   const response = await unauthenticated.request(`/sessions/${sessionId}/trainer`, patchBody('trainer-1', 1));
   assert.equal(response.status, 401);
+});
+
+test('trainer options are admin and ops only, unique, eligible, deterministic, and rate-free', async () => {
+  for (const role of ['admin', 'ops'] as const) {
+    const result = await request(role, `/sessions/${sessionId}/trainer-options`, { method: 'GET' });
+    assert.equal(result.response.status, 200);
+    assert.deepEqual(result.body, {
+      trainers: [
+        { id: 'alpha-1', name: 'Alpha Trainer' },
+        { id: 'alpha-2', name: 'alpha trainer' },
+        { id: 'trainer-1', name: 'Trainer One' },
+        { id: 'trainer-2', name: 'Trainer Two' },
+      ],
+    });
+    assert.equal(new Set(result.body.trainers.map((trainer: { id: string }) => trainer.id)).size, 4);
+    assert.doesNotMatch(result.store.calls.join('\n').toLowerCase(), /trainer[_ ]?rate|economics|revenue|cost|viability/);
+    const optionsSql = result.store.calls.find((sql) => sql.includes('INNER JOIN trainer_courses tc')) ?? '';
+    assert.match(optionsSql, /GROUP BY t\.trainer_id, t\.name/);
+    assert.match(optionsSql, /ORDER BY lower\(t\.name\) ASC, t\.trainer_id ASC/);
+  }
+
+  for (const role of ['finance', 'viewer'] as const) {
+    const result = await request(role, `/sessions/${sessionId}/trainer-options`, { method: 'GET' });
+    assert.equal(result.response.status, 403);
+    assert.equal(result.store.calls.length, 0);
+  }
+}); // FIX: close the new trainer-options authorization test.
+
+test('trainer options reject unknown and unresolved sessions and allow an empty list', async () => {
+  const unknown = await request('ops', '/sessions/unknown/trainer-options', { method: 'GET' });
+  assert.equal(unknown.response.status, 404);
+
+  const unresolved = await request(
+    'ops',
+    `/sessions/${sessionId}/trainer-options`,
+    { method: 'GET' },
+    createFakeStore({ course_code: null }),
+  );
+  assert.equal(unresolved.response.status, 422);
+  assert.equal(unresolved.body.code, 'unresolved_session_course');
+
+  const empty = await request(
+    'ops',
+    `/sessions/${sessionId}/trainer-options`,
+    { method: 'GET' },
+    createFakeStore({ course_code: 'EMPTY' }),
+  );
+  assert.equal(empty.response.status, 200);
+  assert.deepEqual(empty.body, { trainers: [] });
 });
 
 test('rejects unknown, inactive, unlinked, and excluded trainers', async () => {
