@@ -148,6 +148,10 @@ adminUsersRoutes.patch('/admin/users/:id/access', async (c) => {
       if (target.id === actor.id && (action === 'deactivate' || (action === 'change_role' && role !== 'admin') || (action === 'reject'))) throw new Error('self_access_change_forbidden');
       const beforeRole = target.role as UserRole;
       const beforeActive = Boolean(target.is_active);
+      if (action === 'approve' && beforeRole !== 'pending' && beforeRole !== 'rejected') throw new Error('invalid_access_transition');
+      if (action === 'reject' && beforeRole !== 'pending') throw new Error('invalid_access_transition');
+      if (action === 'deactivate' && !beforeActive) throw new Error('invalid_access_transition');
+      if (action === 'reactivate' && beforeActive) throw new Error('invalid_access_transition');
       let nextRole = beforeRole;
       let nextActive = beforeActive;
       let eventAction: string = action === 'approve' ? (beforeRole === 'rejected' ? 'user_reapproved' : 'user_approved') : action === 'change_role' ? 'role_changed' : action === 'reject' ? 'user_rejected' : action === 'deactivate' ? 'user_deactivated' : 'user_reactivated';
@@ -187,6 +191,7 @@ adminUsersRoutes.patch('/admin/users/:id/access', async (c) => {
       user_not_found: ['User not found', 404], stale_user_version: ['User changed; reload before applying access changes', 409],
       self_access_change_forbidden: ['Administrators cannot demote or deactivate themselves', 409],
       last_active_admin_forbidden: ['At least one active administrator must remain', 409],
+      invalid_access_transition: ['That access transition is no longer valid; reload the user first', 409],
     };
     if (messages[code]) return httpError(c, code, messages[code][0], messages[code][1]);
     throw error;
