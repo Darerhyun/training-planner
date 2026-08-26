@@ -562,9 +562,11 @@ assert(
   'deployment workflow must capture exactly one prior sole 100% revision',
 );
 assert(
-    deploymentWorkflow.includes('activated=false') &&
+    deploymentWorkflow.includes('activation_attempted=false') &&
     deploymentWorkflow.includes('trap rollback ERR') &&
-    deploymentWorkflow.includes('activated=true') &&
+    deploymentWorkflow.includes('activation_attempted=true') &&
+    deploymentWorkflow.indexOf('activation_attempted=true') <
+      deploymentWorkflow.indexOf('--to-revisions="$CANDIDATE_REVISION=100"') &&
     deploymentWorkflow.includes('Rollback revision did not become the sole 100% traffic target.') &&
     deploymentWorkflow.includes('Rollback base URL did not report connected core-api JSON health.') &&
     deploymentWorkflow.includes("echo 'ROLLBACK_STATUS=passed'"),
@@ -582,8 +584,24 @@ assert(
     deploymentWorkflow.includes('name: Verify tagged candidate health') &&
     deploymentWorkflow.includes('CANDIDATE_IMAGE_DIGEST=') &&
     deploymentWorkflow.includes('CANDIDATE_TRAFFIC=0') &&
-    deploymentWorkflow.includes('ACTIVE_TRAFFIC=100'),
+    deploymentWorkflow.includes('CLOUD_RUN_SERVICE_URL=') &&
+    deploymentWorkflow.includes('VITE_API_BASE_URL: ${{ env.CLOUD_RUN_SERVICE_URL }}') &&
+    deploymentWorkflow.includes('FINAL_TRAFFIC_REVISION=') &&
+    deploymentWorkflow.includes('FINAL_TRAFFIC_PERCENT=') &&
+    deploymentWorkflow.includes('FINAL_TRAFFIC_STATUS=') &&
+    !deploymentWorkflow.includes('ACTIVE_TRAFFIC=100'),
   'deployment workflow must verify exact candidate traffic and tagged health',
+);
+assertOrdered(
+  deploymentWorkflow,
+  [
+    'CLOUD_RUN_SERVICE_URL=',
+    'name: Verify tagged candidate health',
+    'name: Build web for the verified candidate API',
+    'activation_attempted=true',
+    '--to-revisions="$CANDIDATE_REVISION=100"',
+  ],
+  'deployment workflow must build against the stable service URL before activation',
 );
 assert(
   deploymentWorkflow.includes('revision_suffix="run-${dispatch_identity}"') &&
