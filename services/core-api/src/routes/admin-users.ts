@@ -58,7 +58,7 @@ async function recordEvent(tx: <T = DbRow>(sql: string, params?: unknown[]) => P
 }
 
 export function createAdminUsersRoutes(deps: AdminUsersRouteDeps = {}) {
-  const db = deps.db ?? getDb();
+  const db: SqlQuery = deps.db ?? (async <T = Record<string, unknown>>(sql: string, params?: unknown[]) => getDb()<T>(sql, params));
   const transaction = deps.transaction ?? withTransaction;
   const routes = new Hono<AppEnv>();
   routes.use('/admin/*', (deps.auth ?? authMiddleware)());
