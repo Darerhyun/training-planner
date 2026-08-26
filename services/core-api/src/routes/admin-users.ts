@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { authMiddleware, getDb, requireRole, withTransaction } from '@training-planner/shared';
-import type { AppEnv, SqlQuery, UserAccessAction, UserRole } from '@training-planner/shared';
+import type { AppEnv, UserAccessAction, UserRole } from '@training-planner/shared';
 
 const activeRoles = new Set<UserRole>(['admin', 'ops', 'finance', 'viewer']);
 const actions = new Set<UserAccessAction>(['approve', 'reject', 'change_role', 'deactivate', 'reactivate']);
