@@ -58,10 +58,12 @@ export async function createAdminInvitation(user: User, input: { email: string; 
 }
 export async function cancelAdminInvitation(user: User, id: string, expectedVersion: number): Promise<UserInvitation> {
   const data = await apiFetch(user, `/admin/user-invitations/${id}/cancel`, { method: 'PATCH', body: JSON.stringify({ expectedVersion }) }) as { invitation: UserInvitation };
+  if (getResponseCode(data) === 'stale_invitation_version') throw new ApiError('This invitation changed after you opened it. Reload before cancelling.', 409, 'stale_invitation_version');
   return data.invitation;
 }
 export async function updateAdminUser(user: User, id: string, input: { expectedVersion: number; action: string; role?: string }): Promise<AdminUser> {
   const data = await apiFetch(user, `/admin/users/${id}/access`, { method: 'PATCH', body: JSON.stringify(input) }) as { user: AdminUser };
+  if (getResponseCode(data) === 'stale_user_version') throw new ApiError('This user changed after you opened it. Reload before trying again.', 409, 'stale_user_version');
   return data.user;
 }
 export async function fetchAdminUserHistory(user: User, id: string): Promise<UserAccessEvent[]> {
