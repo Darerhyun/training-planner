@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
+import type { MiddlewareHandler } from 'hono';
 import { authMiddleware, getDb } from '@training-planner/shared';
 import type { AppEnv } from '@training-planner/shared';
-import type { MiddlewareHandler, SqlQuery } from '@training-planner/shared';
+import type { SqlQuery } from '@training-planner/shared';
 
 export function createMeRoutes(deps: { db?: SqlQuery; auth?: () => MiddlewareHandler<AppEnv> } = {}) {
 const meRoutes = new Hono<AppEnv>();
