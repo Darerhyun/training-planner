@@ -316,9 +316,20 @@ jobs:
             echo 'Cloud Run did not return the candidate tag URL.' >&2
             exit 1
           fi
+          service_url="$(SERVICE_FILE="$service_file" node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const service = JSON.parse(readFileSync(process.env.SERVICE_FILE, 'utf8'));
+          process.stdout.write(service.status?.url ?? '');
+          NODE
+          )"
+          if [[ -z "$service_url" ]]; then
+            echo 'Cloud Run did not return the stable base service URL.' >&2
+            exit 1
+          fi
           echo "CANDIDATE_REVISION=$candidate_revision" >> "$GITHUB_ENV"
           echo "CANDIDATE_TAG=$candidate_tag" >> "$GITHUB_ENV"
           echo "CANDIDATE_URL=$candidate_url" >> "$GITHUB_ENV"
+          echo "CLOUD_RUN_SERVICE_URL=$service_url" >> "$GITHUB_ENV"
           echo "CANDIDATE_IMAGE_DIGEST=$CORE_API_IMAGE_DIGEST" >> "$GITHUB_ENV"
           echo 'CANDIDATE_TRAFFIC=0' >> "$GITHUB_ENV"
 
@@ -342,7 +353,7 @@ jobs:
 
       - name: Build web for the verified candidate API
         env:
-          VITE_API_BASE_URL: ${{ env.CANDIDATE_URL }}
+          VITE_API_BASE_URL: ${{ env.CLOUD_RUN_SERVICE_URL }}
           VITE_FIREBASE_API_KEY: ${{ env.FIREBASE_API_KEY }}
           VITE_FIREBASE_AUTH_DOMAIN: ${{ env.FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
@@ -351,9 +362,9 @@ jobs:
       - name: Activate and verify exact Cloud Run revision
         run: |
           set -Eeuo pipefail
-          activated=false
+          activation_attempted=false
           rollback() {
-            if [[ "$activated" == true ]]; then
+            if [[ "$activation_attempted" == true ]]; then
               trap - ERR
               echo 'Activation-stage failure; restoring the captured Cloud Run revision.' >&2
               gcloud run services update-traffic core-api \
@@ -404,16 +415,28 @@ jobs:
                 process.exit(1);
               }
           NODE
+              ROLLBACK_FILE="$rollback_file" ROLLBACK_REVISION="$ROLLBACK_REVISION" GITHUB_ENV="$GITHUB_ENV" node --input-type=module <<'NODE'
+              import { appendFileSync, readFileSync } from 'node:fs';
+              const service = JSON.parse(readFileSync(process.env.ROLLBACK_FILE, 'utf8'));
+              const traffic = (service.status?.traffic ?? []).find(
+                (target) => target.revisionName === process.env.ROLLBACK_REVISION,
+              );
+              const ready = (service.status?.conditions ?? []).find((condition) => condition.type === 'Ready');
+              appendFileSync(
+                process.env.GITHUB_ENV,
+                `FINAL_TRAFFIC_REVISION=${traffic.revisionName}\nFINAL_TRAFFIC_PERCENT=${Number(traffic.percent)}\nFINAL_TRAFFIC_STATUS=${ready?.status ?? 'unknown'}\n`,
+              );
+          NODE
               echo 'ROLLBACK_STATUS=passed' >> "$GITHUB_ENV"
             fi
           }
           trap rollback ERR
+          activation_attempted=true
           gcloud run services update-traffic core-api \
             --project="$GCP_PROJECT_ID" \
             --region=asia-southeast1 \
             --to-revisions="$CANDIDATE_REVISION=100" \
             --quiet
-          activated=true
           service_file="$(mktemp)"
           trap 'rm -f "$service_file"' EXIT
           gcloud run services describe core-api \
@@ -421,21 +444,28 @@ jobs:
             --region=asia-southeast1 \
             --platform=managed \
             --format=json > "$service_file"
-          service_url="$(SERVICE_FILE="$service_file" CANDIDATE_REVISION="$CANDIDATE_REVISION" node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
+          GITHUB_ENV="$GITHUB_ENV" SERVICE_FILE="$service_file" EXPECTED_SERVICE_URL="$CLOUD_RUN_SERVICE_URL" CANDIDATE_REVISION="$CANDIDATE_REVISION" node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
           const service = JSON.parse(readFileSync(process.env.SERVICE_FILE, 'utf8'));
           const traffic = service.status?.traffic ?? [];
-          const candidate = traffic.find((target) => target.revisionName === process.env.CANDIDATE_REVISION);
-          if (!candidate || Number(candidate.percent) !== 100) {
-            console.error('Exact candidate revision does not have 100% traffic.');
+          const active = traffic.filter((target) => Number(target.percent ?? 0) > 0);
+          const candidate = active.find((target) => target.revisionName === process.env.CANDIDATE_REVISION);
+          if (
+            active.length !== 1 ||
+            !candidate ||
+            Number(candidate.percent) !== 100 ||
+            service.status?.url !== process.env.EXPECTED_SERVICE_URL
+          ) {
+            console.error('Exact candidate traffic or stable service URL verification failed.');
             process.exit(1);
           }
-          process.stdout.write(service.status.url);
+          const ready = (service.status?.conditions ?? []).find((condition) => condition.type === 'Ready');
+          appendFileSync(
+            process.env.GITHUB_ENV,
+            `FINAL_TRAFFIC_REVISION=${candidate.revisionName}\nFINAL_TRAFFIC_PERCENT=${Number(candidate.percent)}\nFINAL_TRAFFIC_STATUS=${ready?.status ?? 'unknown'}\nCLOUD_RUN_URL=${process.env.EXPECTED_SERVICE_URL}\n`,
+          );
           NODE
-          )"
-          echo "CLOUD_RUN_URL=$service_url" >> "$GITHUB_ENV"
-          echo 'ACTIVE_TRAFFIC=100' >> "$GITHUB_ENV"
-          post_activation_health="$(curl --fail --silent --show-error --max-time 30 "$service_url/health")"
+          post_activation_health="$(curl --fail --silent --show-error --max-time 30 "$CLOUD_RUN_SERVICE_URL/health")"
           HEALTH_RESPONSE="$post_activation_health" node --input-type=module <<'NODE'
           const health = JSON.parse(process.env.HEALTH_RESPONSE);
           if (
@@ -467,7 +497,9 @@ jobs:
             echo "- Candidate image digest: ${CANDIDATE_IMAGE_DIGEST:-not reached}"
             echo "- Candidate tag: ${CANDIDATE_TAG:-not reached}"
             echo "- Candidate traffic before activation: ${CANDIDATE_TRAFFIC:-not reached}"
-            echo "- Active traffic: ${ACTIVE_TRAFFIC:-not reached}"
+            echo "- Final traffic revision: ${FINAL_TRAFFIC_REVISION:-not reached}"
+            echo "- Final traffic percent: ${FINAL_TRAFFIC_PERCENT:-not reached}"
+            echo "- Final traffic status: ${FINAL_TRAFFIC_STATUS:-not reached}"
             echo "- Rollback revision: ${ROLLBACK_REVISION:-not reached}"
             echo "- Rollback verification: ${ROLLBACK_STATUS:-not reached}"
             echo "- Health check: ${HEALTH_STATUS:-not reached}"
