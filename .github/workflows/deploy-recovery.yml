@@ -203,7 +203,7 @@ jobs:
             --min-instances=0 \
             --max-instances=2 \
             --service-account="$GCP_RUNTIME_SERVICE_ACCOUNT" \
-            --set-secrets="DATABASE_URL=${GCP_DATABASE_SECRET}:2,ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:2" \
+            --set-secrets="DATABASE_URL=${GCP_DATABASE_SECRET}:3,ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:2" \
             --set-env-vars="ALLOWED_ORIGINS=${FIREBASE_HOSTING_ORIGIN},GCS_UPLOAD_BUCKET=${GCS_UPLOAD_BUCKET}" \
             --quiet
 
