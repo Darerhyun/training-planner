@@ -45,7 +45,8 @@ adminUsersRoutes.get('/admin/user-invitations', async (c) => {
   const params: unknown[] = [];
   const where = status && ['pending', 'claimed', 'cancelled'].includes(status) ? `WHERE status = $1` : '';
   if (where) params.push(status);
-  const rows = await getDb<Record<string, unknown>>(
+  const db = getDb();
+  const rows = await db<Record<string, unknown>>(
     `SELECT id, email, intended_role, status, note, version, invited_by, claimed_by, claimed_at,
             cancelled_by, cancelled_at, created_at, updated_at
        FROM user_invitations ${where} ORDER BY created_at DESC, id`, params,
@@ -119,7 +120,8 @@ adminUsersRoutes.patch('/admin/user-invitations/:id/cancel', async (c) => {
 });
 
 adminUsersRoutes.get('/admin/users/:id/history', async (c) => {
-  const events = await getDb<Record<string, unknown>>(
+  const db = getDb();
+  const events = await db<Record<string, unknown>>(
     `SELECT id, invitation_id, action, actor_user_id, previous_role, new_role, previous_is_active, new_is_active,
             previous_version, new_version, metadata, created_at
        FROM user_access_events WHERE user_id = $1 ORDER BY created_at DESC, id DESC`, [c.req.param('id')],
