@@ -487,8 +487,8 @@ for (const fragment of [
   '--min-instances=0',
   '--max-instances=2',
   '--service-account="$GCP_RUNTIME_SERVICE_ACCOUNT"',
-  // FIX: require the exact numeric version-2 secret pin after updating the workflow.
-  'DATABASE_URL=${GCP_DATABASE_SECRET}:2',
+  // Require the verified database version-3 and admin-email version-2 pins.
+  'DATABASE_URL=${GCP_DATABASE_SECRET}:3',
   'ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:2',
   'ALLOWED_ORIGINS=${FIREBASE_HOSTING_ORIGIN}',
   'GCS_UPLOAD_BUCKET=${GCS_UPLOAD_BUCKET}',
@@ -500,9 +500,9 @@ for (const fragment of [
 }
 assert(
   deploymentWorkflow.includes(
-    'DATABASE_URL=${GCP_DATABASE_SECRET}:2,ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:2',
+    'DATABASE_URL=${GCP_DATABASE_SECRET}:3,ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:2',
   ),
-  'deployment workflow must pin both Secret Manager mappings to version :2',
+  'deployment workflow must pin DATABASE_URL to version :3 and ADMIN_EMAILS to version :2',
 );
 assert(
   !deploymentWorkflow.includes(':latest'),

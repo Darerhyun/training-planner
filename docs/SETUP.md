@@ -270,12 +270,12 @@ non-empty.
 
 ### Numeric Secret Manager pins and rotation
 
-The workflow pins both Cloud Run secret mappings to Secret Manager version `:2`:
-`DATABASE_URL=${GCP_DATABASE_SECRET}:2` and
+The workflow pins the Cloud Run secret mappings to verified numeric versions:
+`DATABASE_URL=${GCP_DATABASE_SECRET}:3` and
 `ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:2`. It never uses `:latest`, so the
 deployed revision cannot silently follow an unreviewed secret rotation. Version
-2 of both approved secrets must exist and be verified before an authorized
-dispatch.
+3 of the approved database secret and version 2 of the approved admin-email
+secret must exist and be verified before an authorized dispatch.
 
 This initial recovery PR starts from a base whose workflow used
 `:latest`. Reverting this PR therefore restores floating pins, so dispatch must
