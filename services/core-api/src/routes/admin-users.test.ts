@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 import type { AppEnv, SqlQuery, User } from '@training-planner/shared';
+import type { MiddlewareHandler } from 'hono';
 import { adminUsersRoutes, createAdminUsersRoutes, isValidAccessTransition, normalizeInviteEmail, publicUser } from './admin-users.js';
 
 const admin: User = { id: 'admin-1', firebase_uid: 'firebase-admin', email: 'admin@example.com', display_name: 'Admin', role: 'admin', is_active: true, version: 1, created_at: '', updated_at: '' };
@@ -15,7 +16,7 @@ function authApp(route = adminUsersRoutes, user: User = admin, role = user.role)
   return app;
 }
 
-function makeStore(seed: Record<string, unknown>[] = []) {
+function makeStore(seed: any[] = []) {
   const users = seed.length ? seed : [admin, basePending];
   const invitations: Record<string, any>[] = [];
   const events: Record<string, any>[] = [];
@@ -40,11 +41,13 @@ function makeStore(seed: Record<string, unknown>[] = []) {
 }
 
 function injectedRoute(store: ReturnType<typeof makeStore>, user: User = admin) {
+  const auth: () => MiddlewareHandler<AppEnv> = () => async (c, next) => { c.set('auth', { firebaseUid: user.firebase_uid, email: user.email, user }); await next(); };
+  const role: () => MiddlewareHandler<AppEnv> = () => async (_c, next) => next();
   return createAdminUsersRoutes({
     db: store.query,
     transaction: store.transaction,
-    auth: () => async (c, next) => { c.set('auth', { firebaseUid: user.firebase_uid, email: user.email, user }); await next(); },
-    role: () => async (_c, next) => next(),
+    auth,
+    role,
   });
 }
 
@@ -54,7 +57,7 @@ test('Admin User Access routes reject unauthenticated callers', async () => {
 });
 
 test('Admin User Access denies non-admin callers before querying data', async () => {
-  const store = makeStore(); const ops = { ...basePending, role: 'ops' as const }; const app = authApp(createAdminUsersRoutes({ db: store.query, transaction: store.transaction, auth: () => async (c, next) => { c.set('auth', { firebaseUid: ops.firebase_uid, email: ops.email, user: ops }); await next(); }, role: () => async (c) => c.json({ error: 'Insufficient permissions' }, 403) }), ops, 'ops');
+  const store = makeStore(); const ops = { ...basePending, role: 'ops' as const }; const auth: () => MiddlewareHandler<AppEnv> = () => async (c, next) => { c.set('auth', { firebaseUid: ops.firebase_uid, email: ops.email, user: ops }); await next(); }; const role: () => MiddlewareHandler<AppEnv> = () => async (c) => c.json({ error: 'Insufficient permissions' }, 403); const app = authApp(createAdminUsersRoutes({ db: store.query, transaction: store.transaction, auth, role }), ops, 'ops');
   assert.equal((await app.request('/admin/users')).status, 403); assert.equal(store.calls.length, 0);
 });
 
