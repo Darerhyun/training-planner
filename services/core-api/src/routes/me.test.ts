@@ -30,3 +30,22 @@ test('injected /me HTTP route exposes deactivated status and blocks profile writ
   assert.equal(update.status, 403); assert.equal((await update.json()).code, 'account_deactivated');
 });
 
+test('ADMIN_EMAILS bootstrap is unconditional while ordinary and invited users stay pending', async () => {
+  const { initialRole, findOrCreateUser } = await import('../../../shared/dist/auth.js');
+  const previous = process.env.ADMIN_EMAILS; process.env.ADMIN_EMAILS = 'admin@example.com';
+  try {
+    assert.equal(initialRole('admin@example.com', true), 'admin');
+    assert.equal(initialRole('ordinary@example.com', true), 'pending');
+    const calls: string[] = [];
+    const transaction: any = async (handler: any) => handler(async <R = Record<string, unknown>>(sql: string) => {
+      calls.push(sql);
+      if (sql.includes('pg_advisory_xact_lock')) return [] as R[];
+      if (sql.includes('FROM users WHERE firebase_uid')) return [] as R[];
+      if (sql.includes('FROM user_invitations')) return [{ id: 'invite-1' }] as R[];
+      return [{ id: 'new-user', firebase_uid: 'firebase', email: 'ordinary@example.com', role: 'pending', is_active: true, version: 1, created_at: '', updated_at: '' }] as R[];
+    });
+    const created = await findOrCreateUser('firebase', 'ordinary@example.com', null, transaction);
+    assert.equal(created.role, 'pending'); assert.equal(calls[0], 'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))');
+  } finally { if (previous === undefined) delete process.env.ADMIN_EMAILS; else process.env.ADMIN_EMAILS = previous; }
+});
+
