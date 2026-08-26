@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
-import type { Context } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import { authMiddleware, getDb, requireRole, withTransaction } from '@training-planner/shared';
 import type { AppEnv, UserRole } from '@training-planner/shared';
-import type { MiddlewareHandler, SqlQuery, TransactionHandler } from '@training-planner/shared';
+import type { SqlQuery, TransactionHandler } from '@training-planner/shared';
 
 export type UserAccessAction = 'approve' | 'reject' | 'change_role' | 'deactivate' | 'reactivate';
 export type AdminUsersRouteDeps = {
