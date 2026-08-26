@@ -120,7 +120,7 @@ test('maps invitation unique violation, stale user, self-change and last-admin p
   const selfStore = makeStore([admin]); const selfApp = authApp(injectedRoute(selfStore));
   const self = await selfApp.request('/admin/users/admin-1/access', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ expectedVersion: 1, action: 'deactivate' }) });
   assert.equal(self.status, 409); assert.equal((await self.json()).code, 'self_access_change_forbidden');
-  const lastStore = makeStore([admin, { ...basePending, id: 'other-admin', role: 'admin', is_active: false }]); const lastApp = authApp(injectedRoute(lastStore), { ...admin, id: 'other-admin' });
+  const lastStore = makeStore([admin, { ...basePending, id: 'other-admin', role: 'admin', is_active: false }]); const otherAdmin = { ...admin, id: 'other-admin', email: 'other-admin@example.com' }; const lastApp = authApp(injectedRoute(lastStore, otherAdmin), otherAdmin);
   const last = await lastApp.request('/admin/users/admin-1/access', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ expectedVersion: 1, action: 'deactivate' }) });
   assert.equal(last.status, 409); assert.equal((await last.json()).code, 'last_active_admin_forbidden');
 });
