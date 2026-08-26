@@ -2,6 +2,7 @@ import type { MiddlewareHandler } from 'hono';
 import { getFirebaseAuth } from './firebase.js';
 import { withTransaction } from './db.js';
 import type { User, UserRole, AuthContext, AppEnv } from './types.js';
+import type { TransactionHandler } from './db.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -17,13 +18,14 @@ export function initialRole(email: string, _hasOpenInvitation: boolean): UserRol
 
 /**
  * Look up user by Firebase UID. If no record exists, create one.
- * New Firebase sign-ins are pending unless they are the configured bootstrap
- * Admin and have no open invitation. Invitations never grant access by email.
+ * New Firebase sign-ins are pending unless they are the configured allowlisted
+ * bootstrap/recovery Admin. Invitations never grant access by email.
  */
-async function findOrCreateUser(
+export async function findOrCreateUser(
   firebaseUid: string,
   email: string,
   displayName: string | null,
+  transaction: <T>(handler: TransactionHandler<T>) => Promise<T> = withTransaction,
 ): Promise<User> {
   const normalizedEmail = email.trim().toLowerCase();
 
@@ -31,7 +33,7 @@ async function findOrCreateUser(
     throw new Error('Firebase token did not include an email address');
   }
 
-  return withTransaction(async (tx) => {
+  return transaction(async (tx) => {
     // This exact lock expression/order is shared with invitation creation.
     // It serializes first sign-in against a concurrent invitation for the
     // same normalized email before either side checks the opposing table.
