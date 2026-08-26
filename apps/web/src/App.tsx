@@ -40,7 +40,7 @@ import {
   type UserInvitation,
   type UserAccessEvent,
 } from './api.js';
-import { auth, completeMagicLink, isSignInWithEmailLink, sendMagicLink, signInWithPassword, signOut } from './firebase.js';
+import { auth, completeMagicLink, isSignInWithEmailLink, sendInvitationMagicLink, sendMagicLink, signInWithPassword, signOut } from './firebase.js';
 
 type View = 'course-planning' | 'sessions' | 'sync' | 'legacy-sessions' | 'admin';
 type ActiveRole = 'admin' | 'ops' | 'finance' | 'viewer';
@@ -311,7 +311,7 @@ function AdminUserAccessPage({ user }: { user: User }) {
   };
   const invite = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError(''); setMessage('');
-    try { await createAdminInvitation(user, { email, intendedRole: role, note: note || undefined }); setEmail(''); setNote(''); setMessage('Invitation created. Send the link through your approved email process.'); await load(); }
+    try { await createAdminInvitation(user, { email, intendedRole: role, note: note || undefined }); await sendInvitationMagicLink(email); setEmail(''); setNote(''); setMessage('Invitation created and sign-in link sent.'); await load(); }
     catch (err) { setError(err instanceof Error ? err.message : 'Invitation failed'); }
     finally { setBusy(false); }
   };
