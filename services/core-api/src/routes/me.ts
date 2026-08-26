@@ -23,6 +23,9 @@ meRoutes.get('/me', async (c) => {
       id: user.id,
       email: user.email,
       role: user.role,
+      is_active: user.is_active !== false,
+      version: user.version ?? 1,
+      deactivated: user.is_active === false,
       message:
         'Your account request has been rejected. Please contact an administrator.',
     });
@@ -34,6 +37,9 @@ meRoutes.get('/me', async (c) => {
       email: user.email,
       display_name: user.display_name,
       role: user.role,
+      is_active: user.is_active !== false,
+      version: user.version ?? 1,
+      deactivated: user.is_active === false,
       message: 'Your account is pending approval by an administrator.',
     });
   }
@@ -43,6 +49,9 @@ meRoutes.get('/me', async (c) => {
     email: user.email,
     display_name: user.display_name,
     role: user.role,
+    is_active: user.is_active !== false,
+    version: user.version ?? 1,
+    deactivated: user.is_active === false,
     created_at: user.created_at,
     updated_at: user.updated_at,
   });
@@ -55,6 +64,10 @@ meRoutes.get('/me', async (c) => {
  */
 meRoutes.patch('/me', async (c) => {
   const { user } = c.get('auth');
+
+  if (user.is_active === false) {
+    return c.json({ error: 'Deactivated accounts cannot update their profile', code: 'inactive_account' }, 403);
+  }
 
   let body: Record<string, unknown>;
   try {
@@ -78,7 +91,7 @@ meRoutes.patch('/me', async (c) => {
     `UPDATE users
      SET display_name = $1, updated_at = now()
      WHERE id = $2
-     RETURNING id, firebase_uid, email, display_name, role, created_at, updated_at`,
+     RETURNING id, firebase_uid, email, display_name, role, is_active, version, created_at, updated_at`,
     [displayName, user.id],
   );
 

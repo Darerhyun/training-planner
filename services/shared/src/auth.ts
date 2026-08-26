@@ -7,19 +7,11 @@ import type { User, UserRole, AuthContext, AppEnv } from './types.js';
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getAdminEmails(): Set<string> {
-  const raw = process.env.ADMIN_EMAILS ?? '';
-  return new Set(
-    raw
-      .split(',')
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
-
 /**
  * Look up user by Firebase UID. If no record exists, create one.
- * New users get role = 'admin' if their email is in ADMIN_EMAILS, else 'pending'.
+ * New Firebase sign-ins are always pending. Invitations are intentionally
+ * claimed by an explicit Admin approval transaction; they never grant access
+ * merely because an email matches.
  */
 async function findOrCreateUser(
   firebaseUid: string,
@@ -34,7 +26,7 @@ async function findOrCreateUser(
   }
 
   const existing = await db<User>(
-    `SELECT id, firebase_uid, email, display_name, role, created_at, updated_at
+    `SELECT id, firebase_uid, email, display_name, role, is_active, version, created_at, updated_at
      FROM users
      WHERE firebase_uid = $1`,
     [firebaseUid],
@@ -44,15 +36,12 @@ async function findOrCreateUser(
     return existing[0];
   }
 
-  const adminEmails = getAdminEmails();
-  const role: UserRole = adminEmails.has(normalizedEmail) ? 'admin' : 'pending';
-
   const inserted = await db<User>(
-    `INSERT INTO users (firebase_uid, email, display_name, role)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO users (firebase_uid, email, display_name, role, is_active, version)
+     VALUES ($1, $2, $3, 'pending', TRUE, 1)
      ON CONFLICT (firebase_uid) DO UPDATE SET updated_at = now()
-     RETURNING id, firebase_uid, email, display_name, role, created_at, updated_at`,
-    [firebaseUid, normalizedEmail, displayName, role],
+     RETURNING id, firebase_uid, email, display_name, role, is_active, version, created_at, updated_at`,
+    [firebaseUid, normalizedEmail, displayName],
   );
 
   return inserted[0];
@@ -118,6 +107,9 @@ export function requireRole(...roles: UserRole[]): MiddlewareHandler<AppEnv> {
     const auth = c.get('auth');
     if (!auth) {
       return c.json({ error: 'Not authenticated' }, 401);
+    }
+    if (auth.user.is_active === false) {
+      return c.json({ error: 'Your account is deactivated. Contact an administrator.' }, 403);
     }
     if (!allowed.has(auth.user.role)) {
       // Rejected users get a specific message

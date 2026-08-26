@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { FormEvent } from 'react';
 import type { User } from 'firebase/auth';
 import { onAuthStateChanged } from 'firebase/auth';
 import { BookOpen, CalendarDays, Check, ClipboardList, ListFilter, LogOut, Plus, RefreshCw, Upload, X } from 'lucide-react';
@@ -29,10 +30,19 @@ import {
   schedulePlannedCourseRun,
   updateSessionTrainer,
   uploadMasterSchedule,
+  fetchAdminUsers,
+  fetchAdminInvitations,
+  createAdminInvitation,
+  cancelAdminInvitation,
+  updateAdminUser,
+  fetchAdminUserHistory,
+  type AdminUser,
+  type UserInvitation,
+  type UserAccessEvent,
 } from './api.js';
 import { auth, completeMagicLink, isSignInWithEmailLink, sendMagicLink, signInWithPassword, signOut } from './firebase.js';
 
-type View = 'course-planning' | 'sessions' | 'sync' | 'legacy-sessions';
+type View = 'course-planning' | 'sessions' | 'sync' | 'legacy-sessions' | 'admin';
 type ActiveRole = 'admin' | 'ops' | 'finance' | 'viewer';
 type DateMode = 'upcoming' | 'past' | 'custom';
 
@@ -252,6 +262,10 @@ export default function App() {
             <Upload size={16} />
             Sync
           </button>
+          {profile.role === 'admin' && <button className={view === 'admin' ? 'active' : ''} onClick={() => setView('admin')}>
+            <ClipboardList size={16} />
+            Admin
+          </button>}
           <button className={`legacy-tab${view === 'legacy-sessions' ? ' active' : ''}`} onClick={() => setView('legacy-sessions')}>
             <ListFilter size={16} />
             Legacy sessions
@@ -264,9 +278,53 @@ export default function App() {
       {view === 'course-planning' && <CoursePlanningPage user={user} role={profile.role as ActiveRole} />}
       {view === 'sessions' && <SessionsPage user={user} role={profile.role as ActiveRole} />}
       {view === 'sync' && <SyncPage user={user} />}
+      {view === 'admin' && profile.role === 'admin' && <AdminUserAccessPage user={user} />}
       {view === 'legacy-sessions' && <LegacySessionsPage user={user} />}
     </main>
   );
+}
+
+function AdminUserAccessPage({ user }: { user: User }) {
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [invitations, setInvitations] = useState<UserInvitation[]>([]);
+  const [history, setHistory] = useState<UserAccessEvent[]>([]);
+  const [selected, setSelected] = useState<AdminUser | null>(null);
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState<'admin' | 'ops' | 'finance' | 'viewer'>('ops');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+
+  const load = async () => {
+    setBusy(true); setError('');
+    try { const [nextUsers, nextInvitations] = await Promise.all([fetchAdminUsers(user), fetchAdminInvitations(user)]); setUsers(nextUsers); setInvitations(nextInvitations); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Unable to load access records'); }
+    finally { setBusy(false); }
+  };
+  useEffect(() => { void load(); }, [user]);
+  const act = async (target: AdminUser, action: string, nextRole?: string) => {
+    setBusy(true); setError(''); setMessage('');
+    try { const updated = await updateAdminUser(user, target.id, { expectedVersion: target.version, action, role: nextRole }); setUsers((current) => current.map((item) => item.id === updated.id ? updated : item)); setSelected(updated); setMessage('Access updated.'); if (selected?.id === updated.id) setHistory(await fetchAdminUserHistory(user, updated.id)); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Access update failed; reload and try again.'); }
+    finally { setBusy(false); }
+  };
+  const invite = async (event: FormEvent) => {
+    event.preventDefault(); setBusy(true); setError(''); setMessage('');
+    try { await createAdminInvitation(user, { email, intendedRole: role, note: note || undefined }); setEmail(''); setNote(''); setMessage('Invitation created. Send the link through your approved email process.'); await load(); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Invitation failed'); }
+    finally { setBusy(false); }
+  };
+  const selectUser = async (target: AdminUser) => { setSelected(target); setError(''); try { setHistory(await fetchAdminUserHistory(user, target.id)); } catch { setHistory([]); } };
+  return <section className="admin-access-grid">
+    <div className="panel admin-panel">
+      <div className="panel-heading row-heading"><div><span className="eyebrow">Controlled access</span><h2>Admin User Access</h2><span>Approve people explicitly; invitations never grant a role automatically.</span></div><button className="icon-button" onClick={() => void load()} disabled={busy} aria-label="Refresh access records"><RefreshCw size={17} className={busy ? 'spin' : ''} /></button></div>
+      {error && <p className="error" role="alert">{error}</p>}{message && <p className="success" role="status">{message}</p>}
+      <form className="admin-invite-form" onSubmit={invite}><label>Email<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label><label>Intended role<select value={role} onChange={(event) => setRole(event.target.value as typeof role)}><option value="ops">Ops</option><option value="finance">Finance</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label><label>Note (optional)<input maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} /></label><button className="primary" disabled={busy}>Invite</button></form>
+      <div className="admin-table-wrap"><table><thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Version</th><th>Actions</th></tr></thead><tbody>{users.map((item) => <tr key={item.id} onClick={() => void selectUser(item)} tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') void selectUser(item); }}><td><strong>{item.email}</strong><span>{item.display_name || 'No display name'}</span></td><td>{item.role}</td><td>{item.is_active ? 'Active' : 'Deactivated'}</td><td>{item.version}</td><td className="admin-actions">{(item.role === 'pending' || item.role === 'rejected') && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'approve', 'ops'); }}>Approve</button>}{item.role !== 'rejected' && item.is_active && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'deactivate'); }}>Deactivate</button>}{item.role !== 'rejected' && !item.is_active && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'reactivate'); }}>Reactivate</button>}</td></tr>)}</tbody></table></div>
+    </div>
+    <aside className="panel admin-side-panel"><span className="eyebrow">Open invitations</span><h3>Invitation history</h3>{invitations.length === 0 && <p className="empty">No invitations yet.</p>}{invitations.map((item) => <div className="invitation-card" key={item.id}><strong>{item.email}</strong><span>{item.intended_role} · {item.status} · v{item.version}</span>{item.status === 'pending' && <button className="small-button" onClick={async () => { try { await cancelAdminInvitation(user, item.id, item.version); await load(); } catch (err) { setError(err instanceof Error ? err.message : 'Cancellation failed'); } }}>Cancel</button>}</div>)}{selected && <><span className="eyebrow">Immutable history</span><h3>{selected.email}</h3>{history.map((event) => <div className="history-item" key={event.id}><strong>{event.action}</strong><span>{new Date(event.created_at).toLocaleString()} · v{event.previous_version ?? '-'} → {event.new_version ?? '-'}</span></div>)}</>}</aside>
+  </section>;
 }
 
 function getSingaporeDate(): string {

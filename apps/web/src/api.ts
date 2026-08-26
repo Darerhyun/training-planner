@@ -12,6 +12,24 @@ export interface AppProfile {
   message?: string;
   created_at?: string;
   updated_at?: string;
+  is_active?: boolean;
+  version?: number;
+  deactivated?: boolean;
+}
+
+export interface AdminUser {
+  id: string; email: string; display_name?: string | null; role: AppRole;
+  is_active: boolean; version: number; created_at: string; updated_at: string;
+}
+export interface UserInvitation {
+  id: string; email: string; intended_role: Exclude<AppRole, 'pending' | 'rejected'>;
+  status: 'pending' | 'claimed' | 'cancelled'; note?: string | null; version: number;
+  created_at: string; updated_at: string;
+}
+export interface UserAccessEvent {
+  id: string; action: string; actor_user_id: string; previous_role?: AppRole | null;
+  new_role?: AppRole | null; previous_is_active?: boolean | null; new_is_active?: boolean | null;
+  previous_version?: number | null; new_version?: number | null; created_at: string;
 }
 
 export class ApiError extends Error {
@@ -24,6 +42,31 @@ export class ApiError extends Error {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+export async function fetchAdminUsers(user: User): Promise<AdminUser[]> {
+  const data = await apiFetch(user, '/admin/users') as { users: AdminUser[] };
+  return data.users;
+}
+export async function fetchAdminInvitations(user: User): Promise<UserInvitation[]> {
+  const data = await apiFetch(user, '/admin/user-invitations') as { invitations: UserInvitation[] };
+  return data.invitations;
+}
+export async function createAdminInvitation(user: User, input: { email: string; intendedRole: string; note?: string }): Promise<UserInvitation> {
+  const data = await apiFetch(user, '/admin/user-invitations', { method: 'POST', body: JSON.stringify(input) }) as { invitation: UserInvitation };
+  return data.invitation;
+}
+export async function cancelAdminInvitation(user: User, id: string, expectedVersion: number): Promise<UserInvitation> {
+  const data = await apiFetch(user, `/admin/user-invitations/${id}/cancel`, { method: 'PATCH', body: JSON.stringify({ expectedVersion }) }) as { invitation: UserInvitation };
+  return data.invitation;
+}
+export async function updateAdminUser(user: User, id: string, input: { expectedVersion: number; action: string; role?: string }): Promise<AdminUser> {
+  const data = await apiFetch(user, `/admin/users/${id}/access`, { method: 'PATCH', body: JSON.stringify(input) }) as { user: AdminUser };
+  return data.user;
+}
+export async function fetchAdminUserHistory(user: User, id: string): Promise<UserAccessEvent[]> {
+  const data = await apiFetch(user, `/admin/users/${id}/history`) as { events: UserAccessEvent[] };
+  return data.events;
 }
 
 export interface ApiSession {
