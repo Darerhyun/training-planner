@@ -27,7 +27,8 @@ export interface UserInvitation {
   created_at: string; updated_at: string;
 }
 export interface UserAccessEvent {
-  id: string; action: string; actor_user_id: string; previous_role?: AppRole | null;
+  id: string; invitation_id?: string | null; target_email?: string; action: string; actor_user_id: string; note?: string | null; metadata?: unknown;
+  previous_role?: AppRole | null;
   new_role?: AppRole | null; previous_is_active?: boolean | null; new_is_active?: boolean | null;
   previous_version?: number | null; new_version?: number | null; created_at: string;
 }
@@ -53,21 +54,30 @@ export async function fetchAdminInvitations(user: User): Promise<UserInvitation[
   return data.invitations;
 }
 export async function createAdminInvitation(user: User, input: { email: string; intendedRole: string; note?: string }): Promise<UserInvitation> {
-  const data = await apiFetch(user, '/admin/user-invitations', { method: 'POST', body: JSON.stringify(input) }) as { invitation: UserInvitation };
+  const data = await apiFetch(user, '/admin/user-invitations', { method: 'POST', body: JSON.stringify(input) }) as { invitation?: UserInvitation; error?: string; code?: string };
+  throwAdminApiFailure(data);
+  if (!data.invitation) throw new ApiError('Invitation could not be created.', 409, data.code ?? 'invitation_failed');
   return data.invitation;
+}
+function throwAdminApiFailure(data: unknown): void {
+  if (!data || typeof data !== 'object') return;
+  const value = data as { error?: unknown; code?: unknown };
+  if (typeof value.error === 'string') throw new ApiError(value.error, 409, typeof value.code === 'string' ? value.code : null);
 }
 export async function cancelAdminInvitation(user: User, id: string, expectedVersion: number): Promise<UserInvitation> {
-  const data = await apiFetch(user, `/admin/user-invitations/${id}/cancel`, { method: 'PATCH', body: JSON.stringify({ expectedVersion }) }) as { invitation: UserInvitation };
-  if (getResponseCode(data) === 'stale_invitation_version') throw new ApiError('This invitation changed after you opened it. Reload before cancelling.', 409, 'stale_invitation_version');
+  const data = await apiFetch(user, `/admin/user-invitations/${encodeURIComponent(id)}/cancel`, { method: 'PATCH', body: JSON.stringify({ expectedVersion }) }) as { invitation?: UserInvitation; error?: string; code?: string };
+  throwAdminApiFailure(data);
+  if (!data.invitation) throw new ApiError('Invitation could not be cancelled.', 409, data.code ?? 'invitation_failed');
   return data.invitation;
 }
-export async function updateAdminUser(user: User, id: string, input: { expectedVersion: number; action: string; role?: string }): Promise<AdminUser> {
-  const data = await apiFetch(user, `/admin/users/${id}/access`, { method: 'PATCH', body: JSON.stringify(input) }) as { user: AdminUser };
-  if (getResponseCode(data) === 'stale_user_version') throw new ApiError('This user changed after you opened it. Reload before trying again.', 409, 'stale_user_version');
+export async function updateAdminUser(user: User, id: string, input: { expectedVersion: number; action: string; role?: string; note?: string | null }): Promise<AdminUser> {
+  const data = await apiFetch(user, `/admin/users/${encodeURIComponent(id)}/access`, { method: 'PATCH', body: JSON.stringify(input) }) as { user?: AdminUser; error?: string; code?: string };
+  throwAdminApiFailure(data);
+  if (!data.user) throw new ApiError('Access update failed.', 409, data.code ?? 'access_update_failed');
   return data.user;
 }
 export async function fetchAdminUserHistory(user: User, id: string): Promise<UserAccessEvent[]> {
-  const data = await apiFetch(user, `/admin/users/${id}/history`) as { events: UserAccessEvent[] };
+  const data = await apiFetch(user, `/admin/users/${encodeURIComponent(id)}/history`) as { events: UserAccessEvent[] };
   return data.events;
 }
 
@@ -638,3 +648,4 @@ function getCurrentVersion(data: unknown): number | null {
   const currentVersion = (data as { currentVersion?: unknown }).currentVersion;
   return typeof currentVersion === 'number' ? currentVersion : null;
 }
+
