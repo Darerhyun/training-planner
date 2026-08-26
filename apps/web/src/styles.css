@@ -578,7 +578,7 @@ td span + span { margin-top: 2px; }
     display: grid;
     gap: 3px;
     grid-column: 1 / -1;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     order: 3;
     width: 100%;
   }
@@ -625,7 +625,7 @@ td span + span { margin-top: 2px; }
   .brand-lockup.compact strong { font-size: 0.9rem; }
   .brand-lockup.compact .brand-mark { height: 34px; width: 40px; }
   .topbar > .icon-button { height: 38px; min-height: 38px; width: 38px; }
-  .tabs button { flex-direction: column; font-size: 0.75rem; gap: 2px; min-height: 48px; }
+  .tabs button { flex-direction: column; font-size: 0.62rem; gap: 2px; min-height: 48px; padding-inline: 1px; }
   .panel { padding: 16px; }
   .planning-table-panel { padding: 0; }
   .planning-table-panel > .panel-heading { padding: 16px 16px 0; }
@@ -647,7 +647,7 @@ td span + span { margin-top: 2px; }
 .admin-access-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; padding: 22px; max-width: 1500px; margin: 0 auto; }
 .admin-panel, .admin-side-panel { min-width: 0; }
 .admin-invite-form { display: grid; grid-template-columns: 1.4fr 0.8fr 1.4fr auto; align-items: end; gap: 10px; margin: 20px 0; }
-.admin-invite-form label { display: grid; gap: 6px; color: var(--muted); font-size: .78rem; font-weight: 700; }
+.admin-invite-form label { display: grid; gap: 6px; color: var(--text-muted); font-size: .78rem; font-weight: 700; }
 .admin-invite-form input, .admin-invite-form select { min-height: 38px; }
 .admin-table-wrap { overflow-x: auto; }
 .admin-table-wrap table { min-width: 760px; }
@@ -656,12 +656,12 @@ td span + span { margin-top: 2px; }
 .admin-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .small-button { min-height: 30px; padding: 5px 9px; font-size: .75rem; }
 .admin-side-panel { align-self: start; }
-.invitation-card, .history-item { display: grid; gap: 3px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: .84rem; }
-.invitation-card span, .history-item span { color: var(--muted); font-size: .75rem; }
+.invitation-card, .history-item { display: grid; gap: 3px; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: .84rem; }
+.invitation-card span, .history-item span { color: var(--text-muted); font-size: .75rem; }
 .invitation-card button { justify-self: start; margin-top: 5px; }
 .success { color: var(--success, #157347); }
 .warning { color: #8a4b08; background: #fff8eb; border: 1px solid #f3c879; border-radius: 8px; padding: 10px; }
-.admin-access-note { display: grid; gap: 4px; margin: 10px 0 14px; color: var(--muted); font-size: .78rem; }
+.admin-access-note { display: grid; gap: 4px; margin: 10px 0 14px; color: var(--text-muted); font-size: .78rem; }
 .admin-access-note textarea { min-height: 52px; width: min(100%, 560px); }
 @media (max-width: 900px) { .admin-access-grid { grid-template-columns: 1fr; padding: 16px; } .admin-invite-form { grid-template-columns: 1fr 1fr; } .admin-invite-form .primary { width: 100%; } }
 @media (max-width: 520px) { .admin-access-grid { padding: 10px; } .admin-invite-form { grid-template-columns: 1fr; } .admin-panel, .admin-side-panel { padding: 14px; } .tabs { overflow-x: auto; flex-wrap: nowrap; justify-content: flex-start; scrollbar-width: thin; } .tabs button { flex: 0 0 auto; min-width: max-content; } }
