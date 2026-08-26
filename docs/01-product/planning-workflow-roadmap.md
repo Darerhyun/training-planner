@@ -1,7 +1,7 @@
 # Training Planner — Planning and Sessions Roadmap
 
-Status: Approved product direction; PR3E–PR3F complete, PR3F historically deployed; no live deployment currently exists; PR3G onward pending
-Last updated: 18 August 2026
+Status: Approved product direction; PR3G merged and deployed; PR3G-V visual foundation precedes PR3H
+Last updated: 26 August 2026
 
 ## 1. Purpose
 
@@ -193,6 +193,24 @@ The interface should use plain operational language and progressive disclosure.
 Avoid solver terminology, dense configuration screens, and drag-and-drop in the
 first editable release.
 
+### ASK visual foundation
+
+- Use a light operational workspace with white surfaces, dark text near `#212529`,
+  neutral canvas and borders, and ASK red `#E02B20` for brand identity and primary
+  actions.
+- Use a darker red for hover and focus treatment. Keep success, warning,
+  informational, and destructive states semantically distinct from brand red.
+- Reuse the existing system-font stack, React components, and Lucide icons. Do not
+  add external fonts, image/logo assets, component frameworks, or runtime requests
+  solely for presentation.
+- Apply consistent visual tokens, metric hierarchy, programme/status/issue pills,
+  segmented date controls, filter grouping, readable sticky table headers,
+  selected-row treatment, polished detail panels, and clear Sync/conflict states.
+- Keep ordinary supporting text at least 12px, use visible 1px boundaries where
+  needed, preserve keyboard focus, and remain usable from 320px through desktop.
+- Keep the legacy Sessions view present and functional until the existing manual
+  parity acceptance is complete; present it as a secondary parity reference.
+
 ### Course Planning page
 
 - Month selector as the primary control.
@@ -240,15 +258,21 @@ complexity:
 The Training Planner should retain these useful separations while presenting a
 simpler workflow for non-technical Operations users.
 
+The external Lovable project export is an approved **presentation reference only**
+for PR3G-V and later page styling. Feasible references include its application
+shell, cards, hierarchy, pills, segmented controls, tables, drawers, responsive
+patterns, and feedback states. Its old business logic and architecture are not
+authoritative. Do not import its Supabase integration, direct database access,
+TanStack routing/query logic, Tailwind/Radix component stack, realtime features,
+AI functions, migrations, environment files, or future-feature routes.
+
 ## 10. Incremental PR plan
 
 Historical PRs remain unchanged. Continue with PR3 sub-parts so the existing PR4
 Trainer Picker milestone keeps its original identity.
 
-The next product feature is PR3G — Sessions UX. It may begin only after this
-workflow documentation is merged and a separate, approved infrastructure-recovery
-prerequisite has established a safe development and deployment environment.
-Infrastructure recovery and PR3G must remain separate work orders and PRs.
+PR3G is complete and deployed. PR3G-V is the presentation-only visual-foundation
+extension immediately before PR3H. It does not renumber or reopen historical PRs.
 
 ### PR3E — Product and data-ownership contract (completed)
 
@@ -258,7 +282,7 @@ Infrastructure recovery and PR3G must remain separate work orders and PRs.
 - Preserve the statement that TMS is the official regulated record.
 - No runtime, schema, database, or deployment changes.
 
-### PR3F — Session write safety and audit foundation (completed; historically deployed)
+### PR3F — Session write safety and audit foundation (completed)
 
 - Added application-managed/import-managed session ownership.
 - Added optimistic concurrency/versioning.
@@ -268,18 +292,36 @@ Infrastructure recovery and PR3G must remain separate work orders and PRs.
 - Changed Sync so incoming Excel differences cannot silently overwrite an
   application-managed session; conflicts are explicitly reported.
 - Delivered backend and focused tests without a UI redesign.
-- The historical Google deployment was deleted; no live deployment currently
-  exists. This status does not reopen or undo PR3F's completed implementation.
 
-### PR3G — Sessions UX and navigation consolidation
+### PR3G — Sessions UX and navigation consolidation (completed; merged and deployed)
 
-- Turn the current rich Planning dashboard into the enhanced Sessions page.
-- Add the read-only detail/history view for all active roles.
-- Add trainer assignment/change/unassign controls for Admin/Ops.
-- Add stale-edit and import-conflict messages.
-- Retain the old basic Sessions implementation until parity is verified, then
-  remove it within this PR only if tests and manual acceptance pass.
-- Do not add trainer recommendations yet.
+- Turned the rich Planning dashboard into the enhanced Sessions page.
+- Added read-only detail/history for all active roles and trainer amendment for
+  Admin/Ops.
+- Added upcoming, past, and custom date modes, stale-edit handling, and protected
+  import-conflict presentation.
+- Retained the old basic Sessions implementation because full local/mocked role,
+  mobile, stale-edit, and conflict parity acceptance remains outstanding.
+- Merged at `2d061c990d4fd5bdb1aba062881cffb174870fd0` and deployed through
+  Cloud Run revision `core-api-00003-lqk` with Firebase Hosting release `4634ed`.
+- Trainer recommendations remain deferred to PR4.
+
+### PR3G-V — ASK UX Visual Foundation
+
+- Apply the ASK white/red presentation tokens and branded login/access/application
+  shell to the existing PR3G frontend.
+- Adopt only feasible presentation patterns from the external Lovable export:
+  cards, metric hierarchy, pills, segmented date modes, filter organisation,
+  sticky table headers, selected rows, detail panels, Sync/conflict states, and
+  responsive hierarchy.
+- Preserve all current Sessions, Sync, Legacy Sessions, role, history, trainer
+  amendment, stale-write, conflict, pagination, and date-window behaviour.
+- Add no routes or future features and make no API, auth, backend, database,
+  infrastructure, provider, dependency, or deployment change.
+- Validate rendered desktop and 320px states with local or mocked fixtures only;
+  never use production application data.
+- Complete and accept this visual foundation before PR3H so subsequent pages use
+  one consistent component language.
 
 ### PR3H — Future Course Planning
 
@@ -355,6 +397,9 @@ Their identities and numbering are unchanged.
 - Automatically accepting fuzzy name matches, inferring trainer-course eligibility,
   or deleting records that are missing from a later workbook.
 - Removing historical PR documentation or renumbering completed work.
+- Importing the Lovable export's application logic, authentication, direct database
+  operations, infrastructure, dependencies, migrations, environment values, AI,
+  trainer recommendations, calendar, rooms, notes/wiki, or unreleased routes.
 
 ## 12. Acceptance checkpoints
 
@@ -369,6 +414,8 @@ Before PR4 begins, confirm that:
 - stale writes are rejected;
 - Excel re-import cannot silently replace application-managed changes;
 - the existing session and sync behaviours remain covered by regression tests;
+- the ASK visual foundation is accepted without changing those behaviours, and
+  future product pages reuse its approved presentation tokens and patterns;
 - no individual training dates have been inferred from session spans;
 - the Admin Area has separate User Access, Trainer Directory, and Trainer Rate
   Reconciliation sections;

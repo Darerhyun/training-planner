@@ -86,10 +86,10 @@ Use exactly:
 Do not continue past the affected step until Sol resolves the escalation and,
 when product authority is needed, the user approves the decision.
 
-## 6. Current deployment freeze
+## 6. Current deployment state
 
-The former Google project has been deleted and no live Training Planner
-deployment currently exists. Deployment and provisioning remain frozen until a
-separate infrastructure-recovery work order is reviewed and expressly approved.
-This harness does not authorise infrastructure recovery, PR3G implementation, or
-any deployment.
+PR3G is merged at `2d061c990d4fd5bdb1aba062881cffb174870fd0` and is live on
+Cloud Run revision `core-api-00003-lqk` with Firebase Hosting release `4634ed`.
+This record does not authorise another deployment, rollback, infrastructure or
+provider change. Every future release remains subject to the review, acceptance,
+express authorization, rollback, cost, and post-deployment gates above.
