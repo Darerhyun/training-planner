@@ -265,11 +265,17 @@ jobs:
 
           const service = JSON.parse(readFileSync(process.env.SERVICE_FILE, 'utf8'));
           const candidateRevision = service.status?.latestCreatedRevisionName;
+          const readyRevision = service.status?.latestReadyRevisionName;
           const targets = service.status?.traffic ?? [];
           const candidateTarget = targets.find((target) => target.tag === process.env.CANDIDATE_TAG);
           const rollbackTarget = targets.find((target) => target.revisionName === process.env.ROLLBACK_REVISION);
-          if (!candidateRevision || !candidateTarget || Number(candidateTarget.percent ?? 0) !== 0) {
-            console.error('Candidate revision was not created with a zero-traffic tag.');
+          if (
+            !candidateRevision ||
+            readyRevision !== candidateRevision ||
+            !candidateTarget ||
+            Number(candidateTarget.percent ?? 0) !== 0
+          ) {
+            console.error('Candidate revision was not ready with a zero-traffic tag.');
             process.exit(1);
           }
           if (!rollbackTarget || Number(rollbackTarget.percent ?? 0) !== 100) {
