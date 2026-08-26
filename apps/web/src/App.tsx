@@ -51,6 +51,27 @@ const profileSourceLabels: Record<PlanningSession['planningProfile']['source'], 
   unavailable: 'Profile unavailable',
 };
 
+function BrandLockup({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={`brand-lockup${compact ? ' compact' : ''}`}>
+      <span className="brand-mark" aria-hidden="true">ASK</span>
+      <div>
+        <span className="brand-eyebrow">ASK Training</span>
+        {compact ? <strong>Training Planner</strong> : <h1>Training Planner</h1>}
+      </div>
+    </div>
+  );
+}
+
+function getProgrammeTone(code: string | null): string {
+  const normalized = code?.toUpperCase() ?? '';
+  if (normalized === 'ACDM' || normalized === 'FTDM') return 'blue';
+  if (normalized === 'DDM') return 'teal';
+  if (normalized === 'SDDM' || normalized === 'DGAI') return 'purple';
+  if (normalized.includes('IIO')) return 'amber';
+  return 'neutral';
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<AppProfile | null>(null);
@@ -107,7 +128,12 @@ export default function App() {
     return (
       <main className="auth-shell">
         <section className="auth-panel">
-          <h1>Training Planner</h1>
+          <BrandLockup />
+          <div className="auth-intro">
+            <span className="eyebrow">Operations workspace</span>
+            <h2>Welcome back</h2>
+            <p>Sign in to manage training sessions and schedule imports.</p>
+          </div>
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -168,8 +194,9 @@ export default function App() {
     return (
       <main className="auth-shell">
         <section className="auth-panel status-panel">
-          <RefreshCw size={18} className="spin" />
-          <h1>Training Planner</h1>
+          <BrandLockup />
+          <RefreshCw size={20} className="spin status-icon" />
+          <h2>Preparing your workspace</h2>
           <p className="empty">Loading your account profile...</p>
           {authError && <p className="error">{authError}</p>}
         </section>
@@ -181,7 +208,9 @@ export default function App() {
     return (
       <main className="auth-shell">
         <section className="auth-panel status-panel">
-          <h1>{profile.role === 'pending' ? 'Approval Pending' : 'Access Unavailable'}</h1>
+          <BrandLockup />
+          <span className={`access-state ${profile.role}`}>{profile.role === 'pending' ? 'Account review' : 'Access restricted'}</span>
+          <h2>{profile.role === 'pending' ? 'Approval Pending' : 'Access Unavailable'}</h2>
           <p className="empty">{profile.message}</p>
           <p>{profile.email}</p>
           <button className="secondary" onClick={() => signOut(auth)}>
@@ -196,9 +225,12 @@ export default function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div>
-          <h1>Training Planner</h1>
-          <p>{profile.display_name || profile.email} · {profile.role}</p>
+        <div className="topbar-identity">
+          <BrandLockup compact />
+          <p>
+            <span>{profile.display_name || profile.email}</span>
+            <strong className="role-pill">{profile.role}</strong>
+          </p>
         </div>
         <nav className="tabs" aria-label="Primary">
           <button className={view === 'sessions' ? 'active' : ''} onClick={() => setView('sessions')}>
@@ -209,7 +241,7 @@ export default function App() {
             <Upload size={16} />
             Sync
           </button>
-          <button className={view === 'legacy-sessions' ? 'active' : ''} onClick={() => setView('legacy-sessions')}>
+          <button className={`legacy-tab${view === 'legacy-sessions' ? ' active' : ''}`} onClick={() => setView('legacy-sessions')}>
             <ListFilter size={16} />
             Legacy sessions
           </button>
@@ -395,9 +427,11 @@ function SessionsPage({ user, role }: { user: User; role: ActiveRole }) {
   return (
     <section className="planning-stack">
       <div className="panel planning-hero">
-        <div>
+        <div className="hero-copy">
+          <span className="eyebrow">Operations workspace</span>
           <h2>Sessions</h2>
-          <span>Session span · {formatDateRange(from, to)}</span>
+          <p>Review session spans, trainers, venues and planning issues.</p>
+          <span className="range-label"><CalendarDays size={14} /> {formatDateRange(from, to)}</span>
         </div>
         <div className="toolbar">
           <button className="secondary" onClick={clearFilters} disabled={busy || loadingMore}>
@@ -413,6 +447,13 @@ function SessionsPage({ user, role }: { user: User; role: ActiveRole }) {
       <PlanningSummary data={data} busy={busy} />
 
       <div className="panel filter-panel">
+        <div className="filter-panel-heading">
+          <div>
+            <span className="eyebrow">Refine the schedule</span>
+            <h2>Filters</h2>
+          </div>
+          <span>Changes apply automatically</span>
+        </div>
         <fieldset className="date-mode-fieldset">
           <legend>Session period</legend>
           <div className="date-mode-row">
@@ -578,14 +619,18 @@ function SessionsPage({ user, role }: { user: User; role: ActiveRole }) {
                       <span>{session.course.code ?? session.course.tmsCode ?? session.externalRef}</span>
                     </td>
                     <td className="mobile-hide"><PlanningProfileAnnotation session={session} /></td>
-                    <td className="mobile-hide">{session.course.programmeCode ?? 'Standalone'}</td>
+                    <td className="mobile-hide">
+                      <span className={`programme-pill ${getProgrammeTone(session.course.programmeCode)}`}>
+                        {session.course.programmeCode ?? 'Standalone'}
+                      </span>
+                    </td>
                     <td>{session.trainer.name ?? session.trainer.rawName ?? 'Unassigned'}</td>
                     <td className="mobile-hide">
                       <strong>{session.venue.name ?? session.venue.rawText ?? 'Unresolved'}</strong>
                       <span>{session.room.name ?? (session.room.id ? session.room.id : 'No room')}</span>
                     </td>
                     <td className="mobile-hide">{session.pax.confirmed ?? session.pax.expected ?? '-'}</td>
-                    <td><span className="status-pill">{session.status}</span></td>
+                    <td><span className={`status-pill ${session.status}`}>{session.status}</span></td>
                     <td className="mobile-hide"><IssueBadges session={session} /></td>
                   </tr>
                 ))}
@@ -623,20 +668,20 @@ function mergePlanningSessions(current: PlanningSession[], next: PlanningSession
 
 function PlanningSummary({ data, busy }: { data: PlanningResponse | null; busy: boolean }) {
   const metrics = [
-    ['Total sessions', data?.summary.total ?? '-'],
-    ['Draft', data?.summary.byStatus.draft ?? '-'],
-    ['Confirmed', data?.summary.byStatus.confirmed ?? '-'],
-    ['Cancelled', data?.summary.byStatus.cancelled ?? '-'],
-    ['Unresolved venues', data?.summary.issues.unresolvedVenues ?? '-'],
-    ['Unassigned trainers', data?.summary.issues.unassignedTrainers ?? '-'],
-    ['Missing owned rooms', data?.summary.issues.ownedVenuesWithoutRooms ?? '-'],
-    ['Room pax over capacity', data?.summary.issues.capacityOverruns ?? '-'],
-  ];
+    ['Total sessions', data?.summary.total ?? '-', 'primary'],
+    ['Draft', data?.summary.byStatus.draft ?? '-', 'info'],
+    ['Confirmed', data?.summary.byStatus.confirmed ?? '-', 'success'],
+    ['Cancelled', data?.summary.byStatus.cancelled ?? '-', 'danger'],
+    ['Unresolved venues', data?.summary.issues.unresolvedVenues ?? '-', 'warning'],
+    ['Unassigned trainers', data?.summary.issues.unassignedTrainers ?? '-', 'warning'],
+    ['Missing owned rooms', data?.summary.issues.ownedVenuesWithoutRooms ?? '-', 'warning'],
+    ['Room pax over capacity', data?.summary.issues.capacityOverruns ?? '-', 'warning'],
+  ] as const;
 
   return (
     <div className="metrics planning-metrics">
-      {metrics.map(([label, value]) => (
-        <div className="metric" key={label}>
+      {metrics.map(([label, value, tone]) => (
+        <div className={`metric ${tone}`} key={label}>
           <span>{label}</span>
           <strong>{busy ? '...' : value}</strong>
         </div>
@@ -866,6 +911,7 @@ function SessionDetailPanel({
     >
       <div className="panel-heading">
         <div>
+          <span className="eyebrow">Selected session</span>
           <h2>Session details</h2>
           <span>{canEditTrainer ? 'Trainer changes enabled' : 'Read-only'}</span>
         </div>
@@ -1090,12 +1136,16 @@ function SyncPage({ user }: { user: User }) {
   }
 
   return (
-    <section className="workspace-grid">
+    <section className="workspace-grid sync-workspace">
       <div className="panel upload-panel">
         <div className="panel-heading">
-          <h2>Sync</h2>
-          <span>Master Schedule Excel</span>
+          <div>
+            <span className="eyebrow">Schedule intake</span>
+            <h2>Sync</h2>
+          </div>
+          <Upload size={20} />
         </div>
+        <p className="panel-copy">Upload the Master Schedule Excel to preview changes before they are applied.</p>
         <input
           type="file"
           accept=".xlsx,.xls"
@@ -1110,7 +1160,10 @@ function SyncPage({ user }: { user: User }) {
 
       <div className="panel result-panel">
         <div className="panel-heading">
-          <h2>Parse Result</h2>
+          <div>
+            <span className="eyebrow">Import review</span>
+            <h2>Parse result</h2>
+          </div>
           {result?.summary.autoApplied && <span className="badge good">Applied</span>}
           {result?.summary.requiresConfirmation && <span className="badge warn">Review</span>}
         </div>
@@ -1267,11 +1320,12 @@ function LegacySessionsPage({ user }: { user: User }) {
   }, [status]);
 
   return (
-    <section className="panel table-panel">
+    <section className="panel table-panel legacy-panel">
       <div className="panel-heading row-heading">
         <div>
-          <h2>Sessions</h2>
-          <span>{filteredLabel}</span>
+          <span className="eyebrow">Parity reference</span>
+          <h2>Legacy Sessions</h2>
+          <span>{filteredLabel} · retained for acceptance checks</span>
         </div>
         <div className="toolbar">
           <select value={status} onChange={(event) => setStatus(event.target.value)}>
@@ -1310,7 +1364,7 @@ function LegacySessionsPage({ user }: { user: User }) {
                 <td>{session.trainer_name ?? 'Unassigned'}</td>
                 <td>{[session.venue_name, session.room_name].filter(Boolean).join(' / ') || 'TBD'}</td>
                 <td>{session.confirmed_pax ?? session.expected_pax ?? '-'}</td>
-                <td><span className="status-pill">{session.status}</span></td>
+                <td><span className={`status-pill ${session.status}`}>{session.status}</span></td>
               </tr>
             ))}
           </tbody>

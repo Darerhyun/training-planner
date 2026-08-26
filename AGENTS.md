@@ -33,11 +33,11 @@ Excel is an import source only. After import, the Training Planner app is author
 
 Multi-user from day one. Roles live on `users.role` (enum: `admin | ops | finance | viewer | pending | rejected`). New signups land as `pending` until an admin approves.
 
-## Architecture and recovery state
+## Architecture and deployment state
 
-The application uses standard PostgreSQL contracts. The former Google project has been deleted, so no live Training Planner deployment currently exists. Deployment and provisioning are frozen until a separate infrastructure-recovery PR is specified, reviewed, and expressly approved.
+The application uses standard PostgreSQL contracts and is live in the recovered, cost-controlled Google project. PR3G is merged at `2d061c990d4fd5bdb1aba062881cffb174870fd0` and deployed through Cloud Run revision `core-api-00003-lqk` with Firebase Hosting release `4634ed`.
 
-The approved recovery target is a cost-controlled **Neon PostgreSQL database in Singapore**, but it has not been provisioned. Existing Cloud Run, Firebase Hosting, Firebase Auth, GCS upload, and Gemini integrations are historical application choices and repository contracts; their recreation or replacement belongs to the separate infrastructure-recovery work.
+Cloud Run, Firebase Hosting, Firebase Auth, GCS upload, and the connected PostgreSQL database remain the approved application architecture. This current-state record does not authorise another deployment or any provider change; those actions remain separately gated by `WORKFLOW_HARNESS.md`.
 
 Do not recreate Cloud SQL without a new, explicit user-approved cost exception. Cloud SQL, Compute Engine, GKE, minimum Cloud Run instances, instance-based Cloud Run billing, Serverless VPC Access connectors, and Cloud NAT all require an explicit user-approved cost estimate, ceiling, monitoring, and rollback plan.
 
@@ -78,8 +78,9 @@ Build in this order. Each PR is independently reviewable. Do not jump ahead.
 	- **PR3C — Planning Dashboard frontend.** Completed: default authenticated Planning view with read-only session table, filters, summaries, and detail panel.
 	- **PR3D — Planning Profile annotations.** Completed: read-only CSV-backed planning profile annotations for direct history, FT proxy history, no-history courses, and unavailable profiles.
 	- **PR3E — Product and data-ownership contract.** Completed: approved Course Planning vs Sessions workflow and ownership roadmap committed as documentation.
-	- **PR3F — Session write safety and audit foundation.** Completed and historically deployed: ownership, optimistic concurrency, session history, Admin/Ops trainer assignment endpoint, and Sync conflict protection. The former deployment no longer exists.
-	- **PR3G — Sessions UX and navigation consolidation.** Next product feature after the workflow and infrastructure-recovery prerequisites. Turn the rich Planning dashboard into the enhanced Sessions experience with role-appropriate trainer amendment UI and history/detail states.
+	- **PR3F — Session write safety and audit foundation.** Completed: ownership, optimistic concurrency, session history, Admin/Ops trainer assignment endpoint, and Sync conflict protection.
+	- **PR3G — Sessions UX and navigation consolidation.** Completed, merged, and deployed: enhanced Sessions navigation, date modes, role-appropriate trainer amendment, history/detail states, stale-write handling, and protected Sync conflict presentation.
+	- **PR3G-V — ASK UX Visual Foundation.** Presentation-only extension before PR3H: apply ASK's white/red visual language and feasible patterns from the external Lovable export without importing its architecture or changing current behaviour.
 	- **PR3H — Future Course Planning.** Add month-based Course Planning using planning profiles as evidence, with explicit creation of draft Sessions from approved planned runs.
 	- **PR3I — Admin Panel: User Access.** Add the Admin-only workflow to invite, approve, reject, assign roles, deactivate, and reactivate application users.
 	- **PR3J — Admin Panel: Trainer Directory.** Add the Admin-only workflow to register and edit trainers, activate/deactivate records, and manage course links and module exclusions.
@@ -87,7 +88,7 @@ Build in this order. Each PR is independently reviewable. Do not jump ahead.
 5. **PR5 — AI assistant chat** (propose → confirm → execute pattern).
 6. **PR6 — Gantt trainers view, Calendar view, Activity page.**
 
-Do not begin PR3G until this workflow documentation is merged and a separate, approved infrastructure-recovery prerequisite has established a safe development and deployment environment. PR3I and PR3J remain separate; PR4–PR6 retain their historical identities and numbering.
+Complete and accept PR3G-V before PR3H so future pages inherit one visual foundation. PR3I and PR3J remain separate; PR4–PR6 retain their historical identities and numbering.
 
 ## Key domain concepts (one-liners — details in docs/)
 
