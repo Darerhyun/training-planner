@@ -66,7 +66,7 @@ meRoutes.patch('/me', async (c) => {
   const { user } = c.get('auth');
 
   if (user.is_active === false) {
-    return c.json({ error: 'Deactivated accounts cannot update their profile', code: 'inactive_account' }, 403);
+    return c.json({ error: 'Deactivated accounts cannot update their profile', code: 'account_deactivated' }, 403);
   }
 
   let body: Record<string, unknown>;
@@ -101,3 +101,4 @@ meRoutes.patch('/me', async (c) => {
 
   return c.json(updated[0]);
 });
+
