@@ -155,6 +155,94 @@ export interface PlanningResponse {
   };
 }
 
+export type PlannedCourseRunStatus = 'proposed' | 'approved' | 'scheduled';
+
+export interface PlannedCourseRun {
+  id: string;
+  planningMonth: string;
+  courseCode: string;
+  venueCode: string;
+  status: PlannedCourseRunStatus;
+  note: string | null;
+  version: number;
+  createdBy: { id: string; email: string | null; name: string | null };
+  approvedBy: { id: string; email: string | null; name: string | null } | null;
+  approvedAt: string | null;
+  scheduledBy: { id: string; email: string | null; name: string | null } | null;
+  scheduledAt: string | null;
+  session: {
+    id: string;
+    status: string;
+    startDate: string | null;
+    endDate: string | null;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CoursePlanningCourse {
+  course: {
+    code: string;
+    name: string;
+    programmeCode: string | null;
+    programmeName: string | null;
+  };
+  venue: {
+    code: string;
+    name: string;
+    type: string;
+  };
+  planningProfile: {
+    source: PlanningProfileSource;
+    profileCourseCode: string | null;
+    evidenceVenueCode: string;
+    scheduled18MonthCount: number | null;
+    confirmationRate: number | null;
+    confirmedPerMonth: number | null;
+    medianGapDays: number | null;
+    strongMonths: string[];
+    weakMonths: string[];
+    lowHistoricalConfirmation: boolean;
+  };
+  runs: PlannedCourseRun[];
+}
+
+export interface CoursePlanningResponse {
+  meta: {
+    planningMonth: string;
+    venueCode: string;
+    evidenceVenueCode: string;
+    evidenceMode: 'committed_profiles_read_only';
+  };
+  summary: {
+    plannedRuns: number;
+    historicalTarget: number;
+    unscheduledRuns: number;
+    evidenceGaps: number;
+  };
+  filters: {
+    venues: Array<{ code: string; name: string; type: string }>;
+    programmes: Array<{ code: string | null; name: string }>;
+    historySources: PlanningProfileSource[];
+  };
+  courses: CoursePlanningCourse[];
+}
+
+export interface ScheduledDraftSession {
+  id: string;
+  courseCode: string;
+  venueCode: string;
+  status: 'draft';
+  startDate: string;
+  endDate: string;
+  managementSource: 'application';
+  version: number;
+  trainer: null;
+  room: null;
+  timeText: null;
+  pax: null;
+}
+
 export interface ParseResult {
   summary: {
     totalRows: number;
@@ -337,6 +425,68 @@ export async function fetchPlanningSessions(user: User, request: PlanningRequest
   return apiFetch<PlanningResponse>(user, `/planning/sessions?${query.toString()}`);
 }
 
+export async function fetchCoursePlanning(
+  user: User,
+  month: string,
+  venueCode: string,
+): Promise<CoursePlanningResponse> {
+  const query = new URLSearchParams({ month, venueCode });
+  return apiFetch<CoursePlanningResponse>(user, `/course-planning?${query.toString()}`);
+}
+
+export async function createPlannedCourseRuns(
+  user: User,
+  input: {
+    planningMonth: string;
+    courseCode: string;
+    venueCode: string;
+    count: number;
+    note: string;
+  },
+): Promise<PlannedCourseRun[]> {
+  const data = await apiFetch<{ runs: PlannedCourseRun[] }>(user, '/course-planning/runs', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return data.runs;
+}
+
+export async function approvePlannedCourseRun(
+  user: User,
+  runId: string,
+  expectedVersion: number,
+): Promise<PlannedCourseRun> {
+  const data = await apiFetch<{ run: PlannedCourseRun } | Record<string, unknown>>(
+    user,
+    `/course-planning/runs/${encodeURIComponent(runId)}/approve`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ expectedVersion }),
+    },
+  );
+  throwIfPlannedRunStale(data);
+  return (data as { run: PlannedCourseRun }).run;
+}
+
+export async function schedulePlannedCourseRun(
+  user: User,
+  runId: string,
+  input: { expectedVersion: number; startDate: string; endDate: string },
+): Promise<{ run: PlannedCourseRun; session: ScheduledDraftSession }> {
+  const data = await apiFetch<
+    { run: PlannedCourseRun; session: ScheduledDraftSession } | Record<string, unknown>
+  >(
+    user,
+    `/course-planning/runs/${encodeURIComponent(runId)}/session`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+  throwIfPlannedRunStale(data);
+  return data as { run: PlannedCourseRun; session: ScheduledDraftSession };
+}
+
 export async function fetchSessionHistory(user: User, sessionId: string): Promise<SessionHistoryEntry[]> {
   const data = await apiFetch<{ history: SessionHistoryEntry[] }>(
     user,
@@ -379,6 +529,17 @@ export async function updateSessionTrainer(
   }
 
   return data as SessionTrainerUpdateResponse;
+}
+
+function throwIfPlannedRunStale(data: unknown): void {
+  if (getResponseCode(data) === 'stale_planned_course_run_version') {
+    throw new ApiError(
+      getResponseMessage(data) ?? 'This planned run changed after you opened it. Reload before trying again.',
+      409,
+      'stale_planned_course_run_version',
+      getCurrentVersion(data),
+    );
+  }
 }
 
 async function readResponseBody(response: Response): Promise<unknown> {
