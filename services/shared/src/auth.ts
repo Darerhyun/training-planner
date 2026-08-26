@@ -7,11 +7,14 @@ import type { User, UserRole, AuthContext, AppEnv } from './types.js';
 // Helpers
 // ---------------------------------------------------------------------------
 
+function getAdminEmails(): Set<string> {
+  return new Set((process.env.ADMIN_EMAILS ?? '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean));
+}
+
 /**
  * Look up user by Firebase UID. If no record exists, create one.
- * New Firebase sign-ins are always pending. Invitations are intentionally
- * claimed by an explicit Admin approval transaction; they never grant access
- * merely because an email matches.
+ * New Firebase sign-ins are pending unless they are the configured bootstrap
+ * Admin and have no open invitation. Invitations never grant access by email.
  */
 async function findOrCreateUser(
   firebaseUid: string,
@@ -36,12 +39,18 @@ async function findOrCreateUser(
     return existing[0];
   }
 
+  const openInvitation = await db<{ id: string }>(
+    `SELECT id FROM user_invitations WHERE email = $1 AND status = 'pending' LIMIT 1`,
+    [normalizedEmail],
+  );
+  const role: UserRole = !openInvitation.length && getAdminEmails().has(normalizedEmail) ? 'admin' : 'pending';
+
   const inserted = await db<User>(
     `INSERT INTO users (firebase_uid, email, display_name, role, is_active, version)
-     VALUES ($1, $2, $3, 'pending', TRUE, 1)
+     VALUES ($1, $2, $3, $4, TRUE, 1)
      ON CONFLICT (firebase_uid) DO UPDATE SET updated_at = now()
      RETURNING id, firebase_uid, email, display_name, role, is_active, version, created_at, updated_at`,
-    [firebaseUid, normalizedEmail, displayName],
+    [firebaseUid, normalizedEmail, displayName, role],
   );
 
   return inserted[0];
@@ -109,7 +118,7 @@ export function requireRole(...roles: UserRole[]): MiddlewareHandler<AppEnv> {
       return c.json({ error: 'Not authenticated' }, 401);
     }
     if (auth.user.is_active === false) {
-      return c.json({ error: 'Your account is deactivated. Contact an administrator.' }, 403);
+      return c.json({ error: 'Your account is deactivated. Contact an administrator.', code: 'account_deactivated' }, 403);
     }
     if (!allowed.has(auth.user.role)) {
       // Rejected users get a specific message
@@ -124,3 +133,4 @@ export function requireRole(...roles: UserRole[]): MiddlewareHandler<AppEnv> {
     await next();
   };
 }
+
