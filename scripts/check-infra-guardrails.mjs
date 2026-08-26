@@ -397,6 +397,7 @@ assertOrdered(
     'name: Verify pre-provisioned deployment targets',
     'gcloud artifacts repositories describe "$GCP_ARTIFACT_REPOSITORY"',
     'gcloud run services describe core-api',
+    'name: Capture Cloud Run rollback revision',
     'name: Build and push immutable API image',
   ],
   'deployment workflow must verify existing targets before publishing or deploying',
@@ -476,6 +477,9 @@ for (const fragment of [
   "registry_host='asia-southeast1-docker.pkg.dev'",
   'services/core-api/Dockerfile',
   '/core-api:${GITHUB_SHA}',
+  'gcloud artifacts docker images describe "$image_uri"',
+  'image_summary.digest',
+  'CORE_API_IMAGE_DIGEST=',
   'gcloud run deploy core-api',
   '--project="$GCP_PROJECT_ID"',
   '--region=asia-southeast1',
@@ -487,11 +491,14 @@ for (const fragment of [
   '--min-instances=0',
   '--max-instances=2',
   '--service-account="$GCP_RUNTIME_SERVICE_ACCOUNT"',
-  // Require the verified database version-3 and admin-email version-2 pins.
   'DATABASE_URL=${GCP_DATABASE_SECRET}:3',
   'ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:2',
   'ALLOWED_ORIGINS=${FIREBASE_HOSTING_ORIGIN}',
   'GCS_UPLOAD_BUCKET=${GCS_UPLOAD_BUCKET}',
+  '--no-traffic',
+  '--revision-suffix="$revision_suffix"',
+  '--tag="$candidate_tag"',
+  'dispatch_identity="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
 ]) {
   assert(
     deploymentWorkflow.includes(fragment),
@@ -508,6 +515,10 @@ assert(
   !deploymentWorkflow.includes(':latest'),
   'deployment workflow must not use floating Secret Manager :latest pins',
 );
+assert(
+  !deploymentWorkflow.includes('--to-latest') && !deploymentWorkflow.includes('LATEST='),
+  'deployment workflow must not use implicit latest-revision traffic selectors',
+);
 
 assert(
   !deploymentWorkflow.includes('--no-cpu-throttling'),
@@ -523,12 +534,81 @@ assertOrdered(
   deploymentWorkflow,
   [
     'gcloud run deploy core-api',
-    'gcloud run services describe core-api',
-    '"${cloud_run_url}/health"',
-    'name: Build web for the verified API',
-    'name: Deploy Firebase Hosting only',
+    'name: Verify tagged candidate health',
+    'name: Build web for the verified candidate API',
+    'name: Activate and verify exact Cloud Run revision',
+    'gcloud run services update-traffic core-api',
+    '--to-revisions="$CANDIDATE_REVISION=100"',
+    'name: Record non-secret deployment evidence',
   ],
-  'deployment workflow must pass health before building and deploying Hosting',
+  'deployment workflow must verify and activate the exact candidate before completion',
+);
+assert(
+  deploymentWorkflow.includes('gcloud run services update-traffic core-api') &&
+    deploymentWorkflow.includes('--to-revisions="$CANDIDATE_REVISION=100"') &&
+    deploymentWorkflow.includes('--to-revisions="$ROLLBACK_REVISION=100"') &&
+    deploymentWorkflow.includes('candidateTarget.revisionName !== candidateRevision') &&
+    deploymentWorkflow.includes('candidateImage !== process.env.EXPECTED_IMAGE') &&
+    deploymentWorkflow.includes('PUSHED_IMAGE_DIGEST'),
+  'deployment workflow must activate the exact candidate and provide bounded rollback',
+);
+assert(
+  deploymentWorkflow.includes('name: Capture Cloud Run rollback revision') &&
+    deploymentWorkflow.includes('ROLLBACK_REVISION=') &&
+    deploymentWorkflow.includes('fullTraffic.length !== 1') &&
+    deploymentWorkflow.includes('activeTraffic.length !== 1') &&
+    deploymentWorkflow.includes('readyRevision !== candidateRevision') &&
+    deploymentWorkflow.includes('Number(target.percent ?? 0) === 100'),
+  'deployment workflow must capture exactly one prior sole 100% revision',
+);
+assert(
+    deploymentWorkflow.includes('activation_attempted=false') &&
+    deploymentWorkflow.includes('trap rollback ERR') &&
+    deploymentWorkflow.includes('activation_attempted=true') &&
+    deploymentWorkflow.indexOf('activation_attempted=true') <
+      deploymentWorkflow.indexOf('--to-revisions="$CANDIDATE_REVISION=100"') &&
+    deploymentWorkflow.includes('Rollback revision did not become the sole 100% traffic target.') &&
+    deploymentWorkflow.includes('Rollback base URL did not report connected core-api JSON health.') &&
+    deploymentWorkflow.includes("echo 'ROLLBACK_STATUS=passed'"),
+  'deployment workflow must roll back after failures following activation',
+);
+assert(
+  deploymentWorkflow.includes("health.status !== 'ok'") &&
+    deploymentWorkflow.includes("service !== 'core-api'") &&
+    deploymentWorkflow.includes("database !== 'connected'"),
+  'deployment workflow must require connected core-api JSON health',
+);
+assert(
+    deploymentWorkflow.includes('Number(candidate.percent) !== 100') &&
+    deploymentWorkflow.includes('name: Activate and verify exact Cloud Run revision') &&
+    deploymentWorkflow.includes('name: Verify tagged candidate health') &&
+    deploymentWorkflow.includes('CANDIDATE_IMAGE_DIGEST=') &&
+    deploymentWorkflow.includes('CANDIDATE_TRAFFIC=0') &&
+    deploymentWorkflow.includes('CLOUD_RUN_SERVICE_URL=') &&
+    deploymentWorkflow.includes('VITE_API_BASE_URL: ${{ env.CLOUD_RUN_SERVICE_URL }}') &&
+    deploymentWorkflow.includes('FINAL_TRAFFIC_REVISION=') &&
+    deploymentWorkflow.includes('FINAL_TRAFFIC_PERCENT=') &&
+    deploymentWorkflow.includes('FINAL_TRAFFIC_STATUS=') &&
+    !deploymentWorkflow.includes('ACTIVE_TRAFFIC=100'),
+  'deployment workflow must verify exact candidate traffic and tagged health',
+);
+assertOrdered(
+  deploymentWorkflow,
+  [
+    'CLOUD_RUN_SERVICE_URL=',
+    'name: Verify tagged candidate health',
+    'name: Build web for the verified candidate API',
+    'activation_attempted=true',
+    '--to-revisions="$CANDIDATE_REVISION=100"',
+  ],
+  'deployment workflow must build against the stable service URL before activation',
+);
+assert(
+  deploymentWorkflow.includes('revision_suffix="run-${dispatch_identity}"') &&
+    deploymentWorkflow.includes('candidate_tag="candidate-${dispatch_identity}"') &&
+    deploymentWorkflow.includes('GITHUB_RUN_ID') &&
+    deploymentWorkflow.includes('GITHUB_RUN_ATTEMPT'),
+  'deployment workflow must use unique bounded run and attempt identities for revision and tag names',
 );
 for (const webVariable of [
   'VITE_API_BASE_URL',
