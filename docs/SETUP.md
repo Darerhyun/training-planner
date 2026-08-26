@@ -378,19 +378,24 @@ that the manually established unconditional `allUsers` /
 `roles/run.invoker` prerequisite exists with no condition. That preflight runs
 before container image build/push and before Cloud Run deployment. The workflow
 captures the existing sole 100% Cloud Run revision as the rollback target,
-builds an immutable image tagged with the commit SHA, and deploys a candidate
-`core-api` revision with `--no-traffic`, a deterministic revision suffix, and a
-temporary tag. It confirms the candidate is ready and checks the tagged
-revision directly. Its JSON `/health` response must report `status: ok`,
-`service: core-api`, and `database: connected`; checking only the general
-service URL is insufficient because that URL may still serve the prior
-revision. After candidate health passes, the workflow assigns 100% traffic to
-the exact candidate revision name, verifies the exact allocation and base URL
-health, then builds the web app against that verified API and deploys Firebase
-Hosting only. Any failure after traffic activation restores 100% traffic to the
-captured rollback revision and verifies the restored service. The workflow does
-not provision resources, apply SQL, create secrets, assign IAM, use
-`--to-latest` or `LATEST=`, or deploy any other Firebase product.
+builds and resolves one immutable Artifact Registry image digest, and deploys a
+candidate `core-api` revision with `--no-traffic`. Revision and temporary tag
+names include the bounded workflow run ID and attempt, so repeated dispatches
+cannot reuse the prior candidate identity. The workflow confirms that the
+candidate is ready, that its tag points to that exact revision, and that the
+revision image digest matches the pushed digest. It records the candidate
+revision, digest, tag, zero-traffic state and rollback revision without secrets.
+Its tagged JSON `/health` response must report `status: ok`, `service:
+core-api`, and `database: connected`; checking only the general service URL is
+insufficient because that URL may still serve the prior revision. After
+candidate health passes, the workflow builds the web app against the candidate
+tag before assigning traffic. It then assigns 100% traffic to the exact
+candidate revision name and verifies the exact allocation and base URL health
+before deploying Firebase Hosting only. Any failure after traffic activation
+restores the captured rollback revision, asserts it is the sole 100% target and
+checks its base URL JSON health for the same connected core-api response. The
+workflow does not provision resources, apply SQL, create secrets, assign IAM,
+use `--to-latest` or `LATEST=`, or deploy any other Firebase product.
 
 The committed `apps/web/.env.production` deliberately retains a `.invalid`
 endpoint. The actual API URL and Firebase web configuration are injected only
@@ -498,9 +503,12 @@ The first-deployment approval packet must preserve:
 
 After an authorized deployment:
 
-1. preserve the exact candidate image digest, tag, revision, and traffic evidence;
+1. preserve the exact candidate image digest, run/attempt-derived tag, revision,
+   zero/100% traffic evidence and recorded rollback revision;
 2. if a post-activation failure occurs, route Cloud Run back to the recorded
-   prior revision and verify its health before any further action;
+   prior revision, assert that it alone receives 100% traffic, and verify its
+   base URL JSON health (`status: ok`, `service: core-api`,
+   `database: connected`) before any further action;
 3. route the frontend back to the previously accepted API revision if required;
 4. restore the verified encrypted PostgreSQL dump into a separate database;
 5. update the database secret only after restore validation;
