@@ -6,7 +6,7 @@ import type { SqlQuery } from '@training-planner/shared';
 
 export function createMeRoutes(deps: { db?: SqlQuery; auth?: () => MiddlewareHandler<AppEnv> } = {}) {
 const meRoutes = new Hono<AppEnv>();
-const db = deps.db ?? getDb();
+const db: SqlQuery = deps.db ?? (async <T = Record<string, unknown>>(sql: string, params?: unknown[]) => getDb()<T>(sql, params));
 
 // All /me routes require authentication
 meRoutes.use('/me', (deps.auth ?? authMiddleware)());
