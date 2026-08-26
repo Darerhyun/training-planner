@@ -42,8 +42,9 @@ CREATE INDEX IF NOT EXISTS idx_user_invitations_status ON user_invitations (stat
 
 CREATE TABLE IF NOT EXISTS user_access_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES users(id),
+  user_id UUID REFERENCES users(id),
   invitation_id UUID REFERENCES user_invitations(id),
+  target_email TEXT CHECK (target_email = lower(btrim(target_email))),
   action user_access_event_action NOT NULL,
   actor_user_id UUID NOT NULL REFERENCES users(id),
   previous_role user_role,
@@ -52,7 +53,28 @@ CREATE TABLE IF NOT EXISTS user_access_events (
   new_is_active BOOLEAN,
   previous_version INTEGER,
   new_version INTEGER,
+  note TEXT CHECK (note IS NULL OR char_length(note) <= 500),
   metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_user_access_events_user_time ON user_access_events (user_id, created_at DESC);
+
+ALTER TABLE user_access_events ADD COLUMN IF NOT EXISTS target_email TEXT;
+UPDATE user_access_events e SET target_email = lower(u.email)
+  FROM users u WHERE e.user_id = u.id AND e.target_email IS NULL;
+ALTER TABLE user_access_events ALTER COLUMN target_email SET NOT NULL;
+ALTER TABLE user_access_events ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE user_access_events ADD COLUMN IF NOT EXISTS note TEXT;
+DO $$ BEGIN
+  ALTER TABLE user_access_events ADD CONSTRAINT chk_user_access_event_note_length CHECK (note IS NULL OR char_length(note) <= 500);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE OR REPLACE FUNCTION prevent_user_access_event_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $$ BEGIN
+  RAISE EXCEPTION 'user_access_events is append-only';
+END $$;
+DROP TRIGGER IF EXISTS trg_user_access_events_append_only ON user_access_events;
+CREATE TRIGGER trg_user_access_events_append_only
+  BEFORE UPDATE OR DELETE ON user_access_events
+  FOR EACH ROW EXECUTE FUNCTION prevent_user_access_event_mutation();
+
