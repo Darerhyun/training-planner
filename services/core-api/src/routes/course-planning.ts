@@ -132,6 +132,37 @@ function getEvidenceVenueCode(venueCode: string): string {
   return venueCode;
 }
 
+function resolveCoursePlanningProfile(courseCode: string, venueCode: string, evidenceVenueCode: string) {
+  if (venueCode === 'LAVENDER' || venueCode === 'OUTBOUND') {
+    return {
+      source: 'unavailable' as const,
+      profileCourseCode: null,
+      scheduled18MonthCount: null,
+      confirmationRate: null,
+      confirmedPerMonth: null,
+      medianGapDays: null,
+      strongMonths: [],
+      weakMonths: [],
+      lowHistoricalConfirmation: false,
+    };
+  }
+  return resolvePlanningProfile(courseCode, evidenceVenueCode);
+}
+
+function planningMonthOutOfRange(): HttpError {
+  return new HttpError(422, 'Planned runs can only be changed within the current Singapore month and 12 calendar months ahead.', {
+    error: 'Planned runs can only be changed within the current Singapore month and 12 calendar months ahead.',
+    code: 'planning_month_out_of_range',
+  });
+}
+
+function assertPlanningMonthWritable(planningMonth: string, activeMonth: string): void {
+  const month = planningMonth.slice(0, 7);
+  if (month < activeMonth || month > addMonths(activeMonth, 12)) {
+    throw planningMonthOutOfRange();
+  }
+}
+
 function actor(id: string | null, email: string | null, name: string | null) {
   return id ? { id, email, name } : null;
 }
@@ -304,7 +335,7 @@ export function createCoursePlanningRoutes(options: CoursePlanningRouteOptions =
       },
       venue,
       planningProfile: {
-        ...resolvePlanningProfile(course.code, evidenceVenueCode),
+        ...resolveCoursePlanningProfile(course.code, venueCode, evidenceVenueCode),
         evidenceVenueCode,
       },
       runs: (runsByCourse.get(course.code) ?? []).map(mapRun),
@@ -356,10 +387,8 @@ export function createCoursePlanningRoutes(options: CoursePlanningRouteOptions =
       const activeMonth = currentMonth();
       const requestedMonth = parsed.planningMonth.slice(0, 7);
       if (requestedMonth < activeMonth || requestedMonth > addMonths(activeMonth, 12)) {
-        return c.json({
-          error: 'New planned runs must be within the current Singapore month and 12 calendar months ahead.',
-          code: 'planning_month_out_of_range',
-        }, 422);
+        const error = planningMonthOutOfRange();
+        return c.json(error.body, error.status);
       }
 
       const { user } = c.get('auth');
@@ -442,6 +471,7 @@ export function createCoursePlanningRoutes(options: CoursePlanningRouteOptions =
         const updated = await runTransaction(async (tx) => {
           const locked = await lockRun(tx, c.req.param('id'));
           if (locked.version !== parsed.expectedVersion) throw staleRun(locked.version);
+          assertPlanningMonthWritable(locked.planning_month, currentMonth());
           if (locked.status !== 'proposed') {
             throw new HttpError(422, 'Only proposed runs can be approved.', {
               error: 'Only proposed runs can be approved.',
@@ -485,6 +515,7 @@ export function createCoursePlanningRoutes(options: CoursePlanningRouteOptions =
         const result = await runTransaction(async (tx) => {
           const locked = await lockRun(tx, c.req.param('id'));
           if (locked.version !== parsed.expectedVersion) throw staleRun(locked.version);
+          assertPlanningMonthWritable(locked.planning_month, currentMonth());
           if (locked.status !== 'approved' || locked.session_id) {
             throw new HttpError(422, 'Only approved, unscheduled runs can create a Session.', {
               error: 'Only approved, unscheduled runs can create a Session.',

@@ -360,7 +360,9 @@ function CoursePlanningPage({ user, role }: { user: User; role: ActiveRole }) {
   const [scheduleRunId, setScheduleRunId] = useState<string | null>(null);
   const [scheduleStart, setScheduleStart] = useState(`${currentMonth}-01`);
   const [scheduleEnd, setScheduleEnd] = useState(`${currentMonth}-01`);
-  const canWrite = role === 'admin' || role === 'ops';
+  const hasWriteRole = role === 'admin' || role === 'ops';
+  const monthIsWritable = month >= currentMonth && month <= latestPlanningMonth;
+  const canWrite = hasWriteRole && monthIsWritable;
 
   async function load() {
     setBusy(true);
@@ -582,9 +584,12 @@ function CoursePlanningPage({ user, role }: { user: User; role: ActiveRole }) {
           </label>
         </div>
         <span className="field-help">
-          Retained months remain readable. New proposals are accepted from {currentMonth} through {latestPlanningMonth}.
-          Hotel evidence groups Furama, Holiday Inn and Scotts under the committed HOTEL profile; other venue evidence is exact-match only.
+          Retained months remain readable. Adding, approving and scheduling planned runs is available from {currentMonth} through {latestPlanningMonth}.
+          Hotel evidence groups Furama, Holiday Inn and Scotts under the committed HOTEL profile. Lavender and Outbound intentionally show unavailable evidence; other venues use exact matching.
         </span>
+        {hasWriteRole && !monthIsWritable && (
+          <span className="field-help">This retained month is read-only because it is outside the active planning window.</span>
+        )}
       </div>
 
       <div aria-live="polite">

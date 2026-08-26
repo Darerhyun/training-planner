@@ -262,16 +262,30 @@ test('maps documented hotel venues to HOTEL evidence without inferring OTHER', a
   assert.equal(hotel.response.status, 200);
   assert.equal(hotel.body.meta.evidenceVenueCode, 'HOTEL');
 
-  const unavailableStore = createFakeStore();
-  unavailableStore.query = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T[]> => {
-    if (sql.includes('FROM venues') && sql.includes('ORDER BY lower(name)')) {
-      return [{ code: 'OUTBOUND', name: 'Outbound', type: 'external' }] as T[];
-    }
-    return createFakeStore().query<T>(sql, params);
-  };
-  const other = await request('viewer', '/course-planning?month=2026-09&venueCode=OUTBOUND', { method: 'GET' }, unavailableStore);
-  assert.equal(other.response.status, 200);
-  assert.equal(other.body.meta.evidenceVenueCode, 'OUTBOUND');
+  for (const venueCode of ['LAVENDER', 'OUTBOUND']) {
+    const unavailableStore = createFakeStore();
+    const fallbackQuery = unavailableStore.query;
+    unavailableStore.query = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T[]> => {
+      if (sql.includes('FROM venues') && sql.includes('ORDER BY lower(name)')) {
+        return [{ code: venueCode, name: venueCode, type: 'external' }] as T[];
+      }
+      if (sql.includes('FROM courses c') && sql.includes("p.status = 'active'") && !sql.includes('c.code = $1')) {
+        return [
+          { code: 'ASKCAP', name: 'Direct course', programme_code: 'ASK', programme_name: 'ASK Training' },
+          { code: 'FTDM-DME', name: 'Proxy course', programme_code: 'FTDM', programme_name: 'Full-Time DM' },
+          { code: 'FTDM-VM', name: 'No-history course', programme_code: 'FTDM', programme_name: 'Full-Time DM' },
+        ] as T[];
+      }
+      return fallbackQuery<T>(sql, params);
+    };
+    const result = await request('viewer', `/course-planning?month=2026-09&venueCode=${venueCode}`, { method: 'GET' }, unavailableStore);
+    assert.equal(result.response.status, 200);
+    assert.equal(result.body.meta.evidenceVenueCode, venueCode);
+    assert.deepEqual(
+      result.body.courses.map((row: { planningProfile: { source: string } }) => row.planningProfile.source),
+      ['unavailable', 'unavailable', 'unavailable'],
+    );
+  }
 });
 
 test('validates read parameters and blocks pending and rejected roles', async () => {
@@ -339,6 +353,26 @@ test('admin and ops can self-approve proposed rows with optimistic concurrency',
   }
 });
 
+test('approval rejects locked runs outside the write horizon without updating them', async () => {
+  for (const planningMonth of ['2026-07-01', '2027-09-01']) {
+    const store = createFakeStore();
+    store.runs.push({
+      id: 'retained-proposed', planning_month: planningMonth, course_code: 'ASKCAP', venue_code: 'IP',
+      status: 'proposed', note: null, version: 1, created_by: 'ops-id', approved_by: null,
+      approved_at: null, scheduled_by: null, scheduled_at: null, session_id: null,
+      created_at: now, updated_at: now,
+    });
+    const result = await request('ops', '/course-planning/runs/retained-proposed/approve', json('PATCH', {
+      expectedVersion: 1,
+    }), store);
+    assert.equal(result.response.status, 422);
+    assert.equal(result.body.code, 'planning_month_out_of_range');
+    assert.equal(store.runs[0].status, 'proposed');
+    assert.equal(store.runs[0].version, 1);
+    assert.equal(store.calls.some((call) => call.sql.includes("SET status = 'approved'")), false);
+  }
+});
+
 test('approved run creates exactly one explicit-date application-managed draft Session', async () => {
   const store = createFakeStore();
   const created = await createRuns('ops', store);
@@ -380,6 +414,29 @@ test('approved run creates exactly one explicit-date application-managed draft S
   assert.equal(duplicate.response.status, 422);
   assert.equal(duplicate.body.code, 'planned_run_not_schedulable');
   assert.equal(store.sessions.length, 1);
+});
+
+test('Session creation rejects locked runs outside the write horizon without inserting', async () => {
+  for (const planningMonth of ['2026-07-01', '2027-09-01']) {
+    const store = createFakeStore();
+    store.runs.push({
+      id: 'retained-approved', planning_month: planningMonth, course_code: 'ASKCAP', venue_code: 'IP',
+      status: 'approved', note: null, version: 2, created_by: 'ops-id', approved_by: 'ops-id',
+      approved_at: now, scheduled_by: null, scheduled_at: null, session_id: null,
+      created_at: now, updated_at: now,
+    });
+    const startDate = planningMonth.slice(0, 7) + '-01';
+    const result = await request('ops', '/course-planning/runs/retained-approved/session', json('POST', {
+      expectedVersion: 2,
+      startDate,
+      endDate: startDate,
+    }), store);
+    assert.equal(result.response.status, 422);
+    assert.equal(result.body.code, 'planning_month_out_of_range');
+    assert.equal(store.runs[0].status, 'approved');
+    assert.equal(store.sessions.length, 0);
+    assert.equal(store.calls.some((call) => call.sql.includes('INSERT INTO sessions')), false);
+  }
 });
 
 test('scheduling rejects invalid or out-of-month dates before inserting a Session', async () => {
