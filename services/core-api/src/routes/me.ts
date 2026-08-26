@@ -1,11 +1,14 @@
 import { Hono } from 'hono';
 import { authMiddleware, getDb } from '@training-planner/shared';
 import type { AppEnv } from '@training-planner/shared';
+import type { MiddlewareHandler, SqlQuery } from '@training-planner/shared';
 
-export const meRoutes = new Hono<AppEnv>();
+export function createMeRoutes(deps: { db?: SqlQuery; auth?: () => MiddlewareHandler<AppEnv> } = {}) {
+const meRoutes = new Hono<AppEnv>();
+const db = deps.db ?? getDb();
 
 // All /me routes require authentication
-meRoutes.use('/me', authMiddleware());
+meRoutes.use('/me', (deps.auth ?? authMiddleware)());
 
 /**
  * GET /me
@@ -86,7 +89,6 @@ meRoutes.patch('/me', async (c) => {
     );
   }
 
-  const db = getDb();
   const updated = await db(
     `UPDATE users
      SET display_name = $1, updated_at = now()
@@ -101,4 +103,9 @@ meRoutes.patch('/me', async (c) => {
 
   return c.json(updated[0]);
 });
+
+return meRoutes;
+}
+
+export const meRoutes = createMeRoutes();
 
