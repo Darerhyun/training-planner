@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from 'hono';
 import { getFirebaseAuth } from './firebase.js';
-import { getDb } from './db.js';
+import { withTransaction } from './db.js';
 import type { User, UserRole, AuthContext, AppEnv } from './types.js';
 
 // ---------------------------------------------------------------------------
@@ -9,6 +9,10 @@ import type { User, UserRole, AuthContext, AppEnv } from './types.js';
 
 function getAdminEmails(): Set<string> {
   return new Set((process.env.ADMIN_EMAILS ?? '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean));
+}
+
+export function initialRole(email: string, _hasOpenInvitation: boolean): UserRole {
+  return getAdminEmails().has(email.trim().toLowerCase()) ? 'admin' : 'pending';
 }
 
 /**
@@ -21,39 +25,40 @@ async function findOrCreateUser(
   email: string,
   displayName: string | null,
 ): Promise<User> {
-  const db = getDb();
   const normalizedEmail = email.trim().toLowerCase();
 
   if (!normalizedEmail) {
     throw new Error('Firebase token did not include an email address');
   }
 
-  const existing = await db<User>(
-    `SELECT id, firebase_uid, email, display_name, role, is_active, version, created_at, updated_at
-     FROM users
-     WHERE firebase_uid = $1`,
-    [firebaseUid],
-  );
+  return withTransaction(async (tx) => {
+    // This exact lock expression/order is shared with invitation creation.
+    // It serializes first sign-in against a concurrent invitation for the
+    // same normalized email before either side checks the opposing table.
+    await tx('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [normalizedEmail]);
+    const existing = await tx<User>(
+      `SELECT id, firebase_uid, email, display_name, role, is_active, version, created_at, updated_at
+       FROM users WHERE firebase_uid = $1 FOR UPDATE`,
+      [firebaseUid],
+    );
+    if (existing.length > 0) return existing[0];
 
-  if (existing.length > 0) {
-    return existing[0];
-  }
-
-  const openInvitation = await db<{ id: string }>(
-    `SELECT id FROM user_invitations WHERE email = $1 AND status = 'pending' LIMIT 1`,
-    [normalizedEmail],
-  );
-  const role: UserRole = !openInvitation.length && getAdminEmails().has(normalizedEmail) ? 'admin' : 'pending';
-
-  const inserted = await db<User>(
-    `INSERT INTO users (firebase_uid, email, display_name, role, is_active, version)
-     VALUES ($1, $2, $3, $4, TRUE, 1)
-     ON CONFLICT (firebase_uid) DO UPDATE SET updated_at = now()
-     RETURNING id, firebase_uid, email, display_name, role, is_active, version, created_at, updated_at`,
-    [firebaseUid, normalizedEmail, displayName, role],
-  );
-
-  return inserted[0];
+    const openInvitation = await tx<{ id: string }>(
+      `SELECT id FROM user_invitations WHERE email = $1 AND status = 'pending' LIMIT 1 FOR UPDATE`,
+      [normalizedEmail],
+    );
+    // An invitation never grants access; the allowlist remains an independent
+    // bootstrap/recovery path even when an invitation exists.
+    const role = initialRole(normalizedEmail, openInvitation.length > 0);
+    const inserted = await tx<User>(
+      `INSERT INTO users (firebase_uid, email, display_name, role, is_active, version)
+       VALUES ($1, $2, $3, $4, TRUE, 1)
+       ON CONFLICT (firebase_uid) DO UPDATE SET updated_at = now()
+       RETURNING id, firebase_uid, email, display_name, role, is_active, version, created_at, updated_at`,
+      [firebaseUid, normalizedEmail, displayName, role],
+    );
+    return inserted[0];
+  });
 }
 
 // ---------------------------------------------------------------------------
