@@ -548,7 +548,8 @@ assert(
   deploymentWorkflow.includes('name: Capture Cloud Run rollback revision') &&
     deploymentWorkflow.includes('ROLLBACK_REVISION=') &&
     deploymentWorkflow.includes('fullTraffic.length !== 1') &&
-    deploymentWorkflow.includes('activeTraffic.length !== 1'),
+    deploymentWorkflow.includes('activeTraffic.length !== 1') &&
+    deploymentWorkflow.includes('readyRevision !== candidateRevision'),
   'deployment workflow must capture exactly one prior sole 100% revision',
 );
 assert(
