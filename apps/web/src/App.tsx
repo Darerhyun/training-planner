@@ -292,6 +292,8 @@ function AdminUserAccessPage({ user }: { user: User }) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'admin' | 'ops' | 'finance' | 'viewer'>('ops');
   const [note, setNote] = useState('');
+  const [accessNote, setAccessNote] = useState('');
+  const [pendingDelivery, setPendingDelivery] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -304,15 +306,31 @@ function AdminUserAccessPage({ user }: { user: User }) {
   };
   useEffect(() => { void load(); }, [user]);
   const act = async (target: AdminUser, action: string, nextRole?: string) => {
+    const proposedRole = nextRole ?? (action === 'reject' ? 'rejected' : target.role);
+    const proposedActive = action === 'deactivate' || action === 'reject' ? false : action === 'reactivate' || action === 'approve' ? true : target.is_active;
+    if (!window.confirm(`Confirm access change for ${target.email}?\n\nCurrent: ${target.role}, ${target.is_active ? 'active' : 'inactive'}\nProposed: ${proposedRole}, ${proposedActive ? 'active' : 'inactive'}${accessNote ? `\nNote: ${accessNote}` : ''}`)) return;
     setBusy(true); setError(''); setMessage('');
-    try { const updated = await updateAdminUser(user, target.id, { expectedVersion: target.version, action, role: nextRole }); setUsers((current) => current.map((item) => item.id === updated.id ? updated : item)); setSelected(updated); setMessage('Access updated.'); if (selected?.id === updated.id) setHistory(await fetchAdminUserHistory(user, updated.id)); }
+    try { const updated = await updateAdminUser(user, target.id, { expectedVersion: target.version, action, role: nextRole, note: accessNote || undefined }); setUsers((current) => current.map((item) => item.id === updated.id ? updated : item)); setSelected(updated); setAccessNote(''); setMessage('Access updated.'); if (selected?.id === updated.id) setHistory(await fetchAdminUserHistory(user, updated.id)); }
     catch (err) { setError(err instanceof Error ? err.message : 'Access update failed; reload and try again.'); }
     finally { setBusy(false); }
   };
   const invite = async (event: FormEvent) => {
-    event.preventDefault(); setBusy(true); setError(''); setMessage('');
-    try { await createAdminInvitation(user, { email, intendedRole: role, note: note || undefined }); await sendInvitationMagicLink(email); setEmail(''); setNote(''); setMessage('Invitation created and sign-in link sent.'); await load(); }
-    catch (err) { setError(err instanceof Error ? err.message : 'Invitation failed'); }
+    event.preventDefault(); setBusy(true); setError(''); setMessage(''); setPendingDelivery('');
+    const normalizedEmail = email.trim().toLowerCase();
+    try {
+      await createAdminInvitation(user, { email: normalizedEmail, intendedRole: role, note: note || undefined });
+      setPendingDelivery(normalizedEmail); setEmail(''); setNote('');
+      try { await sendInvitationMagicLink(normalizedEmail); setPendingDelivery(''); setMessage('Invitation created and sign-in link sent.'); }
+      catch { setError('Invitation record saved, but the email link was not sent. Retry delivery below.'); }
+      await load();
+    } catch (err) { setError(err instanceof Error ? err.message : 'Invitation failed'); await load(); }
+    finally { setBusy(false); }
+  };
+  const retryDelivery = async () => {
+    if (!pendingDelivery) return;
+    setBusy(true); setError('');
+    try { await sendInvitationMagicLink(pendingDelivery); setPendingDelivery(''); setMessage('Invitation link sent.'); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Email delivery failed; retry again.'); }
     finally { setBusy(false); }
   };
   const selectUser = async (target: AdminUser) => { setSelected(target); setError(''); try { setHistory(await fetchAdminUserHistory(user, target.id)); } catch { setHistory([]); } };
@@ -320,10 +338,11 @@ function AdminUserAccessPage({ user }: { user: User }) {
     <div className="panel admin-panel">
       <div className="panel-heading row-heading"><div><span className="eyebrow">Controlled access</span><h2>Admin User Access</h2><span>Approve people explicitly; invitations never grant a role automatically.</span></div><button className="icon-button" onClick={() => void load()} disabled={busy} aria-label="Refresh access records"><RefreshCw size={17} className={busy ? 'spin' : ''} /></button></div>
       {error && <p className="error" role="alert">{error}</p>}{message && <p className="success" role="status">{message}</p>}
-      <form className="admin-invite-form" onSubmit={invite}><label>Email<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label><label>Intended role<select value={role} onChange={(event) => setRole(event.target.value as typeof role)}><option value="ops">Ops</option><option value="finance">Finance</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label><label>Note (optional)<input maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} /></label><button className="primary" disabled={busy}>Invite</button></form>
-      <div className="admin-table-wrap"><table><thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Version</th><th>Actions</th></tr></thead><tbody>{users.map((item) => <tr key={item.id} onClick={() => void selectUser(item)} tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') void selectUser(item); }}><td><strong>{item.email}</strong><span>{item.display_name || 'No display name'}</span></td><td>{item.role}</td><td>{item.is_active ? 'Active' : 'Deactivated'}</td><td>{item.version}</td><td className="admin-actions">{(item.role === 'pending' || item.role === 'rejected') && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'approve', 'ops'); }}>Approve</button>}{(item.role === 'pending' || item.role === 'rejected') && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'reject'); }}>Reject</button>}{item.role !== 'pending' && item.role !== 'rejected' && item.is_active && <select aria-label={`Change role for ${item.email}`} value={item.role} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); void act(item, 'change_role', event.target.value); }}><option value="admin">Admin</option><option value="ops">Ops</option><option value="finance">Finance</option><option value="viewer">Viewer</option></select>}{item.role !== 'rejected' && item.is_active && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'deactivate'); }}>Deactivate</button>}{item.role !== 'rejected' && !item.is_active && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'reactivate'); }}>Reactivate</button>}</td></tr>)}</tbody></table></div>
+      <div className="admin-access-note"><label>Change note (optional)<textarea maxLength={500} value={accessNote} onChange={(event) => setAccessNote(event.target.value)} placeholder="Explain this access change" /></label><span>{accessNote.length}/500 characters</span></div>
+      {pendingDelivery && <p className="warning" role="alert">Invitation saved for {pendingDelivery}, but the email link was not sent. <button className="small-button" onClick={() => void retryDelivery()} disabled={busy}>Retry email</button></p>}
+      <div className="admin-table-wrap"><table><thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Version</th><th>Actions</th></tr></thead><tbody>{users.map((item) => <tr key={item.id} onClick={() => void selectUser(item)} tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') void selectUser(item); }}><td><strong>{item.email}</strong><span>{item.display_name || 'No display name'}</span></td><td>{item.role}</td><td>{item.is_active ? 'Active' : 'Deactivated'}</td><td>{item.version}</td><td className="admin-actions">{(item.role === 'pending' || item.role === 'rejected') && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'approve', role); }}>Approve as {role}</button>}{item.role === 'pending' && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'reject'); }}>Reject</button>}{item.role !== 'pending' && item.role !== 'rejected' && item.is_active && <select aria-label={`Change role for ${item.email}`} value={item.role} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); void act(item, 'change_role', event.target.value); }}><option value="admin">Admin</option><option value="ops">Ops</option><option value="finance">Finance</option><option value="viewer">Viewer</option></select>}{item.role !== 'pending' && item.role !== 'rejected' && item.is_active && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'deactivate'); }}>Deactivate</button>}{item.role !== 'pending' && item.role !== 'rejected' && !item.is_active && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'reactivate'); }}>Reactivate</button>}</td></tr>)}</tbody></table></div>
     </div>
-    <aside className="panel admin-side-panel"><span className="eyebrow">Open invitations</span><h3>Invitation history</h3>{invitations.length === 0 && <p className="empty">No invitations yet.</p>}{invitations.map((item) => <div className="invitation-card" key={item.id}><strong>{item.email}</strong><span>{item.intended_role} · {item.status} · v{item.version}</span>{item.status === 'pending' && <button className="small-button" onClick={async () => { try { await cancelAdminInvitation(user, item.id, item.version); await load(); } catch (err) { setError(err instanceof Error ? err.message : 'Cancellation failed'); } }}>Cancel</button>}</div>)}{selected && <><span className="eyebrow">Immutable history</span><h3>{selected.email}</h3>{history.map((event) => <div className="history-item" key={event.id}><strong>{event.action}</strong><span>{new Date(event.created_at).toLocaleString()} · v{event.previous_version ?? '-'} → {event.new_version ?? '-'}</span></div>)}</>}</aside>
+    <aside className="panel admin-side-panel"><span className="eyebrow">Open invitations</span><h3>Invitation history</h3>{invitations.length === 0 && <p className="empty">No invitations yet.</p>}{invitations.map((item) => <div className="invitation-card" key={item.id}><strong>{item.email}</strong><span>{item.intended_role} · {item.status} · v{item.version}</span>{item.status === 'pending' && <button className="small-button" onClick={async () => { try { await cancelAdminInvitation(user, item.id, item.version); await load(); } catch (err) { setError(err instanceof Error ? err.message : 'Cancellation failed'); } }}>Cancel</button>}</div>)}{selected && <><span className="eyebrow">Immutable history</span><h3>{selected.email}</h3>{history.length === 0 && <p className="empty">No history recorded for this user.</p>}{history.map((event) => <div className="history-item" key={event.id}><strong>{event.action}</strong><span>{new Date(event.created_at).toLocaleString()} · by {event.actor_user_id} · target {event.target_email ?? selected.email}</span><span>Role: {event.previous_role ?? '-'} → {event.new_role ?? '-'} · access: {event.previous_is_active == null ? '-' : event.previous_is_active ? 'active' : 'inactive'} → {event.new_is_active == null ? '-' : event.new_is_active ? 'active' : 'inactive'}</span><span>Version: {event.previous_version ?? '-'} → {event.new_version ?? '-'}</span>{event.note && <p>{event.note}</p>}</div>)}</>}</aside>
   </section>;
 }
 
@@ -1920,3 +1939,4 @@ function LegacySessionsPage({ user }: { user: User }) {
     </section>
   );
 }
+
