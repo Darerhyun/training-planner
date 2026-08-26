@@ -228,17 +228,27 @@ jobs:
           gcloud auth configure-docker "$registry_host" --quiet
           docker build --file services/core-api/Dockerfile --tag "$image_uri" .
           docker push "$image_uri"
+          image_digest="$(gcloud artifacts docker images describe "$image_uri" \
+            --project="$GCP_PROJECT_ID" \
+            --format='value(image_summary.digest)')"
+          if [[ ! "$image_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo 'Artifact Registry did not return a valid immutable image digest.' >&2
+            exit 1
+          fi
           echo "CORE_API_IMAGE=$image_uri" >> "$GITHUB_ENV"
+          echo "CORE_API_IMAGE_DIGEST=${registry_host}/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REPOSITORY}/core-api@${image_digest}" >> "$GITHUB_ENV"
+          echo "PUSHED_IMAGE_DIGEST=$image_digest" >> "$GITHUB_ENV"
 
       - name: Deploy locked Cloud Run service
         run: |
           set -euo pipefail
-          revision_suffix="sha-${GITHUB_SHA:0:12}"
-          candidate_tag="candidate-${GITHUB_SHA:0:12}"
+          dispatch_identity="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          revision_suffix="run-${dispatch_identity}"
+          candidate_tag="candidate-${dispatch_identity}"
           gcloud run deploy core-api \
             --project="$GCP_PROJECT_ID" \
             --region=asia-southeast1 \
-            --image="$CORE_API_IMAGE" \
+            --image="$CORE_API_IMAGE_DIGEST" \
             --platform=managed \
             --cpu=1 \
             --cpu-throttling \
@@ -260,7 +270,7 @@ jobs:
             --region=asia-southeast1 \
             --platform=managed \
             --format=json > "$service_file"
-          SERVICE_FILE="$service_file" CANDIDATE_TAG="$candidate_tag" ROLLBACK_REVISION="$ROLLBACK_REVISION" node --input-type=module <<'NODE'
+          SERVICE_FILE="$service_file" CANDIDATE_TAG="$candidate_tag" ROLLBACK_REVISION="$ROLLBACK_REVISION" EXPECTED_IMAGE="$CORE_API_IMAGE_DIGEST" node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
 
           const service = JSON.parse(readFileSync(process.env.SERVICE_FILE, 'utf8'));
@@ -269,13 +279,16 @@ jobs:
           const targets = service.status?.traffic ?? [];
           const candidateTarget = targets.find((target) => target.tag === process.env.CANDIDATE_TAG);
           const rollbackTarget = targets.find((target) => target.revisionName === process.env.ROLLBACK_REVISION);
+          const candidateImage = service.spec?.template?.spec?.containers?.[0]?.image;
           if (
             !candidateRevision ||
             readyRevision !== candidateRevision ||
             !candidateTarget ||
+            candidateTarget.revisionName !== candidateRevision ||
+            candidateImage !== process.env.EXPECTED_IMAGE ||
             Number(candidateTarget.percent ?? 0) !== 0
           ) {
-            console.error('Candidate revision was not ready with a zero-traffic tag.');
+            console.error('Candidate revision, tag, image or readiness did not match the intended candidate.');
             process.exit(1);
           }
           if (!rollbackTarget || Number(rollbackTarget.percent ?? 0) !== 100) {
@@ -283,6 +296,7 @@ jobs:
             process.exit(1);
           }
           console.log(`CANDIDATE_REVISION=${candidateRevision}`);
+          console.log(`CANDIDATE_IMAGE_DIGEST=${candidateImage}`);
           console.log(`CANDIDATE_URL=${candidateTarget.url}`);
           NODE
           candidate_revision="$(SERVICE_FILE="$service_file" node --input-type=module <<'NODE'
@@ -305,6 +319,8 @@ jobs:
           echo "CANDIDATE_REVISION=$candidate_revision" >> "$GITHUB_ENV"
           echo "CANDIDATE_TAG=$candidate_tag" >> "$GITHUB_ENV"
           echo "CANDIDATE_URL=$candidate_url" >> "$GITHUB_ENV"
+          echo "CANDIDATE_IMAGE_DIGEST=$CORE_API_IMAGE_DIGEST" >> "$GITHUB_ENV"
+          echo 'CANDIDATE_TRAFFIC=0' >> "$GITHUB_ENV"
 
       - name: Verify tagged candidate health
         run: |
@@ -324,23 +340,71 @@ jobs:
           NODE
           echo 'HEALTH_STATUS=passed' >> "$GITHUB_ENV"
 
+      - name: Build web for the verified candidate API
+        env:
+          VITE_API_BASE_URL: ${{ env.CANDIDATE_URL }}
+          VITE_FIREBASE_API_KEY: ${{ env.FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ env.FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
+        run: npm run build --workspace=apps/web
+
       - name: Activate and verify exact Cloud Run revision
         run: |
           set -Eeuo pipefail
           activated=false
           rollback() {
             if [[ "$activated" == true ]]; then
+              trap - ERR
               echo 'Activation-stage failure; restoring the captured Cloud Run revision.' >&2
               gcloud run services update-traffic core-api \
                 --project="$GCP_PROJECT_ID" \
                 --region=asia-southeast1 \
                 --to-revisions="$ROLLBACK_REVISION=100" \
                 --quiet
+              rollback_file="$(mktemp)"
+              trap 'rm -f "$rollback_file"' EXIT
               gcloud run services describe core-api \
                 --project="$GCP_PROJECT_ID" \
                 --region=asia-southeast1 \
                 --platform=managed \
-                --format='value(status.traffic)' >&2
+                --format=json > "$rollback_file"
+              ROLLBACK_FILE="$rollback_file" ROLLBACK_REVISION="$ROLLBACK_REVISION" node --input-type=module <<'NODE'
+              import { readFileSync } from 'node:fs';
+              const service = JSON.parse(readFileSync(process.env.ROLLBACK_FILE, 'utf8'));
+              const traffic = service.status?.traffic ?? [];
+              const rollback = traffic.filter(
+                (target) => target.revisionName === process.env.ROLLBACK_REVISION && Number(target.percent ?? 0) === 100,
+              );
+              const active = traffic.filter((target) => Number(target.percent ?? 0) > 0);
+              if (rollback.length !== 1 || active.length !== 1 || active[0].revisionName !== process.env.ROLLBACK_REVISION) {
+                console.error('Rollback revision did not become the sole 100% traffic target.');
+                process.exit(1);
+              }
+              process.stdout.write(service.status?.url ?? '');
+          NODE
+              rollback_url="$(ROLLBACK_FILE="$rollback_file" node --input-type=module <<'NODE'
+              import { readFileSync } from 'node:fs';
+              const service = JSON.parse(readFileSync(process.env.ROLLBACK_FILE, 'utf8'));
+              process.stdout.write(service.status?.url ?? '');
+          NODE
+              )"
+              if [[ -z "$rollback_url" ]]; then
+                echo 'Cloud Run did not return the rollback base URL.' >&2
+                return 1
+              fi
+              rollback_health="$(curl --fail --silent --show-error --max-time 30 "$rollback_url/health")"
+              HEALTH_RESPONSE="$rollback_health" node --input-type=module <<'NODE'
+              const health = JSON.parse(process.env.HEALTH_RESPONSE);
+              if (
+                health.status !== 'ok' ||
+                health.service !== 'core-api' ||
+                health.database !== 'connected'
+              ) {
+                console.error('Rollback base URL did not report connected core-api JSON health.');
+                process.exit(1);
+              }
+          NODE
+              echo 'ROLLBACK_STATUS=passed' >> "$GITHUB_ENV"
             fi
           }
           trap rollback ERR
@@ -370,6 +434,7 @@ jobs:
           NODE
           )"
           echo "CLOUD_RUN_URL=$service_url" >> "$GITHUB_ENV"
+          echo 'ACTIVE_TRAFFIC=100' >> "$GITHUB_ENV"
           post_activation_health="$(curl --fail --silent --show-error --max-time 30 "$service_url/health")"
           HEALTH_RESPONSE="$post_activation_health" node --input-type=module <<'NODE'
           const health = JSON.parse(process.env.HEALTH_RESPONSE);
@@ -382,11 +447,6 @@ jobs:
             process.exit(1);
           }
           NODE
-          VITE_API_BASE_URL="$service_url" \
-          VITE_FIREBASE_API_KEY="$FIREBASE_API_KEY" \
-          VITE_FIREBASE_AUTH_DOMAIN="$FIREBASE_AUTH_DOMAIN" \
-          VITE_FIREBASE_PROJECT_ID="$GCP_PROJECT_ID" \
-            npm run build --workspace=apps/web
           npx --yes firebase-tools@15.27.0 deploy \
             --only hosting \
             --project "$GCP_PROJECT_ID" \
@@ -403,6 +463,13 @@ jobs:
             echo '- Region: asia-southeast1'
             echo '- Cloud Run service: core-api'
             echo "- Image tag: ${GITHUB_SHA}"
+            echo "- Candidate revision: ${CANDIDATE_REVISION:-not reached}"
+            echo "- Candidate image digest: ${CANDIDATE_IMAGE_DIGEST:-not reached}"
+            echo "- Candidate tag: ${CANDIDATE_TAG:-not reached}"
+            echo "- Candidate traffic before activation: ${CANDIDATE_TRAFFIC:-not reached}"
+            echo "- Active traffic: ${ACTIVE_TRAFFIC:-not reached}"
+            echo "- Rollback revision: ${ROLLBACK_REVISION:-not reached}"
+            echo "- Rollback verification: ${ROLLBACK_STATUS:-not reached}"
             echo "- Health check: ${HEALTH_STATUS:-not reached}"
             echo '- Hosting target: hosting'
             echo "- Hosting deploy: ${HOSTING_STATUS:-not reached}"
