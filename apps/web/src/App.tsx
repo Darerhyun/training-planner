@@ -340,7 +340,7 @@ function AdminUserAccessPage({ user }: { user: User }) {
   const selectUser = async (target: AdminUser) => { setSelected(target); setHistory([]); setHistoryError(''); setHistoryLoading(true); try { setHistory(await fetchAdminUserHistory(user, target.id)); } catch (err) { setHistoryError(err instanceof Error ? err.message : 'Unable to load access history.'); } finally { setHistoryLoading(false); } };
   const cancelInvite = async (item: UserInvitation) => {
     const cancellationNote = window.prompt('Optional cancellation note (500 characters maximum):', '') ?? null;
-    if (cancellationNote.length > 500) { setError('Cancellation note must be at most 500 characters.'); return; }
+    if (cancellationNote !== null && cancellationNote.length > 500) { setError('Cancellation note must be at most 500 characters.'); return; }
     try { await cancelAdminInvitation(user, item.id, item.version, cancellationNote); await load(); }
     catch (err) { setError(adminAccessError(err, 'Cancellation failed; reload and try again.')); }
   };
