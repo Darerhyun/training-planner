@@ -57,3 +57,4 @@ const port = parseInt(process.env.PORT ?? '8080', 10);
 serve({ fetch: app.fetch, port }, (info) => {
   console.log(`🚀 core-api listening on http://localhost:${info.port}`);
 });
+
