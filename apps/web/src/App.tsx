@@ -221,14 +221,14 @@ export default function App() {
     );
   }
 
-  if (profile.role === 'pending' || profile.role === 'rejected') {
+  if (profile.is_active === false || profile.role === 'pending' || profile.role === 'rejected') {
     return (
       <main className="auth-shell">
         <section className="auth-panel status-panel">
           <BrandLockup />
-          <span className={`access-state ${profile.role}`}>{profile.role === 'pending' ? 'Account review' : 'Access restricted'}</span>
-          <h2>{profile.role === 'pending' ? 'Approval Pending' : 'Access Unavailable'}</h2>
-          <p className="empty">{profile.message}</p>
+          <span className={`access-state ${profile.is_active === false ? 'deactivated' : profile.role}`}>{profile.is_active === false ? 'Access paused' : profile.role === 'pending' ? 'Account review' : 'Access restricted'}</span>
+          <h2>{profile.is_active === false ? 'Account Deactivated' : profile.role === 'pending' ? 'Approval Pending' : 'Access Unavailable'}</h2>
+          <p className="empty">{profile.is_active === false ? 'Your account is deactivated. Contact an administrator to request access.' : profile.message}</p>
           <p>{profile.email}</p>
           <button className="secondary" onClick={() => signOut(auth)}>
             <LogOut size={16} />
