@@ -477,6 +477,9 @@ for (const fragment of [
   "registry_host='asia-southeast1-docker.pkg.dev'",
   'services/core-api/Dockerfile',
   '/core-api:${GITHUB_SHA}',
+  'gcloud artifacts docker images describe "$image_uri"',
+  'image_summary.digest',
+  'CORE_API_IMAGE_DIGEST=',
   'gcloud run deploy core-api',
   '--project="$GCP_PROJECT_ID"',
   '--region=asia-southeast1',
@@ -495,6 +498,7 @@ for (const fragment of [
   '--no-traffic',
   '--revision-suffix="$revision_suffix"',
   '--tag="$candidate_tag"',
+  'dispatch_identity="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
 ]) {
   assert(
     deploymentWorkflow.includes(fragment),
@@ -531,6 +535,7 @@ assertOrdered(
   [
     'gcloud run deploy core-api',
     'name: Verify tagged candidate health',
+    'name: Build web for the verified candidate API',
     'name: Activate and verify exact Cloud Run revision',
     'gcloud run services update-traffic core-api',
     '--to-revisions="$CANDIDATE_REVISION=100"',
@@ -541,7 +546,10 @@ assertOrdered(
 assert(
   deploymentWorkflow.includes('gcloud run services update-traffic core-api') &&
     deploymentWorkflow.includes('--to-revisions="$CANDIDATE_REVISION=100"') &&
-    deploymentWorkflow.includes('--to-revisions="$ROLLBACK_REVISION=100"'),
+    deploymentWorkflow.includes('--to-revisions="$ROLLBACK_REVISION=100"') &&
+    deploymentWorkflow.includes('candidateTarget.revisionName !== candidateRevision') &&
+    deploymentWorkflow.includes('candidateImage !== process.env.EXPECTED_IMAGE') &&
+    deploymentWorkflow.includes('PUSHED_IMAGE_DIGEST'),
   'deployment workflow must activate the exact candidate and provide bounded rollback',
 );
 assert(
@@ -549,13 +557,17 @@ assert(
     deploymentWorkflow.includes('ROLLBACK_REVISION=') &&
     deploymentWorkflow.includes('fullTraffic.length !== 1') &&
     deploymentWorkflow.includes('activeTraffic.length !== 1') &&
-    deploymentWorkflow.includes('readyRevision !== candidateRevision'),
+    deploymentWorkflow.includes('readyRevision !== candidateRevision') &&
+    deploymentWorkflow.includes('Number(target.percent ?? 0) === 100'),
   'deployment workflow must capture exactly one prior sole 100% revision',
 );
 assert(
-  deploymentWorkflow.includes('activated=false') &&
+    deploymentWorkflow.includes('activated=false') &&
     deploymentWorkflow.includes('trap rollback ERR') &&
-    deploymentWorkflow.includes('activated=true'),
+    deploymentWorkflow.includes('activated=true') &&
+    deploymentWorkflow.includes('Rollback revision did not become the sole 100% traffic target.') &&
+    deploymentWorkflow.includes('Rollback base URL did not report connected core-api JSON health.') &&
+    deploymentWorkflow.includes("echo 'ROLLBACK_STATUS=passed'"),
   'deployment workflow must roll back after failures following activation',
 );
 assert(
@@ -565,10 +577,20 @@ assert(
   'deployment workflow must require connected core-api JSON health',
 );
 assert(
-  deploymentWorkflow.includes('Number(candidate.percent) !== 100') &&
+    deploymentWorkflow.includes('Number(candidate.percent) !== 100') &&
     deploymentWorkflow.includes('name: Activate and verify exact Cloud Run revision') &&
-    deploymentWorkflow.includes('name: Verify tagged candidate health'),
+    deploymentWorkflow.includes('name: Verify tagged candidate health') &&
+    deploymentWorkflow.includes('CANDIDATE_IMAGE_DIGEST=') &&
+    deploymentWorkflow.includes('CANDIDATE_TRAFFIC=0') &&
+    deploymentWorkflow.includes('ACTIVE_TRAFFIC=100'),
   'deployment workflow must verify exact candidate traffic and tagged health',
+);
+assert(
+  deploymentWorkflow.includes('revision_suffix="run-${dispatch_identity}"') &&
+    deploymentWorkflow.includes('candidate_tag="candidate-${dispatch_identity}"') &&
+    deploymentWorkflow.includes('GITHUB_RUN_ID') &&
+    deploymentWorkflow.includes('GITHUB_RUN_ATTEMPT'),
+  'deployment workflow must use unique bounded run and attempt identities for revision and tag names',
 );
 for (const webVariable of [
   'VITE_API_BASE_URL',
