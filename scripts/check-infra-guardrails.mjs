@@ -397,6 +397,7 @@ assertOrdered(
     'name: Verify pre-provisioned deployment targets',
     'gcloud artifacts repositories describe "$GCP_ARTIFACT_REPOSITORY"',
     'gcloud run services describe core-api',
+    'name: Capture Cloud Run rollback revision',
     'name: Build and push immutable API image',
   ],
   'deployment workflow must verify existing targets before publishing or deploying',
@@ -487,11 +488,13 @@ for (const fragment of [
   '--min-instances=0',
   '--max-instances=2',
   '--service-account="$GCP_RUNTIME_SERVICE_ACCOUNT"',
-  // Require the verified database version-3 and admin-email version-2 pins.
   'DATABASE_URL=${GCP_DATABASE_SECRET}:3',
   'ADMIN_EMAILS=${GCP_ADMIN_EMAILS_SECRET}:2',
   'ALLOWED_ORIGINS=${FIREBASE_HOSTING_ORIGIN}',
   'GCS_UPLOAD_BUCKET=${GCS_UPLOAD_BUCKET}',
+  '--no-traffic',
+  '--revision-suffix="$revision_suffix"',
+  '--tag="$candidate_tag"',
 ]) {
   assert(
     deploymentWorkflow.includes(fragment),
@@ -508,6 +511,10 @@ assert(
   !deploymentWorkflow.includes(':latest'),
   'deployment workflow must not use floating Secret Manager :latest pins',
 );
+assert(
+  !deploymentWorkflow.includes('--to-latest') && !deploymentWorkflow.includes('LATEST='),
+  'deployment workflow must not use implicit latest-revision traffic selectors',
+);
 
 assert(
   !deploymentWorkflow.includes('--no-cpu-throttling'),
@@ -523,12 +530,44 @@ assertOrdered(
   deploymentWorkflow,
   [
     'gcloud run deploy core-api',
-    'gcloud run services describe core-api',
-    '"${cloud_run_url}/health"',
-    'name: Build web for the verified API',
-    'name: Deploy Firebase Hosting only',
+    'name: Verify tagged candidate health',
+    'name: Activate and verify exact Cloud Run revision',
+    'gcloud run services update-traffic core-api',
+    '--to-revisions="$CANDIDATE_REVISION=100"',
+    'name: Record non-secret deployment evidence',
   ],
-  'deployment workflow must pass health before building and deploying Hosting',
+  'deployment workflow must verify and activate the exact candidate before completion',
+);
+assert(
+  deploymentWorkflow.includes('gcloud run services update-traffic core-api') &&
+    deploymentWorkflow.includes('--to-revisions="$CANDIDATE_REVISION=100"') &&
+    deploymentWorkflow.includes('--to-revisions="$ROLLBACK_REVISION=100"'),
+  'deployment workflow must activate the exact candidate and provide bounded rollback',
+);
+assert(
+  deploymentWorkflow.includes('name: Capture Cloud Run rollback revision') &&
+    deploymentWorkflow.includes('ROLLBACK_REVISION=') &&
+    deploymentWorkflow.includes('fullTraffic.length !== 1') &&
+    deploymentWorkflow.includes('activeTraffic.length !== 1'),
+  'deployment workflow must capture exactly one prior sole 100% revision',
+);
+assert(
+  deploymentWorkflow.includes('activated=false') &&
+    deploymentWorkflow.includes('trap rollback ERR') &&
+    deploymentWorkflow.includes('activated=true'),
+  'deployment workflow must roll back after failures following activation',
+);
+assert(
+  deploymentWorkflow.includes("health.status !== 'ok'") &&
+    deploymentWorkflow.includes("service !== 'core-api'") &&
+    deploymentWorkflow.includes("database !== 'connected'"),
+  'deployment workflow must require connected core-api JSON health',
+);
+assert(
+  deploymentWorkflow.includes('Number(candidate.percent) !== 100') &&
+    deploymentWorkflow.includes('name: Activate and verify exact Cloud Run revision') &&
+    deploymentWorkflow.includes('name: Verify tagged candidate health'),
+  'deployment workflow must verify exact candidate traffic and tagged health',
 );
 for (const webVariable of [
   'VITE_API_BASE_URL',
