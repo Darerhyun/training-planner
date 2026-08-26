@@ -21,13 +21,17 @@ export interface AdminUser {
   id: string; email: string; display_name?: string | null; role: AppRole;
   is_active: boolean; version: number; created_at: string; updated_at: string;
 }
+export interface AccessPerson { id: string; email: string; displayName?: string | null; }
 export interface UserInvitation {
   id: string; email: string; intended_role: Exclude<AppRole, 'pending' | 'rejected'>;
   status: 'pending' | 'claimed' | 'cancelled'; note?: string | null; version: number;
-  created_at: string; updated_at: string;
+  invited_by?: string; claimed_by?: string | null; cancelled_by?: string | null;
+  inviter?: AccessPerson; claimer?: AccessPerson | null; canceller?: AccessPerson | null;
+  claimed_at?: string | null; cancelled_at?: string | null; created_at: string; updated_at: string;
 }
 export interface UserAccessEvent {
   id: string; invitation_id?: string | null; target_email?: string; action: string; actor_user_id: string; note?: string | null; metadata?: unknown;
+  actor?: AccessPerson;
   previous_role?: AppRole | null;
   new_role?: AppRole | null; previous_is_active?: boolean | null; new_is_active?: boolean | null;
   previous_version?: number | null; new_version?: number | null; created_at: string;
@@ -64,8 +68,8 @@ function throwAdminApiFailure(data: unknown): void {
   const value = data as { error?: unknown; code?: unknown };
   if (typeof value.error === 'string') throw new ApiError(value.error, 409, typeof value.code === 'string' ? value.code : null);
 }
-export async function cancelAdminInvitation(user: User, id: string, expectedVersion: number): Promise<UserInvitation> {
-  const data = await apiFetch(user, `/admin/user-invitations/${encodeURIComponent(id)}/cancel`, { method: 'PATCH', body: JSON.stringify({ expectedVersion }) }) as { invitation?: UserInvitation; error?: string; code?: string };
+export async function cancelAdminInvitation(user: User, id: string, expectedVersion: number, note?: string | null): Promise<UserInvitation> {
+  const data = await apiFetch(user, `/admin/user-invitations/${encodeURIComponent(id)}/cancel`, { method: 'PATCH', body: JSON.stringify({ expectedVersion, note: note ?? null }) }) as { invitation?: UserInvitation; error?: string; code?: string };
   throwAdminApiFailure(data);
   if (!data.invitation) throw new ApiError('Invitation could not be cancelled.', 409, data.code ?? 'invitation_failed');
   return data.invitation;
