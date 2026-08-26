@@ -387,15 +387,20 @@ revision image digest matches the pushed digest. It records the candidate
 revision, digest, tag, zero-traffic state and rollback revision without secrets.
 Its tagged JSON `/health` response must report `status: ok`, `service:
 core-api`, and `database: connected`; checking only the general service URL is
-insufficient because that URL may still serve the prior revision. After
-candidate health passes, the workflow builds the web app against the candidate
-tag before assigning traffic. It then assigns 100% traffic to the exact
-candidate revision name and verifies the exact allocation and base URL health
-before deploying Firebase Hosting only. Any failure after traffic activation
-restores the captured rollback revision, asserts it is the sole 100% target and
-checks its base URL JSON health for the same connected core-api response. The
-workflow does not provision resources, apply SQL, create secrets, assign IAM,
-use `--to-latest` or `LATEST=`, or deploy any other Firebase product.
+insufficient because that URL may still serve the prior revision. The candidate
+tag is used only for this health check. The workflow captures the stable Cloud
+Run service `status.url` before activation, builds the web app against that
+stable service URL after candidate health passes, and only then attempts to
+assign 100% traffic to the exact candidate revision name. It verifies the
+exact final allocation and base URL health before deploying Firebase Hosting
+only. The activation attempt is marked before the traffic command, so command
+or control-plane uncertainty invokes bounded rollback. Any failure after that
+point restores the captured rollback revision, asserts it is the sole 100%
+target, checks its base URL JSON health for the same connected core-api
+response, and overwrites the final traffic revision, percentage and status
+evidence. The workflow does not provision resources, apply SQL, create
+secrets, assign IAM, use `--to-latest` or `LATEST=`, or deploy any other
+Firebase product.
 
 The committed `apps/web/.env.production` deliberately retains a `.invalid`
 endpoint. The actual API URL and Firebase web configuration are injected only
@@ -505,15 +510,17 @@ After an authorized deployment:
 
 1. preserve the exact candidate image digest, run/attempt-derived tag, revision,
    zero/100% traffic evidence and recorded rollback revision;
-2. if a post-activation failure occurs, route Cloud Run back to the recorded
-   prior revision, assert that it alone receives 100% traffic, and verify its
-   base URL JSON health (`status: ok`, `service: core-api`,
+2. if activation or a later control-plane check fails, route Cloud Run back to
+   the recorded prior revision, assert that it alone receives 100% traffic, and
+   verify its base URL JSON health (`status: ok`, `service: core-api`,
    `database: connected`) before any further action;
-3. route the frontend back to the previously accepted API revision if required;
-4. restore the verified encrypted PostgreSQL dump into a separate database;
-5. update the database secret only after restore validation;
-6. verify authentication, health, row counts, and Sync behaviour;
-7. record the incident and provider cost impact.
+3. record the exact final traffic revision, percentage and ready status; after
+   rollback, overwrite those fields with the restored revision’s evidence;
+4. route the frontend back to the previously accepted API revision if required;
+5. restore the verified encrypted PostgreSQL dump into a separate database;
+6. update the database secret only after restore validation;
+7. verify authentication, health, row counts, and Sync behaviour;
+8. record the incident and provider cost impact.
 
 For a first deployment with no prior API revision or Hosting release, stop the
 rollout and require a new bounded recovery decision; do not improvise cleanup or
