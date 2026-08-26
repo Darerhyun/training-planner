@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
+import type { AppEnv } from '@training-planner/shared';
+import type { MiddlewareHandler } from 'hono';
 import { createMeRoutes, meRoutes } from './me.js';
 
 test('GET /me requires Firebase authentication', async () => {
@@ -20,7 +22,8 @@ test('PATCH /me requires Firebase authentication', async () => {
 test('injected /me HTTP route exposes deactivated status and blocks profile writes', async () => {
   const user = { id: 'inactive', firebase_uid: 'firebase-inactive', email: 'inactive@example.com', display_name: 'Inactive', role: 'viewer' as const, is_active: false, version: 4, created_at: '', updated_at: '' };
   const app = new Hono<AppEnv>();
-  app.route('/', createMeRoutes({ auth: () => async (c, next) => { c.set('auth', { firebaseUid: user.firebase_uid, email: user.email, user }); await next(); }, db: async () => [] }));
+  const auth: () => MiddlewareHandler<AppEnv> = () => async (c, next) => { c.set('auth', { firebaseUid: user.firebase_uid, email: user.email, user }); await next(); };
+  app.route('/', createMeRoutes({ auth, db: async () => [] }));
   const profile = await app.request('/me'); const profileBody = await profile.json() as { deactivated: boolean; version: number };
   assert.equal(profile.status, 200); assert.equal(profileBody.deactivated, true); assert.equal(profileBody.version, 4);
   const update = await app.request('/me', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ display_name: 'Nope' }) });
