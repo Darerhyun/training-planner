@@ -45,6 +45,14 @@ import { auth, completeMagicLink, isSignInWithEmailLink, sendInvitationMagicLink
 type View = 'course-planning' | 'sessions' | 'sync' | 'legacy-sessions' | 'admin';
 type ActiveRole = 'admin' | 'ops' | 'finance' | 'viewer';
 type DateMode = 'upcoming' | 'past' | 'custom';
+type AdminUserView = 'pending' | 'active' | 'deactivated' | 'rejected';
+
+const adminUserViews: Array<{ key: AdminUserView; label: string; emptyMessage: string }> = [
+  { key: 'pending', label: 'Pending', emptyMessage: 'No accounts are waiting for approval.' },
+  { key: 'active', label: 'Active', emptyMessage: 'No active accounts.' },
+  { key: 'deactivated', label: 'Deactivated', emptyMessage: 'No deactivated accounts.' },
+  { key: 'rejected', label: 'Rejected', emptyMessage: 'No rejected accounts.' },
+];
 
 const planningStatuses: PlanningStatus[] = ['draft', 'confirmed', 'cancelled', 'completed'];
 const planningIssues: PlanningIssue[] = [
@@ -287,6 +295,7 @@ export default function App() {
 function AdminUserAccessPage({ user }: { user: User }) {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [invitations, setInvitations] = useState<UserInvitation[]>([]);
+  const [userView, setUserView] = useState<AdminUserView>('pending');
   const [history, setHistory] = useState<UserAccessEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
@@ -300,6 +309,19 @@ function AdminUserAccessPage({ user }: { user: User }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+
+  const usersByView = useMemo<Record<AdminUserView, AdminUser[]>>(() => ({
+    pending: users.filter((item) => item.role === 'pending'),
+    active: users.filter((item) => item.role !== 'pending' && item.role !== 'rejected' && item.is_active),
+    deactivated: users.filter((item) => item.role !== 'pending' && item.role !== 'rejected' && !item.is_active),
+    rejected: users.filter((item) => item.role === 'rejected'),
+  }), [users]);
+  const visibleUsers = usersByView[userView];
+  const currentView = adminUserViews.find((item) => item.key === userView) ?? adminUserViews[0];
+  const openInvitationCount = useMemo(
+    () => invitations.filter((item) => item.status === 'pending').length,
+    [invitations],
+  );
 
   const load = async () => {
     setBusy(true); setError('');
@@ -357,9 +379,19 @@ function AdminUserAccessPage({ user }: { user: User }) {
       </form>
       <div className="admin-access-note"><label htmlFor="admin-access-note">Change note (optional)<textarea id="admin-access-note" maxLength={500} value={accessNote} onChange={(event) => setAccessNote(event.target.value)} placeholder="Explain this access change" /></label><span>{accessNote.length}/500 characters</span></div>
       {pendingDelivery && <p className="warning" role="alert">Invitation saved for {pendingDelivery}, but the email link was not sent. <button className="small-button" onClick={() => void retryDelivery()} disabled={busy}>Retry email</button></p>}
-      <div className="admin-table-wrap"><table><thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Version</th><th>Actions</th></tr></thead><tbody>{users.map((item) => <tr key={item.id} onClick={() => void selectUser(item)} tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') void selectUser(item); }}><td><strong>{item.email}</strong><span>{item.display_name || 'No display name'}</span></td><td>{item.role}</td><td>{item.is_active ? 'Active' : 'Deactivated'}</td><td>{item.version}</td><td className="admin-actions">{(item.role === 'pending' || item.role === 'rejected') && <><select aria-label={`Proposed role for ${item.email}`} value={approvalRoleFor(item)} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); setApprovalRoles((current) => ({ ...current, [item.id]: event.target.value as typeof role })); }}><option value="admin">Admin</option><option value="ops">Ops</option><option value="finance">Finance</option><option value="viewer">Viewer</option></select><button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'approve', approvalRoleFor(item)); }}>Approve</button></>}{item.role === 'pending' && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'reject'); }}>Reject</button>}{item.role !== 'pending' && item.role !== 'rejected' && item.is_active && <select aria-label={`Change role for ${item.email}`} value={item.role} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); void act(item, 'change_role', event.target.value); }}><option value="admin">Admin</option><option value="ops">Ops</option><option value="finance">Finance</option><option value="viewer">Viewer</option></select>}{item.role !== 'pending' && item.role !== 'rejected' && item.is_active && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'deactivate'); }}>Deactivate</button>}{item.role !== 'pending' && item.role !== 'rejected' && !item.is_active && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'reactivate'); }}>Reactivate</button>}</td></tr>)}</tbody></table></div>
+      <div className="admin-access-metrics" aria-label="Access summary">
+        {adminUserViews.map((item) => <button key={item.key} type="button" className={`admin-access-metric${userView === item.key ? ' active' : ''}`} onClick={() => setUserView(item.key)} aria-pressed={userView === item.key}><span>{item.label}</span><strong>{usersByView[item.key].length}</strong></button>)}
+        <div className="admin-access-metric invitation-metric"><span>Open invitations</span><strong>{openInvitationCount}</strong></div>
+      </div>
+      <div className="admin-state-tabs" role="tablist" aria-label="User account state">
+        {adminUserViews.map((item) => <button key={item.key} id={`admin-${item.key}-tab`} type="button" role="tab" aria-selected={userView === item.key} aria-controls="admin-users-panel" className={userView === item.key ? 'active' : ''} onClick={() => setUserView(item.key)}>{item.label}<span>{usersByView[item.key].length}</span></button>)}
+      </div>
+      <div id="admin-users-panel" role="tabpanel" aria-labelledby={`admin-${userView}-tab`}>
+        <div className="admin-list-heading"><h3>{currentView.label} accounts</h3><span>{visibleUsers.length} {visibleUsers.length === 1 ? 'account' : 'accounts'}</span></div>
+        {visibleUsers.length === 0 ? <p className="empty admin-user-empty">{currentView.emptyMessage}</p> : <div className="admin-table-wrap"><table><thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Version</th><th>Actions</th></tr></thead><tbody>{visibleUsers.map((item) => <tr key={item.id} onClick={() => void selectUser(item)} tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') void selectUser(item); }}><td data-label="Account"><strong>{item.email}</strong><span>{item.display_name || 'No display name'}</span></td><td data-label="Role">{item.role}</td><td data-label="Status">{item.role === 'pending' ? 'Pending' : item.role === 'rejected' ? 'Rejected' : item.is_active ? 'Active' : 'Deactivated'}</td><td data-label="Version">{item.version}</td><td data-label="Actions" className="admin-actions">{(item.role === 'pending' || item.role === 'rejected') && <><select aria-label={`Proposed role for ${item.email}`} value={approvalRoleFor(item)} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); setApprovalRoles((current) => ({ ...current, [item.id]: event.target.value as typeof role })); }}><option value="admin">Admin</option><option value="ops">Ops</option><option value="finance">Finance</option><option value="viewer">Viewer</option></select><button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'approve', approvalRoleFor(item)); }}>Approve</button></>}{item.role === 'pending' && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'reject'); }}>Reject</button>}{item.role !== 'pending' && item.role !== 'rejected' && item.is_active && <select aria-label={`Change role for ${item.email}`} value={item.role} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); void act(item, 'change_role', event.target.value); }}><option value="admin">Admin</option><option value="ops">Ops</option><option value="finance">Finance</option><option value="viewer">Viewer</option></select>}{item.role !== 'pending' && item.role !== 'rejected' && item.is_active && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'deactivate'); }}>Deactivate</button>}{item.role !== 'pending' && item.role !== 'rejected' && !item.is_active && <button className="small-button" onClick={(event) => { event.stopPropagation(); void act(item, 'reactivate'); }}>Reactivate</button>}</td></tr>)}</tbody></table></div>}
+      </div>
     </div>
-    <aside className="panel admin-side-panel"><span className="eyebrow">Open invitations</span><h3>Invitation history</h3>{invitations.length === 0 && <p className="empty">No invitations yet.</p>}{invitations.map((item) => <div className="invitation-card" key={item.id}><strong>{item.email}</strong><span>{item.intended_role} · {item.status} · v{item.version}</span><span>Invited by {item.inviter?.displayName || item.inviter?.email || item.invited_by || 'Unknown'} · {new Date(item.created_at).toLocaleString()}</span>{item.note && <p>{item.note}</p>}{item.claimed_at && <span>Claimed by {item.claimer?.displayName || item.claimer?.email || item.claimed_by || 'Unknown'} · {new Date(item.claimed_at).toLocaleString()}</span>}{item.cancelled_at && <span>Cancelled by {item.canceller?.displayName || item.canceller?.email || item.cancelled_by || 'Unknown'} · {new Date(item.cancelled_at).toLocaleString()}</span>}{item.status === 'pending' && <button className="small-button" onClick={() => void cancelInvite(item)}>Cancel</button>}</div>)}{selected && <><span className="eyebrow">Immutable history</span><h3>{selected.email}</h3>{historyLoading && <p className="empty">Loading access history...</p>}{historyError && <p className="error" role="alert">{historyError}</p>}{!historyLoading && !historyError && history.length === 0 && <p className="empty">No history recorded for this user.</p>}{!historyLoading && !historyError && history.map((event) => <div className="history-item" key={event.id}><strong>{event.action}</strong><span>{new Date(event.created_at).toLocaleString()} · by {event.actor?.displayName || event.actor?.email || event.actor?.id || event.actor_user_id} · target {event.target_email ?? selected.email}</span><span>Role: {event.previous_role ?? '-'} → {event.new_role ?? '-'} · access: {event.previous_is_active == null ? '-' : event.previous_is_active ? 'active' : 'inactive'} → {event.new_is_active == null ? '-' : event.new_is_active ? 'active' : 'inactive'}</span><span>Version: {event.previous_version ?? '-'} → {event.new_version ?? '-'}</span>{event.note && <p>{event.note}</p>}</div>)}</>}</aside>
+    <aside className="panel admin-side-panel" id="admin-invitations"><span className="eyebrow">Open invitations</span><h3>Invitation history</h3>{invitations.length === 0 && <p className="empty">No invitations yet.</p>}{invitations.map((item) => <div className="invitation-card" key={item.id}><strong>{item.email}</strong><span>{item.intended_role} · {item.status} · v{item.version}</span><span>Invited by {item.inviter?.displayName || item.inviter?.email || item.invited_by || 'Unknown'} · {new Date(item.created_at).toLocaleString()}</span>{item.note && <p>{item.note}</p>}{item.claimed_at && <span>Claimed by {item.claimer?.displayName || item.claimer?.email || item.claimed_by || 'Unknown'} · {new Date(item.claimed_at).toLocaleString()}</span>}{item.cancelled_at && <span>Cancelled by {item.canceller?.displayName || item.canceller?.email || item.cancelled_by || 'Unknown'} · {new Date(item.cancelled_at).toLocaleString()}</span>}{item.status === 'pending' && <button className="small-button" onClick={() => void cancelInvite(item)}>Cancel</button>}</div>)}{selected && <><span className="eyebrow">Immutable history</span><h3>{selected.email}</h3>{historyLoading && <p className="empty">Loading access history...</p>}{historyError && <p className="error" role="alert">{historyError}</p>}{!historyLoading && !historyError && history.length === 0 && <p className="empty">No history recorded for this user.</p>}{!historyLoading && !historyError && history.map((event) => <div className="history-item" key={event.id}><strong>{event.action}</strong><span>{new Date(event.created_at).toLocaleString()} · by {event.actor?.displayName || event.actor?.email || event.actor?.id || event.actor_user_id} · target {event.target_email ?? selected.email}</span><span>Role: {event.previous_role ?? '-'} → {event.new_role ?? '-'} · access: {event.previous_is_active == null ? '-' : event.previous_is_active ? 'active' : 'inactive'} → {event.new_is_active == null ? '-' : event.new_is_active ? 'active' : 'inactive'}</span><span>Version: {event.previous_version ?? '-'} → {event.new_version ?? '-'}</span>{event.note && <p>{event.note}</p>}</div>)}</>}</aside>
   </section>;
 }
 
@@ -1962,4 +1994,3 @@ function LegacySessionsPage({ user }: { user: User }) {
     </section>
   );
 }
-
