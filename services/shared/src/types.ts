@@ -15,9 +15,21 @@ export interface User {
   email: string;
   display_name: string | null;
   role: UserRole;
+  /** Access can be suspended without deleting the identity or its history. */
+  is_active?: boolean;
+  /** Optimistic-concurrency token for access changes. */
+  version?: number;
   created_at: string;
   updated_at: string;
 }
+
+export type InvitationStatus = 'pending' | 'claimed' | 'cancelled';
+export type UserAccessAction =
+  | 'approve'
+  | 'reject'
+  | 'change_role'
+  | 'deactivate'
+  | 'reactivate';
 
 /** Authenticated request context, attached by auth middleware. */
 export interface AuthContext {

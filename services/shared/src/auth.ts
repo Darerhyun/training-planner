@@ -1,61 +1,66 @@
 import type { MiddlewareHandler } from 'hono';
 import { getFirebaseAuth } from './firebase.js';
-import { getDb } from './db.js';
+import { withTransaction } from './db.js';
 import type { User, UserRole, AuthContext, AppEnv } from './types.js';
+import type { TransactionHandler } from './db.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function getAdminEmails(): Set<string> {
-  const raw = process.env.ADMIN_EMAILS ?? '';
-  return new Set(
-    raw
-      .split(',')
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean),
-  );
+  return new Set((process.env.ADMIN_EMAILS ?? '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean));
+}
+
+export function initialRole(email: string, _hasOpenInvitation: boolean): UserRole {
+  return getAdminEmails().has(email.trim().toLowerCase()) ? 'admin' : 'pending';
 }
 
 /**
  * Look up user by Firebase UID. If no record exists, create one.
- * New users get role = 'admin' if their email is in ADMIN_EMAILS, else 'pending'.
+ * New Firebase sign-ins are pending unless they are the configured allowlisted
+ * bootstrap/recovery Admin. Invitations never grant access by email.
  */
-async function findOrCreateUser(
+export async function findOrCreateUser(
   firebaseUid: string,
   email: string,
   displayName: string | null,
+  transaction: <T>(handler: TransactionHandler<T>) => Promise<T> = withTransaction,
 ): Promise<User> {
-  const db = getDb();
   const normalizedEmail = email.trim().toLowerCase();
 
   if (!normalizedEmail) {
     throw new Error('Firebase token did not include an email address');
   }
 
-  const existing = await db<User>(
-    `SELECT id, firebase_uid, email, display_name, role, created_at, updated_at
-     FROM users
-     WHERE firebase_uid = $1`,
-    [firebaseUid],
-  );
+  return transaction(async (tx) => {
+    // This exact lock expression/order is shared with invitation creation.
+    // It serializes first sign-in against a concurrent invitation for the
+    // same normalized email before either side checks the opposing table.
+    await tx('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [normalizedEmail]);
+    const existing = await tx<User>(
+      `SELECT id, firebase_uid, email, display_name, role, is_active, version, created_at, updated_at
+       FROM users WHERE firebase_uid = $1 FOR UPDATE`,
+      [firebaseUid],
+    );
+    if (existing.length > 0) return existing[0];
 
-  if (existing.length > 0) {
-    return existing[0];
-  }
-
-  const adminEmails = getAdminEmails();
-  const role: UserRole = adminEmails.has(normalizedEmail) ? 'admin' : 'pending';
-
-  const inserted = await db<User>(
-    `INSERT INTO users (firebase_uid, email, display_name, role)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (firebase_uid) DO UPDATE SET updated_at = now()
-     RETURNING id, firebase_uid, email, display_name, role, created_at, updated_at`,
-    [firebaseUid, normalizedEmail, displayName, role],
-  );
-
-  return inserted[0];
+    const openInvitation = await tx<{ id: string }>(
+      `SELECT id FROM user_invitations WHERE email = $1 AND status = 'pending' LIMIT 1 FOR UPDATE`,
+      [normalizedEmail],
+    );
+    // An invitation never grants access; the allowlist remains an independent
+    // bootstrap/recovery path even when an invitation exists.
+    const role = initialRole(normalizedEmail, openInvitation.length > 0);
+    const inserted = await tx<User>(
+      `INSERT INTO users (firebase_uid, email, display_name, role, is_active, version)
+       VALUES ($1, $2, $3, $4, TRUE, 1)
+       ON CONFLICT (firebase_uid) DO UPDATE SET updated_at = now()
+       RETURNING id, firebase_uid, email, display_name, role, is_active, version, created_at, updated_at`,
+      [firebaseUid, normalizedEmail, displayName, role],
+    );
+    return inserted[0];
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +124,9 @@ export function requireRole(...roles: UserRole[]): MiddlewareHandler<AppEnv> {
     if (!auth) {
       return c.json({ error: 'Not authenticated' }, 401);
     }
+    if (auth.user.is_active === false) {
+      return c.json({ error: 'Your account is deactivated. Contact an administrator.', code: 'account_deactivated' }, 403);
+    }
     if (!allowed.has(auth.user.role)) {
       // Rejected users get a specific message
       if (auth.user.role === 'rejected') {
@@ -132,3 +140,4 @@ export function requireRole(...roles: UserRole[]): MiddlewareHandler<AppEnv> {
     await next();
   };
 }
+

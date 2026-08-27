@@ -12,6 +12,29 @@ export interface AppProfile {
   message?: string;
   created_at?: string;
   updated_at?: string;
+  is_active?: boolean;
+  version?: number;
+  deactivated?: boolean;
+}
+
+export interface AdminUser {
+  id: string; email: string; display_name?: string | null; role: AppRole;
+  is_active: boolean; version: number; created_at: string; updated_at: string;
+}
+export interface AccessPerson { id: string; email: string; displayName?: string | null; }
+export interface UserInvitation {
+  id: string; email: string; intended_role: Exclude<AppRole, 'pending' | 'rejected'>;
+  status: 'pending' | 'claimed' | 'cancelled'; note?: string | null; version: number;
+  invited_by?: string; claimed_by?: string | null; cancelled_by?: string | null;
+  inviter?: AccessPerson; claimer?: AccessPerson | null; canceller?: AccessPerson | null;
+  claimed_at?: string | null; cancelled_at?: string | null; created_at: string; updated_at: string;
+}
+export interface UserAccessEvent {
+  id: string; invitation_id?: string | null; target_email?: string; action: string; actor_user_id: string; note?: string | null; metadata?: unknown;
+  actor?: AccessPerson;
+  previous_role?: AppRole | null;
+  new_role?: AppRole | null; previous_is_active?: boolean | null; new_is_active?: boolean | null;
+  previous_version?: number | null; new_version?: number | null; created_at: string;
 }
 
 export class ApiError extends Error {
@@ -24,6 +47,42 @@ export class ApiError extends Error {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+export async function fetchAdminUsers(user: User): Promise<AdminUser[]> {
+  const data = await apiFetch(user, '/admin/users') as { users: AdminUser[] };
+  return data.users;
+}
+export async function fetchAdminInvitations(user: User): Promise<UserInvitation[]> {
+  const data = await apiFetch(user, '/admin/user-invitations') as { invitations: UserInvitation[] };
+  return data.invitations;
+}
+export async function createAdminInvitation(user: User, input: { email: string; intendedRole: string; note?: string }): Promise<UserInvitation> {
+  const data = await apiFetch(user, '/admin/user-invitations', { method: 'POST', body: JSON.stringify(input) }) as { invitation?: UserInvitation; error?: string; code?: string };
+  throwAdminApiFailure(data);
+  if (!data.invitation) throw new ApiError('Invitation could not be created.', 409, data.code ?? 'invitation_failed');
+  return data.invitation;
+}
+function throwAdminApiFailure(data: unknown): void {
+  if (!data || typeof data !== 'object') return;
+  const value = data as { error?: unknown; code?: unknown };
+  if (typeof value.error === 'string') throw new ApiError(value.error, 409, typeof value.code === 'string' ? value.code : null);
+}
+export async function cancelAdminInvitation(user: User, id: string, expectedVersion: number, note?: string | null): Promise<UserInvitation> {
+  const data = await apiFetch(user, `/admin/user-invitations/${encodeURIComponent(id)}/cancel`, { method: 'PATCH', body: JSON.stringify({ expectedVersion, note: note ?? null }) }) as { invitation?: UserInvitation; error?: string; code?: string };
+  throwAdminApiFailure(data);
+  if (!data.invitation) throw new ApiError('Invitation could not be cancelled.', 409, data.code ?? 'invitation_failed');
+  return data.invitation;
+}
+export async function updateAdminUser(user: User, id: string, input: { expectedVersion: number; action: string; role?: string; note?: string | null }): Promise<AdminUser> {
+  const data = await apiFetch(user, `/admin/users/${encodeURIComponent(id)}/access`, { method: 'PATCH', body: JSON.stringify(input) }) as { user?: AdminUser; error?: string; code?: string };
+  throwAdminApiFailure(data);
+  if (!data.user) throw new ApiError('Access update failed.', 409, data.code ?? 'access_update_failed');
+  return data.user;
+}
+export async function fetchAdminUserHistory(user: User, id: string): Promise<UserAccessEvent[]> {
+  const data = await apiFetch(user, `/admin/users/${encodeURIComponent(id)}/history`) as { events: UserAccessEvent[] };
+  return data.events;
 }
 
 export interface ApiSession {
@@ -593,3 +652,4 @@ function getCurrentVersion(data: unknown): number | null {
   const currentVersion = (data as { currentVersion?: unknown }).currentVersion;
   return typeof currentVersion === 'number' ? currentVersion : null;
 }
+

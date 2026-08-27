@@ -29,6 +29,14 @@ export async function sendMagicLink(email: string): Promise<void> {
   window.localStorage.setItem('training-planner-email', email);
 }
 
+/** Invitation links are sent by an Admin but must not replace that Admin's remembered login email. */
+export async function sendInvitationMagicLink(email: string): Promise<void> {
+  await sendSignInLinkToEmail(auth, email, {
+    url: window.location.origin,
+    handleCodeInApp: true,
+  });
+}
+
 export async function completeMagicLink(email: string): Promise<void> {
   if (isSignInWithEmailLink(auth, window.location.href)) {
     await signInWithEmailLink(auth, email, window.location.href);

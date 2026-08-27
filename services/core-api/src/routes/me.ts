@@ -1,11 +1,15 @@
 import { Hono } from 'hono';
+import type { MiddlewareHandler } from 'hono';
 import { authMiddleware, getDb } from '@training-planner/shared';
 import type { AppEnv } from '@training-planner/shared';
+import type { SqlQuery } from '@training-planner/shared';
 
-export const meRoutes = new Hono<AppEnv>();
+export function createMeRoutes(deps: { db?: SqlQuery; auth?: () => MiddlewareHandler<AppEnv> } = {}) {
+const meRoutes = new Hono<AppEnv>();
+const db: SqlQuery = deps.db ?? (async <T = Record<string, unknown>>(sql: string, params?: unknown[]) => getDb()<T>(sql, params));
 
 // All /me routes require authentication
-meRoutes.use('/me', authMiddleware());
+meRoutes.use('/me', (deps.auth ?? authMiddleware)());
 
 /**
  * GET /me
@@ -23,6 +27,9 @@ meRoutes.get('/me', async (c) => {
       id: user.id,
       email: user.email,
       role: user.role,
+      is_active: user.is_active !== false,
+      version: user.version ?? 1,
+      deactivated: user.is_active === false,
       message:
         'Your account request has been rejected. Please contact an administrator.',
     });
@@ -34,6 +41,9 @@ meRoutes.get('/me', async (c) => {
       email: user.email,
       display_name: user.display_name,
       role: user.role,
+      is_active: user.is_active !== false,
+      version: user.version ?? 1,
+      deactivated: user.is_active === false,
       message: 'Your account is pending approval by an administrator.',
     });
   }
@@ -43,6 +53,9 @@ meRoutes.get('/me', async (c) => {
     email: user.email,
     display_name: user.display_name,
     role: user.role,
+    is_active: user.is_active !== false,
+    version: user.version ?? 1,
+    deactivated: user.is_active === false,
     created_at: user.created_at,
     updated_at: user.updated_at,
   });
@@ -55,6 +68,10 @@ meRoutes.get('/me', async (c) => {
  */
 meRoutes.patch('/me', async (c) => {
   const { user } = c.get('auth');
+
+  if (user.is_active === false) {
+    return c.json({ error: 'Deactivated accounts cannot update their profile', code: 'account_deactivated' }, 403);
+  }
 
   let body: Record<string, unknown>;
   try {
@@ -73,12 +90,11 @@ meRoutes.patch('/me', async (c) => {
     );
   }
 
-  const db = getDb();
   const updated = await db(
     `UPDATE users
      SET display_name = $1, updated_at = now()
      WHERE id = $2
-     RETURNING id, firebase_uid, email, display_name, role, created_at, updated_at`,
+     RETURNING id, firebase_uid, email, display_name, role, is_active, version, created_at, updated_at`,
     [displayName, user.id],
   );
 
@@ -88,3 +104,9 @@ meRoutes.patch('/me', async (c) => {
 
   return c.json(updated[0]);
 });
+
+return meRoutes;
+}
+
+export const meRoutes = createMeRoutes();
+

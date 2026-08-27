@@ -11,6 +11,7 @@ import { createCoursePlanningRoutes } from './routes/course-planning.js';
 import { sessionsRoutes } from './routes/sessions.js';
 import { syncRoutes } from './routes/sync.js';
 import { uploadsRoutes } from './routes/uploads.js';
+import { adminUsersRoutes } from './routes/admin-users.js';
 
 const app = new Hono<AppEnv>();
 
@@ -31,6 +32,7 @@ app.use(
 // ---------------------------------------------------------------------------
 app.route('/', healthRoutes);
 app.route('/', meRoutes);
+app.route('/', adminUsersRoutes);
 app.route('/', uploadsRoutes);
 app.route('/', syncRoutes);
 app.route('/', createPlanningRoutes());
@@ -55,3 +57,4 @@ const port = parseInt(process.env.PORT ?? '8080', 10);
 serve({ fetch: app.fetch, port }, (info) => {
   console.log(`🚀 core-api listening on http://localhost:${info.port}`);
 });
+
