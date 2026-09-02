@@ -44,9 +44,30 @@ function assertApiError(error: unknown, status: number, payload: unknown): error
   return true;
 }
 
-function blockedParsePayload(): ParseResult & { rows: unknown[] } {
+function blockedParsePayload(): ParseResult {
   return {
-    rows: [],
+    rows: [
+      {
+        rowNumber: 3,
+        tmsCode: 'ASKMEI-2026-1',
+        courseCode: 'ASKMEI',
+        sourceCourseName: 'Excel Intermediate',
+        aliasBatchId: 'ASKMEI-2026-1',
+        batchId: null,
+        startDate: '2026-08-01',
+        endDate: '2026-08-02',
+        trainerId: 'trainer-1',
+        rawTrainerName: null,
+        venueCode: 'IP',
+        roomId: 'ip-class1',
+        rawVenueText: 'IP Class 1',
+        timeText: '9.00 AM - 6.00 PM',
+        expectedPax: 12,
+        confirmedPax: 10,
+        status: 'cancelled',
+        alerts: [],
+      },
+    ],
     summary: {
       totalRows: 3,
       validRows: 3,
@@ -56,6 +77,7 @@ function blockedParsePayload(): ParseResult & { rows: unknown[] } {
       skipped: 0,
       cancellations: 2,
       conflicts: 0,
+      existingSessions: 3,
       changeCount: 0,
       autoApplied: false,
       requiresConfirmation: true,
@@ -76,6 +98,7 @@ function blockedParsePayload(): ParseResult & { rows: unknown[] } {
 
 function successfulParsePayload(): ParseResult {
   return {
+    rows: [],
     summary: {
       totalRows: 1,
       validRows: 1,
@@ -85,6 +108,7 @@ function successfulParsePayload(): ParseResult {
       skipped: 0,
       cancellations: 0,
       conflicts: 0,
+      existingSessions: 0,
       changeCount: 1,
       autoApplied: true,
       requiresConfirmation: false,
@@ -216,8 +240,21 @@ test('uploadMasterSchedule rethrows malformed and not-ready parse 409 payloads',
     ...blocked,
     summary: { ...blocked.summary, blocked: 'true' },
   };
+  const { rows: _rows, ...missingRows } = blocked;
+  const { existingSessions: _existingSessions, ...summaryWithoutExistingSessions } = blocked.summary;
+  const missingExistingSessions = {
+    ...blocked,
+    summary: summaryWithoutExistingSessions,
+  };
+  const nullBlockReason = {
+    ...blocked,
+    summary: { ...blocked.summary, blockReason: null },
+  };
   const payloads: Array<[string, unknown]> = [
     ['malformed blocked result', malformed],
+    ['missing rows', missingRows],
+    ['missing existing sessions', missingExistingSessions],
+    ['null block reason', nullBlockReason],
     ['not-ready error', { error: 'Upload batch is not ready for parsing.' }],
   ];
 
@@ -245,6 +282,33 @@ test('uploadMasterSchedule rethrows malformed and not-ready parse 409 payloads',
         });
       },
     );
+  }
+});
+
+test('uploadMasterSchedule recovers valid initial and replay blocked parse 409 payloads', async () => {
+  const blocked = blockedParsePayload();
+
+  for (const batchId of ['batch-blocked-initial', 'batch-blocked-replay']) {
+    const responses = [
+      jsonResponse({
+        upload: { id: batchId },
+        signedUrl: 'https://storage.example.test/schedule.xlsx',
+        contentType: 'application/octet-stream',
+      }),
+      new Response(null, { status: 200 }),
+      jsonResponse(blocked, 409),
+    ];
+
+    const result = await withFetch(
+      async () => {
+        const response = responses.shift();
+        assert.ok(response);
+        return response;
+      },
+      () => uploadMasterSchedule(user, uploadFile()),
+    );
+
+    assert.deepEqual(result, { ...blocked, uploadBatchId: batchId });
   }
 });
 

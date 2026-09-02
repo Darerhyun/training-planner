@@ -296,6 +296,7 @@ export interface ScheduledDraftSession {
 }
 
 export interface ParseResult {
+  rows: ScheduleParseRow[];
   summary: {
     totalRows: number;
     validRows: number;
@@ -305,6 +306,7 @@ export interface ParseResult {
     skipped: number;
     cancellations: number;
     conflicts: number;
+    existingSessions: number;
     changeCount: number;
     autoApplied: boolean;
     requiresConfirmation: boolean;
@@ -324,6 +326,27 @@ export interface ParseResult {
     unchanged: number;
     conflicts: ScheduleImportConflict[];
   };
+}
+
+export interface ScheduleParseRow {
+  rowNumber: number;
+  tmsCode: string | null;
+  courseCode: string | null;
+  sourceCourseName: string | null;
+  aliasBatchId: string | null;
+  batchId: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  trainerId: string | null;
+  rawTrainerName: string | null;
+  venueCode: string | null;
+  roomId: string | null;
+  rawVenueText: string | null;
+  timeText: string | null;
+  expectedPax: number | null;
+  confirmedPax: number | null;
+  status: 'draft' | 'confirmed' | 'cancelled' | 'completed';
+  alerts: ParseResult['alerts'];
 }
 
 export interface ScheduleImportConflict {
@@ -597,7 +620,7 @@ async function readResponseBody(response: Response): Promise<unknown> {
 }
 
 function isBlockedParseResult(value: unknown): value is ParseResult {
-  if (!isRecord(value) || !isRecord(value.summary)) return false;
+  if (!isRecord(value) || !isRecord(value.summary) || !Array.isArray(value.rows)) return false;
 
   const summary = value.summary;
   const numericFields = [
@@ -612,26 +635,22 @@ function isBlockedParseResult(value: unknown): value is ParseResult {
     'changeCount',
   ];
   if (!numericFields.every((field) => isNonNegativeInteger(summary[field]))) return false;
-  if (
-    'existingSessions' in summary &&
-    !isNonNegativeInteger(summary.existingSessions)
-  ) {
-    return false;
-  }
+  if (!isNonNegativeInteger(summary.existingSessions)) return false;
   if (
     summary.autoApplied !== false ||
     summary.requiresConfirmation !== true ||
     summary.blocked !== true ||
-    (typeof summary.blockReason !== 'string' && summary.blockReason !== null)
+    typeof summary.blockReason !== 'string' ||
+    summary.blockReason.trim().length === 0
   ) {
     return false;
   }
 
+  if (!value.rows.every(isScheduleParseRow)) return false;
   if (!Array.isArray(value.alerts) || !value.alerts.every(isParseAlert)) return false;
   if (!Array.isArray(value.conflicts) || !value.conflicts.every(isScheduleImportConflict)) {
     return false;
   }
-  if ('rows' in value && !Array.isArray(value.rows)) return false;
   if ('applied' in value && value.applied !== undefined && !isAppliedResult(value.applied)) {
     return false;
   }
@@ -649,6 +668,38 @@ function isNonNegativeInteger(value: unknown): value is number {
 
 function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string';
+}
+
+function isNullableNumber(value: unknown): value is number | null {
+  return value === null || (typeof value === 'number' && Number.isFinite(value));
+}
+
+function isScheduleParseRow(value: unknown): value is ScheduleParseRow {
+  if (!isRecord(value) || !Array.isArray(value.alerts)) return false;
+  return (
+    isNonNegativeInteger(value.rowNumber) &&
+    isNullableString(value.tmsCode) &&
+    isNullableString(value.courseCode) &&
+    isNullableString(value.sourceCourseName) &&
+    isNullableString(value.aliasBatchId) &&
+    isNullableString(value.batchId) &&
+    isNullableString(value.startDate) &&
+    isNullableString(value.endDate) &&
+    isNullableString(value.trainerId) &&
+    isNullableString(value.rawTrainerName) &&
+    isNullableString(value.venueCode) &&
+    isNullableString(value.roomId) &&
+    isNullableString(value.rawVenueText) &&
+    isNullableString(value.timeText) &&
+    isNullableNumber(value.expectedPax) &&
+    isNullableNumber(value.confirmedPax) &&
+    isSessionStatus(value.status) &&
+    value.alerts.every(isParseAlert)
+  );
+}
+
+function isSessionStatus(value: unknown): value is ScheduleParseRow['status'] {
+  return value === 'draft' || value === 'confirmed' || value === 'cancelled' || value === 'completed';
 }
 
 function isParseAlert(value: unknown): boolean {
