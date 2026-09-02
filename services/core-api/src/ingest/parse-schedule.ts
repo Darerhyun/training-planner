@@ -134,15 +134,31 @@ export async function applyScheduleParseResult(
   let applied = 0;
   let skipped = 0;
   let unchanged = 0;
-  const conflicts: ScheduleImportConflict[] = [];
+  const conflicts: Array<{ sourceIndex: number; conflict: ScheduleImportConflict }> = [];
+
+  const orderedRows = parseResult.rows
+    .map((row, sourceIndex) => ({
+      row,
+      sourceIndex,
+      externalRef: row.startDate && row.endDate ? buildExternalRef(row) : null,
+    }))
+    .filter(
+      (entry): entry is {
+        row: MappedScheduleRow;
+        sourceIndex: number;
+        externalRef: string;
+      } => entry.externalRef !== null,
+    )
+    .sort(
+      (left, right) =>
+        compareExternalRefs(left.externalRef, right.externalRef) ||
+        left.sourceIndex - right.sourceIndex,
+    );
+  skipped = parseResult.rows.length - orderedRows.length;
 
   const externalRefs = [
-    ...new Set(
-      parseResult.rows
-        .filter((row) => row.startDate && row.endDate)
-        .map(buildExternalRef),
-    ),
-  ].sort((left, right) => left.localeCompare(right));
+    ...new Set(orderedRows.map((entry) => entry.externalRef)),
+  ];
   const existingByRef = new Map(
     (await findExistingSessions(db, externalRefs)).map((row) => [row.external_ref, row]),
   );
@@ -151,10 +167,11 @@ export async function applyScheduleParseResult(
     existing: ExistingSessionRow,
     row: MappedScheduleRow,
     externalRef: string,
+    sourceIndex: number,
   ): Promise<void> => {
     const classification = classifyScheduleRow(existing, row, externalRef);
     if (classification.kind === 'conflict') {
-      conflicts.push(classification.conflict);
+      conflicts.push({ sourceIndex, conflict: classification.conflict });
       skipped += 1;
       return;
     }
@@ -181,13 +198,7 @@ export async function applyScheduleParseResult(
     applied += 1;
   };
 
-  for (const row of parseResult.rows) {
-    if (!row.startDate || !row.endDate) {
-      skipped += 1;
-      continue;
-    }
-
-    const externalRef = buildExternalRef(row);
+  for (const { row, externalRef, sourceIndex } of orderedRows) {
     const classification = classifyScheduleRow(
       existingByRef.get(externalRef) ?? null,
       row,
@@ -199,7 +210,7 @@ export async function applyScheduleParseResult(
       continue;
     }
     if (classification.kind === 'conflict') {
-      conflicts.push(classification.conflict);
+      conflicts.push({ sourceIndex, conflict: classification.conflict });
       skipped += 1;
       continue;
     }
@@ -209,7 +220,7 @@ export async function applyScheduleParseResult(
       continue;
     }
     if (classification.kind === 'update') {
-      await applyExisting(classification.existing, row, externalRef);
+      await applyExisting(classification.existing, row, externalRef, sourceIndex);
       continue;
     }
 
@@ -227,10 +238,16 @@ export async function applyScheduleParseResult(
       throw new Error('Concurrent schedule insert could not be reloaded safely.');
     }
     existingByRef.set(externalRef, concurrent);
-    await applyExisting(concurrent, row, externalRef);
+    await applyExisting(concurrent, row, externalRef, sourceIndex);
   }
 
-  return { applied, skipped, unchanged, conflicts };
+  conflicts.sort((left, right) => left.sourceIndex - right.sourceIndex);
+  return {
+    applied,
+    skipped,
+    unchanged,
+    conflicts: conflicts.map((entry) => entry.conflict),
+  };
 }
 
 export async function summarizeRows(
@@ -593,4 +610,10 @@ function compareField(
 
 function normalizeExternalRefPart(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'blank';
+}
+
+function compareExternalRefs(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
 }
