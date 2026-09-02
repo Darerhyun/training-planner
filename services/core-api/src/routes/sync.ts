@@ -161,6 +161,10 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
         const replay = replayAppliedBatch(batch);
         if (replay) return replay;
 
+        if (batch.status === 'rejected') {
+          throw new SyncHttpError(409, 'Upload batch has been rejected.');
+        }
+
         const parseResult = batch.parse_result as ScheduleParseResult;
         if (parseResult.summary.blocked && !manualOverride) {
           throw new SyncHttpError(
@@ -182,19 +186,35 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
   });
 
   routes.post('/sync/:batchId/cancel', async (c) => {
-    const updated = await db(
-      `UPDATE upload_batches
-       SET status = 'rejected'
-       WHERE id = $1
-       RETURNING id, status`,
-      [c.req.param('batchId')],
-    );
+    try {
+      const outcome = await runTransaction(async (tx) => {
+        const batch = await findUploadBatch(tx, c.req.param('batchId'), true);
+        if (!batch) throw new SyncHttpError(404, 'Upload batch not found');
+        if (batch.status === 'applied') {
+          throw new SyncHttpError(409, 'Applied upload batches cannot be cancelled.');
+        }
+        if (batch.status === 'rejected') {
+          return { id: batch.id, status: batch.status };
+        }
 
-    if (updated.length === 0) {
-      return c.json({ error: 'Upload batch not found' }, 404);
+        const updated = await tx<{ id: string; status: UploadBatchStatus }>(
+          `UPDATE upload_batches
+           SET status = 'rejected'
+           WHERE id = $1
+           RETURNING id, status::text AS status`,
+          [batch.id],
+        );
+        if (updated.length === 0) {
+          throw new SyncHttpError(404, 'Upload batch not found');
+        }
+        return updated[0];
+      });
+
+      return c.json(outcome);
+    } catch (error) {
+      if (error instanceof SyncHttpError) return c.json(error.body, error.status);
+      throw error;
     }
-
-    return c.json(updated[0]);
   });
 
   return routes;
