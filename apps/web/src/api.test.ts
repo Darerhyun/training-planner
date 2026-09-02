@@ -18,6 +18,7 @@ const user = {
 } as unknown as User;
 
 type FetchHandler = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+type StalePayload = { error: string; code: string; currentVersion: number };
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -107,47 +108,68 @@ function uploadFile(): File {
   });
 }
 
-test('apiFetch throws ApiError for non-2xx responses with metadata and parsed payload', async () => {
-  const payload = {
-    error: 'This session changed after you opened it. Reload before trying again.',
-    code: 'stale_session_version',
-    currentVersion: 7,
-  };
+test('apiFetch throws ApiError for common non-2xx responses with metadata and parsed payload', async () => {
+  const cases: Array<[number, { error: string; code: string; currentVersion?: number }]> = [
+    [401, { error: 'Token expired.', code: 'auth_required' }],
+    [403, { error: 'You are not authorized to access this area.', code: 'forbidden' }],
+    [409, {
+      error: 'This session changed after you opened it. Reload before trying again.',
+      code: 'stale_session_version',
+      currentVersion: 7,
+    }],
+    [422, { error: 'The schedule file is invalid.', code: 'invalid_schedule' }],
+    [500, { error: 'Internal server error.', code: 'internal_error' }],
+  ];
 
-  await withFetch(
-    async () => jsonResponse(payload, 409),
-    async () => {
-      await assert.rejects(apiFetch(user, '/sessions/session-1/trainer'), (error: unknown) => {
-        assert.ok(assertApiError(error, 409, payload));
-        assert.equal(error.message, payload.error);
-        assert.equal(error.code, payload.code);
-        assert.equal(error.currentVersion, payload.currentVersion);
-        return true;
-      });
-    },
-  );
+  for (const [status, payload] of cases) {
+    await withFetch(
+      async () => jsonResponse(payload, status),
+      async () => {
+        await assert.rejects(apiFetch(user, '/test'), (error: unknown) => {
+          assert.ok(assertApiError(error, status, payload));
+          assert.equal(error.code, payload.code);
+          assert.equal(error.currentVersion, payload.currentVersion ?? null);
+          if (status === 401) {
+            assert.equal(error.message, 'Your session expired or is invalid. Sign in again.');
+          } else {
+            assert.equal(error.message, payload.error);
+          }
+          return true;
+        });
+      },
+    );
+  }
 });
 
 test('stale admin, session, and planned-run wrappers rethrow the transport ApiError', async () => {
-  const payload = {
-    error: 'The record changed after you opened it. Reload before trying again.',
+  const adminPayload = {
+    error: 'This user changed; reload before applying access changes.',
     code: 'stale_user_version',
     currentVersion: 4,
   };
-  const operations: Array<() => Promise<unknown>> = [
-    () => createAdminInvitation(user, { email: 'new@example.com', intendedRole: 'ops' }),
-    () => updateAdminUser(user, 'user-1', { expectedVersion: 1, action: 'approve', role: 'ops' }),
-    () => updateSessionTrainer(user, 'session-1', null, 1, 'update'),
-    () => approvePlannedCourseRun(user, 'run-1', 1),
-    () =>
-      schedulePlannedCourseRun(user, 'run-1', {
-        expectedVersion: 1,
-        startDate: '2026-09-01',
-        endDate: '2026-09-02',
-      }),
+  const sessionPayload = {
+    error: 'This session changed after you opened it. Reload before trying again.',
+    code: 'stale_session_version',
+    currentVersion: 8,
+  };
+  const plannedPayload = {
+    error: 'This planned run changed after you opened it. Reload and try again.',
+    code: 'stale_planned_course_run_version',
+    currentVersion: 3,
+  };
+  const operations: Array<[StalePayload, () => Promise<unknown>]> = [
+    [adminPayload, () => createAdminInvitation(user, { email: 'new@example.com', intendedRole: 'ops' })],
+    [adminPayload, () => updateAdminUser(user, 'user-1', { expectedVersion: 1, action: 'approve', role: 'ops' })],
+    [sessionPayload, () => updateSessionTrainer(user, 'session-1', null, 1, 'update')],
+    [plannedPayload, () => approvePlannedCourseRun(user, 'run-1', 1)],
+    [plannedPayload, () => schedulePlannedCourseRun(user, 'run-1', {
+      expectedVersion: 1,
+      startDate: '2026-09-01',
+      endDate: '2026-09-02',
+    })],
   ];
 
-  for (const operation of operations) {
+  for (const [payload, operation] of operations) {
     await withFetch(
       async () => jsonResponse(payload, 409),
       async () => {

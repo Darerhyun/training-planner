@@ -38,41 +38,15 @@ export interface UserAccessEvent {
 }
 
 export class ApiError extends Error {
-  public readonly status: number | null;
-  public readonly code: string | null;
-  public readonly currentVersion: number | null;
-  public readonly payload: unknown;
-
-  constructor(message: string, status?: number | null, payload?: unknown);
   constructor(
     message: string,
-    status?: number | null,
-    code?: string | null,
-    currentVersion?: number | null,
-    payload?: unknown,
-  );
-  constructor(
-    message: string,
-    status: number | null = null,
-    codeOrPayload: string | null | unknown = null,
-    currentVersion: number | null = null,
-    payload: unknown = null,
+    public readonly status: number | null = null,
+    public readonly code: string | null = null,
+    public readonly currentVersion: number | null = null,
+    public readonly payload: unknown = null,
   ) {
     super(message);
     this.name = 'ApiError';
-    this.status = status;
-
-    // Keep compatibility with the existing metadata constructor while also
-    // allowing callers to construct an error directly from a parsed payload.
-    if (arguments.length <= 3 && typeof codeOrPayload !== 'string') {
-      this.payload = codeOrPayload;
-      this.code = getResponseCode(codeOrPayload);
-      this.currentVersion = getCurrentVersion(codeOrPayload);
-    } else {
-      this.payload = payload;
-      this.code = typeof codeOrPayload === 'string' ? codeOrPayload : null;
-      this.currentVersion = currentVersion;
-    }
   }
 }
 
@@ -645,7 +619,7 @@ function isBlockedParseResult(value: unknown): value is ParseResult {
     return false;
   }
   if (
-    typeof summary.autoApplied !== 'boolean' ||
+    summary.autoApplied !== false ||
     summary.requiresConfirmation !== true ||
     summary.blocked !== true ||
     (typeof summary.blockReason !== 'string' && summary.blockReason !== null)
