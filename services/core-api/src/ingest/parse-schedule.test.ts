@@ -5,6 +5,7 @@ import {
   applyScheduleParseResult,
   buildExternalRef,
   summarizeRows,
+  type ScheduleApplyResult,
   type ScheduleParseResult,
 } from './parse-schedule.js';
 import type { MappedScheduleRow } from './master-schedule-mapping.js';
@@ -23,6 +24,7 @@ type ExistingRow = {
   expected_pax: number | null;
   confirmed_pax: number | null;
   time_text: string | null;
+  version: number;
 };
 
 function mapped(overrides: Partial<MappedScheduleRow> = {}): MappedScheduleRow {
@@ -64,21 +66,41 @@ function existingFor(row: MappedScheduleRow, overrides: Partial<ExistingRow> = {
     expected_pax: row.expectedPax,
     confirmed_pax: row.confirmedPax,
     time_text: row.timeText,
+    version: 1,
     ...overrides,
   };
 }
 
-function createFakeDb(existing: ExistingRow[]) {
+type FakeDbOptions = {
+  insertConflict?: {
+    externalRef: string;
+    winner: ExistingRow;
+  };
+  failUpdate?: boolean;
+};
+
+function createFakeDb(existing: ExistingRow[], options: FakeDbOptions = {}) {
   const rows = [...existing];
   const calls: string[] = [];
   const db: SqlQuery = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T[]> => {
     calls.push(sql);
-    if (sql.includes('WHERE external_ref IS NOT NULL')) return rows as T[];
+    if (sql.includes('FROM sessions') && sql.includes('WHERE external_ref IS NOT NULL')) return rows as T[];
+    if (sql.includes('WHERE external_ref = ANY')) {
+      const refs = params[0] as string[];
+      return rows.filter((row) => refs.includes(row.external_ref)) as T[];
+    }
     if (sql.includes('WHERE external_ref = $1')) {
       return rows.filter((row) => row.external_ref === params[0]) as T[];
     }
     if (sql.includes('UPDATE sessions')) {
-      const row = rows.find((item) => item.id === params[0] && item.management_source === 'import');
+      const row = options.failUpdate
+        ? undefined
+        : rows.find(
+            (item) =>
+              item.id === params[0] &&
+              item.management_source === 'import' &&
+              item.version === params[16],
+          );
       if (row) {
         row.course_code = params[1] as string | null;
         row.trainer_id = params[4] as string | null;
@@ -90,13 +112,21 @@ function createFakeDb(existing: ExistingRow[]) {
         row.end_date = params[12] as string;
         row.expected_pax = params[13] as number | null;
         row.confirmed_pax = params[14] as number | null;
+        row.version += 1;
       }
-      return [];
+      return (row ? [row] : []) as T[];
     }
     if (sql.includes('INSERT INTO sessions')) {
-      rows.push({
+      const externalRef = params[15] as string;
+      if (options.insertConflict?.externalRef === externalRef) {
+        if (!rows.some((row) => row.external_ref === externalRef)) {
+          rows.push(options.insertConflict.winner);
+        }
+        return [];
+      }
+      const inserted: ExistingRow = {
         id: `inserted-${rows.length + 1}`,
-        external_ref: params[15] as string,
+        external_ref: externalRef,
         management_source: 'import',
         course_code: params[0] as string | null,
         trainer_id: params[3] as string | null,
@@ -108,12 +138,152 @@ function createFakeDb(existing: ExistingRow[]) {
         expected_pax: params[12] as number | null,
         confirmed_pax: params[13] as number | null,
         time_text: params[8] as string | null,
-      });
-      return [];
+        version: 1,
+      };
+      rows.push(inserted);
+      return [inserted] as T[];
     }
     return [];
   };
   return { db, rows, calls };
+}
+
+function createConcurrentInsertDb() {
+  const rows: ExistingRow[] = [];
+  const owners = new Map<string, string>();
+  const heldByWorker = new Map<string, Set<string>>();
+  const waiters = new Map<string, Array<{
+    worker: string;
+    resolve: () => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>>();
+  const insertOrder = new Map<string, string[]>();
+
+  function rememberHeld(worker: string, externalRef: string): void {
+    const held = heldByWorker.get(worker) ?? new Set<string>();
+    held.add(externalRef);
+    heldByWorker.set(worker, held);
+  }
+
+  function acquire(worker: string, externalRef: string): Promise<void> {
+    const owner = owners.get(externalRef);
+    if (!owner || owner === worker) {
+      owners.set(externalRef, worker);
+      rememberHeld(worker, externalRef);
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const pending = waiters.get(externalRef) ?? [];
+        waiters.set(
+          externalRef,
+          pending.filter((entry) => entry.worker !== worker),
+        );
+        reject(new Error(`deadlock waiting for ${externalRef}`));
+      }, 250);
+      const pending = waiters.get(externalRef) ?? [];
+      pending.push({ worker, resolve, reject, timer });
+      waiters.set(externalRef, pending);
+    });
+  }
+
+  function release(worker: string): void {
+    const held = heldByWorker.get(worker) ?? new Set<string>();
+    for (const externalRef of held) {
+      if (owners.get(externalRef) !== worker) continue;
+      const pending = waiters.get(externalRef) ?? [];
+      const next = pending.shift();
+      if (next) {
+        clearTimeout(next.timer);
+        owners.set(externalRef, next.worker);
+        rememberHeld(next.worker, externalRef);
+        next.resolve();
+        waiters.set(externalRef, pending);
+      } else {
+        owners.delete(externalRef);
+        waiters.delete(externalRef);
+      }
+    }
+    heldByWorker.delete(worker);
+  }
+
+  function dbFor(worker: string): SqlQuery {
+    return async <T = Record<string, unknown>>(
+      sql: string,
+      params: unknown[] = [],
+    ): Promise<T[]> => {
+      if (sql.includes('WHERE external_ref = ANY')) {
+        const refs = params[0] as string[];
+        return rows.filter((row) => refs.includes(row.external_ref)) as T[];
+      }
+      if (sql.includes('WHERE external_ref = $1')) {
+        return rows.filter((row) => row.external_ref === params[0]) as T[];
+      }
+      if (sql.includes('INSERT INTO sessions')) {
+        const externalRef = params[15] as string;
+        const order = insertOrder.get(worker) ?? [];
+        order.push(externalRef);
+        insertOrder.set(worker, order);
+        await acquire(worker, externalRef);
+        if (rows.some((row) => row.external_ref === externalRef)) return [];
+        const inserted: ExistingRow = {
+          id: `${worker}-${rows.length + 1}`,
+          external_ref: externalRef,
+          management_source: 'import',
+          course_code: params[0] as string | null,
+          trainer_id: params[3] as string | null,
+          venue_code: params[5] as string | null,
+          room_id: params[6] as string | null,
+          status: params[9] as string,
+          start_date: params[10] as string,
+          end_date: params[11] as string,
+          expected_pax: params[12] as number | null,
+          confirmed_pax: params[13] as number | null,
+          time_text: params[8] as string | null,
+          version: 1,
+        };
+        rows.push(inserted);
+        return [inserted] as T[];
+      }
+      return [];
+    };
+  }
+
+  async function apply(worker: string, incoming: MappedScheduleRow[]): Promise<ScheduleApplyResult> {
+    try {
+      return await applyScheduleParseResult(
+        `batch-${worker}`,
+        {
+          rows: incoming,
+          alerts: [],
+          conflicts: [],
+          summary: {
+            totalRows: incoming.length,
+            validRows: incoming.length,
+            inserts: incoming.length,
+            updates: 0,
+            unchanged: 0,
+            skipped: 0,
+            cancellations: 0,
+            conflicts: 0,
+            existingSessions: 0,
+            changeCount: incoming.length,
+            autoApplied: false,
+            requiresConfirmation: false,
+            blocked: false,
+            blockReason: null,
+          },
+        },
+        dbFor(worker),
+      );
+    } finally {
+      release(worker);
+    }
+  }
+
+  return { apply, insertOrder, rows };
 }
 
 test('summarizes existing new unchanged update and cancellation Sync behavior', async () => {
@@ -224,4 +394,108 @@ test('apply rechecks ownership at confirm time before updating', async () => {
   assert.equal(applied.skipped, 1);
   assert.equal(applied.conflicts.length, 1);
   assert.equal(applied.conflicts[0].fields[0].field, 'trainerId');
+});
+
+test('bulk-locks refs in deterministic order and increments import versions once per change', async () => {
+  const unchanged = mapped({ rowNumber: 20, aliasBatchId: 'ASKMEI-2026-20' });
+  const changed = mapped({ rowNumber: 21, aliasBatchId: 'ASKMEI-2026-21', trainerId: 'trainer-2' });
+  const inserted = mapped({ rowNumber: 22, aliasBatchId: 'ASKMEI-2026-22' });
+  const duplicate = mapped({ rowNumber: 23, aliasBatchId: 'ASKMEI-2026-22' });
+  const fake = createFakeDb([
+    existingFor(unchanged, { version: 4 }),
+    existingFor(changed, { trainer_id: 'trainer-1', version: 7 }),
+  ]);
+
+  const applied = await applyScheduleParseResult(
+    'batch-versions',
+    {
+      ...(await summarizeRows([unchanged, changed, inserted, duplicate], fake.db)),
+      rows: [unchanged, changed, inserted, duplicate],
+    },
+    fake.db,
+  );
+
+  const bulkLocks = fake.calls.filter((sql) => sql.includes('WHERE external_ref = ANY'));
+  assert.equal(bulkLocks.length, 1);
+  assert.match(bulkLocks[0], /ORDER BY external_ref\s+FOR UPDATE/);
+  assert.equal(fake.calls.filter((sql) => sql.includes('WHERE external_ref = $1')).length, 0);
+  assert.equal(applied.applied, 4);
+  assert.equal(applied.unchanged, 2);
+  assert.equal(fake.rows.find((row) => row.external_ref === buildExternalRef(changed))?.version, 8);
+  assert.equal(fake.rows.find((row) => row.external_ref === buildExternalRef(inserted))?.version, 1);
+});
+
+test('preview and apply classify duplicate incoming refs consistently', async () => {
+  const first = mapped({ rowNumber: 30, aliasBatchId: 'ASKMEI-2026-30', trainerId: 'trainer-1' });
+  const second = mapped({ rowNumber: 31, aliasBatchId: 'ASKMEI-2026-30', trainerId: 'trainer-2' });
+  const fake = createFakeDb([]);
+
+  const preview = await summarizeRows([first, second], fake.db);
+  assert.equal(preview.summary.inserts, 1);
+  assert.equal(preview.summary.updates, 1);
+
+  const applied = await applyScheduleParseResult('batch-duplicates', preview, fake.db);
+  assert.equal(applied.applied, 2);
+  assert.equal(applied.unchanged, 0);
+  assert.equal(fake.rows.length, 1);
+  assert.equal(fake.rows[0].trainer_id, 'trainer-2');
+  assert.equal(fake.rows[0].version, 2);
+});
+
+test('does not overwrite an application-managed winner of a concurrent insert race', async () => {
+  const row = mapped({ rowNumber: 40, aliasBatchId: 'ASKMEI-2026-40', trainerId: 'trainer-2' });
+  const externalRef = buildExternalRef(row);
+  const winner = existingFor(row, {
+    id: 'application-winner',
+    management_source: 'application',
+    trainer_id: 'trainer-1',
+  });
+  const fake = createFakeDb([], { insertConflict: { externalRef, winner } });
+
+  const applied = await applyScheduleParseResult(
+    'batch-race',
+    { ...(await summarizeRows([row], fake.db)), rows: [row] },
+    fake.db,
+  );
+
+  assert.equal(applied.applied, 0);
+  assert.equal(applied.skipped, 1);
+  assert.equal(applied.conflicts.length, 1);
+  assert.equal(fake.rows[0].id, 'application-winner');
+  assert.equal(fake.rows[0].trainer_id, 'trainer-1');
+  assert.equal(fake.rows[0].version, 1);
+});
+
+test('fails closed when an import-managed version changes before its update', async () => {
+  const row = mapped({ rowNumber: 50, aliasBatchId: 'ASKMEI-2026-50', trainerId: 'trainer-2' });
+  const fake = createFakeDb([existingFor(row, { trainer_id: 'trainer-1' })], { failUpdate: true });
+
+  await assert.rejects(
+    applyScheduleParseResult(
+      'batch-stale-version',
+      { ...(await summarizeRows([row], fake.db)), rows: [row] },
+      fake.db,
+    ),
+    /changed while the schedule was being applied/,
+  );
+  assert.equal(fake.rows[0].trainer_id, 'trainer-1');
+  assert.equal(fake.rows[0].version, 1);
+});
+
+test('parallel inverse-order imports acquire missing external-ref keys in one order', async () => {
+  const first = mapped({ rowNumber: 60, aliasBatchId: 'ASKMEI-2026-60' });
+  const second = mapped({ rowNumber: 61, aliasBatchId: 'ASKMEI-2026-61' });
+  const fake = createConcurrentInsertDb();
+
+  const [left, right] = await Promise.all([
+    fake.apply('left', [second, first]),
+    fake.apply('right', [first, second]),
+  ]);
+
+  const expectedOrder = [buildExternalRef(first), buildExternalRef(second)].sort();
+  assert.deepEqual(fake.insertOrder.get('left'), expectedOrder);
+  assert.deepEqual(fake.insertOrder.get('right'), expectedOrder);
+  assert.equal(left.applied, 2);
+  assert.equal(right.applied, 2);
+  assert.equal(fake.rows.length, 2);
 });

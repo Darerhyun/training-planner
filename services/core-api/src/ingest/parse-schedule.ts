@@ -71,7 +71,15 @@ interface ExistingSessionRow {
   expected_pax: number | null;
   confirmed_pax: number | null;
   time_text: string | null;
+  version: number;
 }
+
+type ScheduleRowClassification =
+  | { kind: 'skipped' }
+  | { kind: 'insert'; externalRef: string }
+  | { kind: 'unchanged'; externalRef: string }
+  | { kind: 'update'; externalRef: string; existing: ExistingSessionRow }
+  | { kind: 'conflict'; externalRef: string; conflict: ScheduleImportConflict };
 
 export async function parseScheduleWorkbook(buffer: Buffer): Promise<ScheduleParseResult> {
   const lookups = await loadScheduleLookups();
@@ -126,92 +134,120 @@ export async function applyScheduleParseResult(
   let applied = 0;
   let skipped = 0;
   let unchanged = 0;
-  const conflicts: ScheduleImportConflict[] = [];
+  const conflicts: Array<{ sourceIndex: number; conflict: ScheduleImportConflict }> = [];
 
-  for (const row of parseResult.rows) {
-    if (!row.startDate || !row.endDate) {
+  const orderedRows = parseResult.rows
+    .map((row, sourceIndex) => ({
+      row,
+      sourceIndex,
+      externalRef: row.startDate && row.endDate ? buildExternalRef(row) : null,
+    }))
+    .filter(
+      (entry): entry is {
+        row: MappedScheduleRow;
+        sourceIndex: number;
+        externalRef: string;
+      } => entry.externalRef !== null,
+    )
+    .sort(
+      (left, right) =>
+        compareExternalRefs(left.externalRef, right.externalRef) ||
+        left.sourceIndex - right.sourceIndex,
+    );
+  skipped = parseResult.rows.length - orderedRows.length;
+
+  const externalRefs = [
+    ...new Set(orderedRows.map((entry) => entry.externalRef)),
+  ];
+  const existingByRef = new Map(
+    (await findExistingSessions(db, externalRefs)).map((row) => [row.external_ref, row]),
+  );
+
+  const applyExisting = async (
+    existing: ExistingSessionRow,
+    row: MappedScheduleRow,
+    externalRef: string,
+    sourceIndex: number,
+  ): Promise<void> => {
+    const classification = classifyScheduleRow(existing, row, externalRef);
+    if (classification.kind === 'conflict') {
+      conflicts.push({ sourceIndex, conflict: classification.conflict });
+      skipped += 1;
+      return;
+    }
+    if (classification.kind === 'unchanged') {
+      applied += 1;
+      unchanged += 1;
+      return;
+    }
+    if (classification.kind !== 'update') {
+      throw new Error('Unexpected schedule row classification during apply.');
+    }
+
+    const updated = await updateImportManagedSession(
+      db,
+      existing.id,
+      existing.version,
+      batchId,
+      row,
+    );
+    if (!updated) {
+      throw new Error('Import-managed session changed while the schedule was being applied.');
+    }
+    existingByRef.set(externalRef, updated);
+    applied += 1;
+  };
+
+  for (const { row, externalRef, sourceIndex } of orderedRows) {
+    const classification = classifyScheduleRow(
+      existingByRef.get(externalRef) ?? null,
+      row,
+      externalRef,
+    );
+
+    if (classification.kind === 'skipped') {
       skipped += 1;
       continue;
     }
-
-    const externalRef = buildExternalRef(row);
-    const existing = await findExistingSession(db, externalRef);
-
-    if (existing?.management_source === 'application') {
-      const conflict = buildConflict(existing, row, externalRef);
-      if (conflict) {
-        conflicts.push(conflict);
-        skipped += 1;
-      } else {
-        applied += 1;
-        unchanged += 1;
-      }
+    if (classification.kind === 'conflict') {
+      conflicts.push({ sourceIndex, conflict: classification.conflict });
+      skipped += 1;
       continue;
     }
-
-    if (existing && !rowChanged(existing, row)) {
+    if (classification.kind === 'unchanged') {
       applied += 1;
       unchanged += 1;
       continue;
     }
+    if (classification.kind === 'update') {
+      await applyExisting(classification.existing, row, externalRef, sourceIndex);
+      continue;
+    }
 
-    if (existing) {
-      await updateImportManagedSession(db, existing.id, batchId, row);
+    const inserted = await insertImportManagedSession(db, batchId, row, externalRef);
+    if (inserted) {
+      existingByRef.set(externalRef, inserted);
       applied += 1;
       continue;
     }
 
-    await db(
-      `INSERT INTO sessions (
-        course_code, tms_code, source_course_name, trainer_id, raw_trainer_name,
-        venue_code, room_id, raw_venue_text, time_text, status,
-        start_date, end_date, expected_pax, confirmed_pax, upload_batch_id, external_ref
-      ) VALUES (
-        $1, $2, $3, $4, $5,
-        $6, $7, $8, $9, $10,
-        $11, $12, $13, $14, $15, $16
-      )
-      ON CONFLICT (external_ref) WHERE external_ref IS NOT NULL DO UPDATE SET
-        course_code = EXCLUDED.course_code,
-        tms_code = EXCLUDED.tms_code,
-        source_course_name = EXCLUDED.source_course_name,
-        trainer_id = EXCLUDED.trainer_id,
-        raw_trainer_name = EXCLUDED.raw_trainer_name,
-        venue_code = EXCLUDED.venue_code,
-        room_id = EXCLUDED.room_id,
-        raw_venue_text = EXCLUDED.raw_venue_text,
-        time_text = EXCLUDED.time_text,
-        status = EXCLUDED.status,
-        start_date = EXCLUDED.start_date,
-        end_date = EXCLUDED.end_date,
-        expected_pax = EXCLUDED.expected_pax,
-        confirmed_pax = EXCLUDED.confirmed_pax,
-        upload_batch_id = EXCLUDED.upload_batch_id,
-        updated_at = now()`,
-      [
-        row.courseCode,
-        row.tmsCode,
-        row.sourceCourseName,
-        row.trainerId,
-        row.rawTrainerName,
-        row.venueCode,
-        row.roomId,
-        row.rawVenueText,
-        row.timeText,
-        row.status,
-        row.startDate,
-        row.endDate,
-        row.expectedPax,
-        row.confirmedPax,
-        batchId,
-        externalRef,
-      ],
-    );
-
-    applied += 1;
+    // A concurrent importer won the unique-key race. Lock and classify the
+    // winner instead of blindly overwriting it, preserving application ownership.
+    const concurrent = await findExistingSessionForUpdate(db, externalRef);
+    if (!concurrent) {
+      throw new Error('Concurrent schedule insert could not be reloaded safely.');
+    }
+    existingByRef.set(externalRef, concurrent);
+    await applyExisting(concurrent, row, externalRef, sourceIndex);
   }
 
-  return { applied, skipped, unchanged, conflicts };
+  conflicts.sort((left, right) => left.sourceIndex - right.sourceIndex);
+  return {
+    applied,
+    skipped,
+    unchanged,
+    conflicts: conflicts.map((entry) => entry.conflict),
+  };
 }
 
 export async function summarizeRows(
@@ -221,7 +257,8 @@ export async function summarizeRows(
   const existingRows = await db<ExistingSessionRow>(
     `SELECT id, external_ref, management_source::text AS management_source,
       course_code, trainer_id, venue_code, room_id, status,
-      start_date::text, end_date::text, expected_pax, confirmed_pax, time_text
+      start_date::text, end_date::text, expected_pax, confirmed_pax, time_text,
+      version
      FROM sessions
      WHERE external_ref IS NOT NULL`,
   );
@@ -235,29 +272,34 @@ export async function summarizeRows(
   const conflicts: ScheduleImportConflict[] = [];
 
   for (const row of rows) {
-    if (!row.startDate || !row.endDate) {
-      skipped += 1;
-      continue;
-    }
+    const externalRef = row.startDate && row.endDate ? buildExternalRef(row) : '';
+    const classification = classifyScheduleRow(
+      externalRef ? existingByRef.get(externalRef) ?? null : null,
+      row,
+      externalRef,
+    );
 
-    const externalRef = buildExternalRef(row);
-    const existing = existingByRef.get(externalRef);
-    if (!existing) {
-      inserts += 1;
-      if (row.status === 'cancelled') cancellations += 1;
-    } else if (existing.management_source === 'application') {
-      const conflict = buildConflict(existing, row, externalRef);
-      if (conflict) {
-        conflicts.push(conflict);
-      } else {
+    switch (classification.kind) {
+      case 'skipped':
+        skipped += 1;
+        break;
+      case 'insert':
+        inserts += 1;
+        if (row.status === 'cancelled') cancellations += 1;
+        existingByRef.set(externalRef, createExistingSessionFromRow(row, 'preview'));
+        break;
+      case 'update':
+        updates += 1;
+        if (row.status === 'cancelled') cancellations += 1;
+        existingByRef.set(externalRef, projectExistingSession(classification.existing, row));
+        break;
+      case 'unchanged':
         unchanged += 1;
-      }
-    } else if (rowChanged(existing, row)) {
-      updates += 1;
-      if (row.status === 'cancelled') cancellations += 1;
-    } else {
-      unchanged += 1;
-      if (row.status === 'cancelled') cancellations += 1;
+        if (row.status === 'cancelled') cancellations += 1;
+        break;
+      case 'conflict':
+        conflicts.push(classification.conflict);
+        break;
     }
   }
 
@@ -290,13 +332,37 @@ export async function summarizeRows(
   };
 }
 
-async function findExistingSession(db: SqlQuery, externalRef: string): Promise<ExistingSessionRow | null> {
+async function findExistingSessions(
+  db: SqlQuery,
+  externalRefs: string[],
+): Promise<ExistingSessionRow[]> {
+  if (externalRefs.length === 0) return [];
+
+  return db<ExistingSessionRow>(
+    `SELECT id, external_ref, management_source::text AS management_source,
+      course_code, trainer_id, venue_code, room_id, status,
+      start_date::text, end_date::text, expected_pax, confirmed_pax, time_text,
+      version
+     FROM sessions
+     WHERE external_ref = ANY($1::text[])
+     ORDER BY external_ref
+     FOR UPDATE`,
+    [externalRefs],
+  );
+}
+
+async function findExistingSessionForUpdate(
+  db: SqlQuery,
+  externalRef: string,
+): Promise<ExistingSessionRow | null> {
   const rows = await db<ExistingSessionRow>(
     `SELECT id, external_ref, management_source::text AS management_source,
       course_code, trainer_id, venue_code, room_id, status,
-      start_date::text, end_date::text, expected_pax, confirmed_pax, time_text
+      start_date::text, end_date::text, expected_pax, confirmed_pax, time_text,
+      version
      FROM sessions
-     WHERE external_ref = $1`,
+     WHERE external_ref = $1
+     FOR UPDATE`,
     [externalRef],
   );
 
@@ -306,10 +372,11 @@ async function findExistingSession(db: SqlQuery, externalRef: string): Promise<E
 async function updateImportManagedSession(
   db: SqlQuery,
   sessionId: string,
+  expectedVersion: number,
   batchId: string,
   row: MappedScheduleRow,
-): Promise<void> {
-  await db(
+): Promise<ExistingSessionRow | null> {
+  const rows = await db<ExistingSessionRow>(
     `UPDATE sessions
      SET course_code = $2,
        tms_code = $3,
@@ -329,7 +396,12 @@ async function updateImportManagedSession(
        version = version + 1,
        updated_at = now()
      WHERE id = $1
-       AND management_source = 'import'`,
+       AND management_source = 'import'
+       AND version = $17
+     RETURNING id, external_ref, management_source::text AS management_source,
+       course_code, trainer_id, venue_code, room_id, status,
+       start_date::text, end_date::text, expected_pax, confirmed_pax, time_text,
+       version`,
     [
       sessionId,
       row.courseCode,
@@ -347,8 +419,124 @@ async function updateImportManagedSession(
       row.expectedPax,
       row.confirmedPax,
       batchId,
+      expectedVersion,
     ],
   );
+  return rows[0] ?? null;
+}
+
+async function insertImportManagedSession(
+  db: SqlQuery,
+  batchId: string,
+  row: MappedScheduleRow,
+  externalRef: string,
+): Promise<ExistingSessionRow | null> {
+  const rows = await db<ExistingSessionRow>(
+    `INSERT INTO sessions (
+      course_code, tms_code, source_course_name, trainer_id, raw_trainer_name,
+      venue_code, room_id, raw_venue_text, time_text, status,
+      start_date, end_date, expected_pax, confirmed_pax, upload_batch_id, external_ref,
+      version
+    ) VALUES (
+      $1, $2, $3, $4, $5,
+      $6, $7, $8, $9, $10,
+      $11, $12, $13, $14, $15, $16,
+      1
+    )
+    ON CONFLICT (external_ref) WHERE external_ref IS NOT NULL DO NOTHING
+    RETURNING id, external_ref, management_source::text AS management_source,
+      course_code, trainer_id, venue_code, room_id, status,
+      start_date::text, end_date::text, expected_pax, confirmed_pax, time_text,
+      version`,
+    [
+      row.courseCode,
+      row.tmsCode,
+      row.sourceCourseName,
+      row.trainerId,
+      row.rawTrainerName,
+      row.venueCode,
+      row.roomId,
+      row.rawVenueText,
+      row.timeText,
+      row.status,
+      row.startDate,
+      row.endDate,
+      row.expectedPax,
+      row.confirmedPax,
+      batchId,
+      externalRef,
+    ],
+  );
+
+  return rows[0] ?? null;
+}
+
+function classifyScheduleRow(
+  existing: ExistingSessionRow | null,
+  row: MappedScheduleRow,
+  externalRef: string,
+): ScheduleRowClassification {
+  if (!row.startDate || !row.endDate) return { kind: 'skipped' };
+  if (!existing) return { kind: 'insert', externalRef };
+
+  if (existing.management_source === 'application') {
+    const conflict = buildConflict(existing, row, externalRef);
+    return conflict
+      ? { kind: 'conflict', externalRef, conflict }
+      : { kind: 'unchanged', externalRef };
+  }
+
+  return rowChanged(existing, row)
+    ? { kind: 'update', externalRef, existing }
+    : { kind: 'unchanged', externalRef };
+}
+
+function createExistingSessionFromRow(
+  row: MappedScheduleRow,
+  id: string,
+): ExistingSessionRow {
+  if (!row.startDate || !row.endDate) {
+    throw new Error('Cannot project an invalid schedule row into an existing session.');
+  }
+  return {
+    id,
+    external_ref: buildExternalRef(row),
+    management_source: 'import',
+    course_code: row.courseCode,
+    trainer_id: row.trainerId,
+    venue_code: row.venueCode,
+    room_id: row.roomId,
+    status: row.status,
+    start_date: row.startDate,
+    end_date: row.endDate,
+    expected_pax: row.expectedPax,
+    confirmed_pax: row.confirmedPax,
+    time_text: row.timeText,
+    version: 1,
+  };
+}
+
+function projectExistingSession(
+  existing: ExistingSessionRow,
+  row: MappedScheduleRow,
+): ExistingSessionRow {
+  if (!row.startDate || !row.endDate) {
+    throw new Error('Cannot project an invalid schedule row into an existing session.');
+  }
+  return {
+    ...existing,
+    course_code: row.courseCode,
+    trainer_id: row.trainerId,
+    venue_code: row.venueCode,
+    room_id: row.roomId,
+    status: row.status,
+    start_date: row.startDate,
+    end_date: row.endDate,
+    expected_pax: row.expectedPax,
+    confirmed_pax: row.confirmedPax,
+    time_text: row.timeText,
+    version: existing.version + 1,
+  };
 }
 
 export function buildExternalRef(row: MappedScheduleRow): string {
@@ -422,4 +610,10 @@ function compareField(
 
 function normalizeExternalRefPart(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'blank';
+}
+
+function compareExternalRefs(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
 }
