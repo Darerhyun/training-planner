@@ -1,6 +1,6 @@
 import type { User } from 'firebase/auth';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080';
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL ?? 'http://localhost:8080';
 
 export type AppRole = 'admin' | 'ops' | 'finance' | 'viewer' | 'pending' | 'rejected';
 
@@ -38,46 +38,65 @@ export interface UserAccessEvent {
 }
 
 export class ApiError extends Error {
+  public readonly status: number | null;
+  public readonly code: string | null;
+  public readonly currentVersion: number | null;
+  public readonly payload: unknown;
+
+  constructor(message: string, status?: number | null, payload?: unknown);
   constructor(
     message: string,
-    public readonly status: number | null = null,
-    public readonly code: string | null = null,
-    public readonly currentVersion: number | null = null,
+    status?: number | null,
+    code?: string | null,
+    currentVersion?: number | null,
+    payload?: unknown,
+  );
+  constructor(
+    message: string,
+    status: number | null = null,
+    codeOrPayload: string | null | unknown = null,
+    currentVersion: number | null = null,
+    payload: unknown = null,
   ) {
     super(message);
     this.name = 'ApiError';
+    this.status = status;
+
+    // Keep compatibility with the existing metadata constructor while also
+    // allowing callers to construct an error directly from a parsed payload.
+    if (arguments.length <= 3 && typeof codeOrPayload !== 'string') {
+      this.payload = codeOrPayload;
+      this.code = getResponseCode(codeOrPayload);
+      this.currentVersion = getCurrentVersion(codeOrPayload);
+    } else {
+      this.payload = payload;
+      this.code = typeof codeOrPayload === 'string' ? codeOrPayload : null;
+      this.currentVersion = currentVersion;
+    }
   }
 }
 
 export async function fetchAdminUsers(user: User): Promise<AdminUser[]> {
-  const data = await apiFetch(user, '/admin/users') as { users: AdminUser[] };
+  const data = await apiFetch<{ users: AdminUser[] }>(user, '/admin/users');
   return data.users;
 }
 export async function fetchAdminInvitations(user: User): Promise<UserInvitation[]> {
-  const data = await apiFetch(user, '/admin/user-invitations') as { invitations: UserInvitation[] };
+  const data = await apiFetch<{ invitations: UserInvitation[] }>(user, '/admin/user-invitations');
   return data.invitations;
 }
 export async function createAdminInvitation(user: User, input: { email: string; intendedRole: string; note?: string }): Promise<UserInvitation> {
-  const data = await apiFetch(user, '/admin/user-invitations', { method: 'POST', body: JSON.stringify(input) }) as { invitation?: UserInvitation; error?: string; code?: string };
-  throwAdminApiFailure(data);
-  if (!data.invitation) throw new ApiError('Invitation could not be created.', 409, data.code ?? 'invitation_failed');
+  const data = await apiFetch<{ invitation?: UserInvitation; code?: string }>(user, '/admin/user-invitations', { method: 'POST', body: JSON.stringify(input) });
+  if (!data.invitation) throw new ApiError('Invitation could not be created.', 409, data.code ?? 'invitation_failed', null, data);
   return data.invitation;
 }
-function throwAdminApiFailure(data: unknown): void {
-  if (!data || typeof data !== 'object') return;
-  const value = data as { error?: unknown; code?: unknown };
-  if (typeof value.error === 'string') throw new ApiError(value.error, 409, typeof value.code === 'string' ? value.code : null);
-}
 export async function cancelAdminInvitation(user: User, id: string, expectedVersion: number, note?: string | null): Promise<UserInvitation> {
-  const data = await apiFetch(user, `/admin/user-invitations/${encodeURIComponent(id)}/cancel`, { method: 'PATCH', body: JSON.stringify({ expectedVersion, note: note ?? null }) }) as { invitation?: UserInvitation; error?: string; code?: string };
-  throwAdminApiFailure(data);
-  if (!data.invitation) throw new ApiError('Invitation could not be cancelled.', 409, data.code ?? 'invitation_failed');
+  const data = await apiFetch<{ invitation?: UserInvitation; code?: string }>(user, `/admin/user-invitations/${encodeURIComponent(id)}/cancel`, { method: 'PATCH', body: JSON.stringify({ expectedVersion, note: note ?? null }) });
+  if (!data.invitation) throw new ApiError('Invitation could not be cancelled.', 409, data.code ?? 'invitation_failed', null, data);
   return data.invitation;
 }
 export async function updateAdminUser(user: User, id: string, input: { expectedVersion: number; action: string; role?: string; note?: string | null }): Promise<AdminUser> {
-  const data = await apiFetch(user, `/admin/users/${encodeURIComponent(id)}/access`, { method: 'PATCH', body: JSON.stringify(input) }) as { user?: AdminUser; error?: string; code?: string };
-  throwAdminApiFailure(data);
-  if (!data.user) throw new ApiError('Access update failed.', 409, data.code ?? 'access_update_failed');
+  const data = await apiFetch<{ user?: AdminUser; code?: string }>(user, `/admin/users/${encodeURIComponent(id)}/access`, { method: 'PATCH', body: JSON.stringify(input) });
+  if (!data.user) throw new ApiError('Access update failed.', 409, data.code ?? 'access_update_failed', null, data);
   return data.user;
 }
 export async function fetchAdminUserHistory(user: User, id: string): Promise<UserAccessEvent[]> {
@@ -401,12 +420,13 @@ export async function apiFetch<T>(user: User, path: string, init: RequestInit = 
 
   const data = await readResponseBody(response);
 
-  if (!response.ok && response.status !== 409) {
+  if (!response.ok) {
     throw new ApiError(
       getApiMessage(response, data),
       response.status,
       getResponseCode(data),
       getCurrentVersion(data),
+      data,
     );
   }
 
@@ -443,10 +463,23 @@ export async function uploadMasterSchedule(user: User, file: File): Promise<Pars
     throw new ApiError('Could not upload to storage. Check your connection and try again.');
   });
 
-  const result = await apiFetch<ParseResult>(user, '/sync/parse-schedule', {
-    method: 'POST',
-    body: JSON.stringify({ uploadBatchId: signed.upload.id }),
-  });
+  let result: ParseResult;
+  try {
+    result = await apiFetch<ParseResult>(user, '/sync/parse-schedule', {
+      method: 'POST',
+      body: JSON.stringify({ uploadBatchId: signed.upload.id }),
+    });
+  } catch (error: unknown) {
+    if (
+      error instanceof ApiError &&
+      error.status === 409 &&
+      isBlockedParseResult(error.payload)
+    ) {
+      result = error.payload;
+    } else {
+      throw error;
+    }
+  }
 
   return { ...result, uploadBatchId: signed.upload.id };
 }
@@ -515,7 +548,7 @@ export async function approvePlannedCourseRun(
   runId: string,
   expectedVersion: number,
 ): Promise<PlannedCourseRun> {
-  const data = await apiFetch<{ run: PlannedCourseRun } | Record<string, unknown>>(
+  const data = await apiFetch<{ run: PlannedCourseRun }>(
     user,
     `/course-planning/runs/${encodeURIComponent(runId)}/approve`,
     {
@@ -523,8 +556,7 @@ export async function approvePlannedCourseRun(
       body: JSON.stringify({ expectedVersion }),
     },
   );
-  throwIfPlannedRunStale(data);
-  return (data as { run: PlannedCourseRun }).run;
+  return data.run;
 }
 
 export async function schedulePlannedCourseRun(
@@ -532,9 +564,7 @@ export async function schedulePlannedCourseRun(
   runId: string,
   input: { expectedVersion: number; startDate: string; endDate: string },
 ): Promise<{ run: PlannedCourseRun; session: ScheduledDraftSession }> {
-  const data = await apiFetch<
-    { run: PlannedCourseRun; session: ScheduledDraftSession } | Record<string, unknown>
-  >(
+  const data = await apiFetch<{ run: PlannedCourseRun; session: ScheduledDraftSession }>(
     user,
     `/course-planning/runs/${encodeURIComponent(runId)}/session`,
     {
@@ -542,8 +572,7 @@ export async function schedulePlannedCourseRun(
       body: JSON.stringify(input),
     },
   );
-  throwIfPlannedRunStale(data);
-  return data as { run: PlannedCourseRun; session: ScheduledDraftSession };
+  return data;
 }
 
 export async function fetchSessionHistory(user: User, sessionId: string): Promise<SessionHistoryEntry[]> {
@@ -569,7 +598,7 @@ export async function updateSessionTrainer(
   expectedVersion: number,
   note: string,
 ): Promise<SessionTrainerUpdateResponse> {
-  const data = await apiFetch<SessionTrainerUpdateResponse | Record<string, unknown>>(
+  return apiFetch<SessionTrainerUpdateResponse>(
     user,
     `/sessions/${encodeURIComponent(sessionId)}/trainer`,
     {
@@ -577,28 +606,6 @@ export async function updateSessionTrainer(
       body: JSON.stringify({ trainerId, expectedVersion, note }),
     },
   );
-
-  if (getResponseCode(data) === 'stale_session_version') {
-    throw new ApiError(
-      getResponseMessage(data) ?? 'This session changed after you opened it. Reload before trying again.',
-      409,
-      'stale_session_version',
-      getCurrentVersion(data),
-    );
-  }
-
-  return data as SessionTrainerUpdateResponse;
-}
-
-function throwIfPlannedRunStale(data: unknown): void {
-  if (getResponseCode(data) === 'stale_planned_course_run_version') {
-    throw new ApiError(
-      getResponseMessage(data) ?? 'This planned run changed after you opened it. Reload before trying again.',
-      409,
-      'stale_planned_course_run_version',
-      getCurrentVersion(data),
-    );
-  }
 }
 
 async function readResponseBody(response: Response): Promise<unknown> {
@@ -613,6 +620,105 @@ async function readResponseBody(response: Response): Promise<unknown> {
   } catch {
     return text;
   }
+}
+
+function isBlockedParseResult(value: unknown): value is ParseResult {
+  if (!isRecord(value) || !isRecord(value.summary)) return false;
+
+  const summary = value.summary;
+  const numericFields = [
+    'totalRows',
+    'validRows',
+    'inserts',
+    'updates',
+    'unchanged',
+    'skipped',
+    'cancellations',
+    'conflicts',
+    'changeCount',
+  ];
+  if (!numericFields.every((field) => isNonNegativeInteger(summary[field]))) return false;
+  if (
+    'existingSessions' in summary &&
+    !isNonNegativeInteger(summary.existingSessions)
+  ) {
+    return false;
+  }
+  if (
+    typeof summary.autoApplied !== 'boolean' ||
+    summary.requiresConfirmation !== true ||
+    summary.blocked !== true ||
+    (typeof summary.blockReason !== 'string' && summary.blockReason !== null)
+  ) {
+    return false;
+  }
+
+  if (!Array.isArray(value.alerts) || !value.alerts.every(isParseAlert)) return false;
+  if (!Array.isArray(value.conflicts) || !value.conflicts.every(isScheduleImportConflict)) {
+    return false;
+  }
+  if ('rows' in value && !Array.isArray(value.rows)) return false;
+  if ('applied' in value && value.applied !== undefined && !isAppliedResult(value.applied)) {
+    return false;
+  }
+
+  return true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string';
+}
+
+function isParseAlert(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.code === 'string' &&
+    typeof value.message === 'string' &&
+    isNonNegativeInteger(value.rowNumber) &&
+    isNullableString(value.rawValue)
+  );
+}
+
+function isScheduleImportConflict(value: unknown): boolean {
+  if (!isRecord(value) || !Array.isArray(value.fields)) return false;
+  return (
+    typeof value.externalRef === 'string' &&
+    isNonNegativeInteger(value.rowNumber) &&
+    typeof value.sessionId === 'string' &&
+    value.reason === 'application_managed_difference' &&
+    value.fields.every(isScheduleImportConflictField)
+  );
+}
+
+function isScheduleImportConflictField(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.field === 'string' &&
+    isNullableStringOrNumber(value.current) &&
+    isNullableStringOrNumber(value.incoming)
+  );
+}
+
+function isNullableStringOrNumber(value: unknown): value is string | number | null {
+  return value === null || typeof value === 'string' || typeof value === 'number';
+}
+
+function isAppliedResult(value: unknown): boolean {
+  if (!isRecord(value) || !Array.isArray(value.conflicts)) return false;
+  return (
+    isNonNegativeInteger(value.applied) &&
+    isNonNegativeInteger(value.skipped) &&
+    isNonNegativeInteger(value.unchanged) &&
+    value.conflicts.every(isScheduleImportConflict)
+  );
 }
 
 function getApiMessage(response: Response, data: unknown): string {
@@ -652,4 +758,3 @@ function getCurrentVersion(data: unknown): number | null {
   const currentVersion = (data as { currentVersion?: unknown }).currentVersion;
   return typeof currentVersion === 'number' ? currentVersion : null;
 }
-
