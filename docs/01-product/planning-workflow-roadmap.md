@@ -286,7 +286,7 @@ AI functions, migrations, environment files, or future-feature routes.
 Historical PRs remain unchanged. Continue with PR3 sub-parts so the existing PR4
 Trainer Picker milestone keeps its original identity.
 
-The historical PR3G white/red foundation was followed by completed PR3H and
+The historical PR3G-V white/red foundation was followed by completed PR3H and
 PR3I implementations. The approved PR3G-V V4 Sessions revision remains
 upcoming. The last-verified deployed application baseline is
 `749908290131882505efb011300d446ee9926c74`; repository `main` is
