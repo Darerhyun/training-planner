@@ -12,7 +12,7 @@ function getAdminEmails(): Set<string> {
   return new Set((process.env.ADMIN_EMAILS ?? '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean));
 }
 
-export function initialRole(email: string, _hasOpenInvitation: boolean): UserRole {
+export function initialRole(email: string): UserRole {
   return getAdminEmails().has(email.trim().toLowerCase()) ? 'admin' : 'pending';
 }
 
@@ -36,7 +36,7 @@ export async function findOrCreateUser(
   return transaction(async (tx) => {
     // This exact lock expression/order is shared with invitation creation.
     // It serializes first sign-in against a concurrent invitation for the
-    // same normalized email before either side checks the opposing table.
+    // same normalized email before checking or creating the users row.
     await tx('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [normalizedEmail]);
     const existing = await tx<User>(
       `SELECT id, firebase_uid, email, display_name, role, is_active, version, created_at, updated_at
@@ -45,13 +45,7 @@ export async function findOrCreateUser(
     );
     if (existing.length > 0) return existing[0];
 
-    const openInvitation = await tx<{ id: string }>(
-      `SELECT id FROM user_invitations WHERE email = $1 AND status = 'pending' LIMIT 1 FOR UPDATE`,
-      [normalizedEmail],
-    );
-    // An invitation never grants access; the allowlist remains an independent
-    // bootstrap/recovery path even when an invitation exists.
-    const role = initialRole(normalizedEmail, openInvitation.length > 0);
+    const role = initialRole(normalizedEmail);
     const inserted = await tx<User>(
       `INSERT INTO users (firebase_uid, email, display_name, role, is_active, version)
        VALUES ($1, $2, $3, $4, TRUE, 1)
