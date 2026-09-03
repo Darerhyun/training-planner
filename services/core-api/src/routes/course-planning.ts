@@ -1,8 +1,8 @@
 import { Hono, type MiddlewareHandler } from 'hono';
-import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { authMiddleware, getDb, requireRole, withTransaction } from '@training-planner/shared';
 import type { AppEnv, SqlQuery, TransactionHandler } from '@training-planner/shared';
 import { resolvePlanningProfile } from '../planning-profiles.js';
+import { HttpError } from '../lib/http-error.js';
 
 type PlannedCourseRunStatus = 'proposed' | 'approved' | 'scheduled';
 
@@ -84,16 +84,6 @@ type CreatedSessionRow = {
   version: number;
 };
 
-class HttpError extends Error {
-  constructor(
-    public readonly status: ContentfulStatusCode,
-    message: string,
-    public readonly body: Record<string, unknown> = { error: message },
-  ) {
-    super(message);
-    this.name = 'HttpError';
-  }
-}
 
 function parseMonth(value: string | undefined): string | undefined {
   if (!value || !/^\d{4}-\d{2}$/.test(value)) return undefined;
@@ -151,7 +141,6 @@ function resolveCoursePlanningProfile(courseCode: string, venueCode: string, evi
 
 function planningMonthOutOfRange(): HttpError {
   return new HttpError(422, 'Planned runs can only be changed within the current Singapore month and 12 calendar months ahead.', {
-    error: 'Planned runs can only be changed within the current Singapore month and 12 calendar months ahead.',
     code: 'planning_month_out_of_range',
   });
 }
@@ -237,7 +226,6 @@ function parseScheduleBody(body: unknown):
 
 function staleRun(version: number): HttpError {
   return new HttpError(409, 'This planned run changed after you opened it. Reload and try again.', {
-    error: 'This planned run changed after you opened it. Reload and try again.',
     code: 'stale_planned_course_run_version',
     currentVersion: version,
   });
@@ -404,7 +392,6 @@ export function createCoursePlanningRoutes(options: CoursePlanningRouteOptions =
           );
           if (!courseRows[0]) {
             throw new HttpError(422, 'Course is not in the active planning catalog.', {
-              error: 'Course is not in the active planning catalog.',
               code: 'inactive_or_unknown_course',
             });
           }
@@ -474,7 +461,6 @@ export function createCoursePlanningRoutes(options: CoursePlanningRouteOptions =
           assertPlanningMonthWritable(locked.planning_month, currentMonth());
           if (locked.status !== 'proposed') {
             throw new HttpError(422, 'Only proposed runs can be approved.', {
-              error: 'Only proposed runs can be approved.',
               code: 'planned_run_not_proposed',
             });
           }
@@ -518,13 +504,11 @@ export function createCoursePlanningRoutes(options: CoursePlanningRouteOptions =
           assertPlanningMonthWritable(locked.planning_month, currentMonth());
           if (locked.status !== 'approved' || locked.session_id) {
             throw new HttpError(422, 'Only approved, unscheduled runs can create a Session.', {
-              error: 'Only approved, unscheduled runs can create a Session.',
               code: 'planned_run_not_schedulable',
             });
           }
           if (parsed.startDate.slice(0, 7) !== locked.planning_month.slice(0, 7)) {
             throw new HttpError(422, 'Session start date must fall within the planning month.', {
-              error: 'Session start date must fall within the planning month.',
               code: 'session_start_outside_planning_month',
             });
           }

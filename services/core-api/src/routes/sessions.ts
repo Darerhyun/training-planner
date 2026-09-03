@@ -1,7 +1,7 @@
 import { Hono, type MiddlewareHandler } from 'hono';
-import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { authMiddleware, getDb, requireRole, withTransaction } from '@training-planner/shared';
 import type { AppEnv, SqlQuery, TransactionHandler } from '@training-planner/shared';
+import { HttpError } from '../lib/http-error.js';
 
 type SessionRouteOptions = {
   db?: SqlQuery;
@@ -62,16 +62,6 @@ type HistoryRow = {
   created_at: string;
 };
 
-class HttpError extends Error {
-  constructor(
-    public readonly status: ContentfulStatusCode,
-    message: string,
-    public readonly body: Record<string, unknown> = { error: message },
-  ) {
-    super(message);
-    this.name = 'HttpError';
-  }
-}
 
 export function createSessionsRoutes(options: SessionRouteOptions = {}): Hono<AppEnv> {
   const sessionsRoutes = new Hono<AppEnv>();
@@ -221,14 +211,12 @@ export function createSessionsRoutes(options: SessionRouteOptions = {}): Hono<Ap
           if (!session) throw new HttpError(404, 'Session not found');
           if (session.version !== parsed.expectedVersion) {
             throw new HttpError(409, 'Session was changed by another user. Reload and try again.', {
-              error: 'Session was changed by another user. Reload and try again.',
               code: 'stale_session_version',
               currentVersion: session.version,
             });
           }
           if (!session.course_code) {
             throw new HttpError(422, 'Unresolved courses cannot receive a trainer assignment.', {
-              error: 'Unresolved courses cannot receive a trainer assignment.',
               code: 'unresolved_session_course',
             });
           }
@@ -260,7 +248,6 @@ export function createSessionsRoutes(options: SessionRouteOptions = {}): Hono<Ap
           );
           if (updatedRows.length === 0) {
             throw new HttpError(409, 'Session was changed by another user. Reload and try again.', {
-              error: 'Session was changed by another user. Reload and try again.',
               code: 'stale_session_version',
               currentVersion: session.version,
             });
@@ -351,13 +338,13 @@ async function validateTrainer(
   const trainer = rows[0];
   if (!trainer) throw new HttpError(404, 'Trainer not found');
   if (!trainer.is_active) {
-    throw new HttpError(422, 'Trainer is inactive.', { error: 'Trainer is inactive.', code: 'inactive_trainer' });
+    throw new HttpError(422, 'Trainer is inactive.', { code: 'inactive_trainer' });
   }
   if ((trainer.module_excludes ?? []).includes(courseCode)) {
-    throw new HttpError(422, 'Trainer is excluded from this course.', { error: 'Trainer is excluded from this course.', code: 'trainer_excluded' });
+    throw new HttpError(422, 'Trainer is excluded from this course.', { code: 'trainer_excluded' });
   }
   if (!trainer.course_linked) {
-    throw new HttpError(422, 'Trainer is not linked to this course.', { error: 'Trainer is not linked to this course.', code: 'trainer_not_linked_to_course' });
+    throw new HttpError(422, 'Trainer is not linked to this course.', { code: 'trainer_not_linked_to_course' });
   }
   return { id: trainer.trainer_id, name: trainer.name };
 }
