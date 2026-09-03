@@ -86,10 +86,18 @@ Use exactly:
 Do not continue past the affected step until Sol resolves the escalation and,
 when product authority is needed, the user approves the decision.
 
-## 6. Current deployment state
+## 6. Repository and deployment evidence
 
-PR3G is merged at `2d061c990d4fd5bdb1aba062881cffb174870fd0` and is live on
-Cloud Run revision `core-api-00003-lqk` with Firebase Hosting release `4634ed`.
-This record does not authorise another deployment, rollback, infrastructure or
-provider change. Every future release remains subject to the review, acceptance,
-express authorization, rollback, cost, and post-deployment gates above.
+The repository `main` source baseline for the current documentation work is
+`130b1e61b2822d572f29f677ad4a9f2a786d98ce`, verified read-only before branching.
+The deployed application baseline is
+`749908290131882505efb011300d446ee9926c74`, recorded as last-verified evidence.
+These baselines are intentionally distinct; repository `main` may contain
+changes that are not present in the deployed application.
+
+Production and provider facts are last-verified evidence only unless Terra or
+another authorized reviewer independently rechecks them read-only. This
+documentation work performs no provider read or mutation and does not authorize
+another deployment, rollback, infrastructure, or provider change. Every future
+release remains subject to the review, acceptance, express authorization,
+rollback, cost, and post-deployment gates above.
