@@ -15,7 +15,7 @@
     "check:infra": "node scripts/check-infra-guardrails.mjs",
     "seed-reference-data": "npm run seed-reference-data --workspace=services/core-api",
     "start": "npm run start --workspace=services/core-api",
-    "test": "npm run test --workspace=services/core-api",
+    "test": "npm run test --workspace=services/core-api && npm run test --workspace=apps/web",
     "typecheck": "npm run typecheck --workspace=services/shared && npm run typecheck --workspace=services/core-api && npm run typecheck --workspace=apps/web"
   },
   "engines": {

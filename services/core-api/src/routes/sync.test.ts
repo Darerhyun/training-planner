@@ -308,6 +308,58 @@ test('auto-apply commits sessions and upload status in one transaction', async (
   });
 });
 
+test('initial blocked parse returns the full parse result with a 409 contract', async () => {
+  await withBucket(async () => {
+    const result = parseResult(mapped({ status: 'cancelled' }), {
+      requiresConfirmation: true,
+      blocked: true,
+      blockReason: 'Parse would cancel more than 50% of existing sessions.',
+    });
+    const store = createStore({
+      id: 'batch-blocked-initial',
+      gcs_object_name: 'schedule.xlsx',
+      status: 'uploaded',
+      parse_result: null,
+    });
+
+    const response = await createApp(store, result).request('/sync/parse-schedule', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ uploadBatchId: 'batch-blocked-initial' }),
+    });
+
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), result);
+    assert.equal(store.state.batch.status, 'blocked');
+    assert.deepEqual(store.state.batch.parse_result, result);
+  });
+});
+
+test('replaying a blocked parse returns the same full 409 contract', async () => {
+  const result = parseResult(mapped({ status: 'cancelled' }), {
+    requiresConfirmation: true,
+    blocked: true,
+    blockReason: 'Parse would cancel more than 50% of existing sessions.',
+  });
+  const store = createStore({
+    id: 'batch-blocked-replay',
+    gcs_object_name: 'schedule.xlsx',
+    status: 'blocked',
+    parse_result: result,
+  });
+
+  const response = await createApp(store, parseResult(mapped())).request('/sync/parse-schedule', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ uploadBatchId: 'batch-blocked-replay' }),
+  });
+
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), result);
+  assert.equal(store.transactionCount, 0);
+  assert.equal(store.state.batch.status, 'blocked');
+});
+
 test('rolls back session writes when the batch result write fails', async () => {
   await withBucket(async () => {
     const store = createStore(
