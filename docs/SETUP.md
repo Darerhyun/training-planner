@@ -1,11 +1,19 @@
 # Setup and Infrastructure Recovery
 
 This is the single authoritative guide for local development and the gated
-Training Planner infrastructure recovery. The former Google project was
-deleted. A replacement project and selected identity/database foundations now
-exist, but there is still no deployed Training Planner environment. This
-repository change does not provision, restore, migrate, grant access, create
-secrets, dispatch a workflow, or deploy anything.
+Training Planner infrastructure recovery. The repository `main` source baseline
+for this documentation change is
+`130b1e61b2822d572f29f677ad4a9f2a786d98ce`, verified read-only before branching.
+The deployed application baseline is
+`749908290131882505efb011300d446ee9926c74`, recorded as last-verified evidence.
+These are distinct baselines; repository `main` may contain changes that are not
+present in the deployed application.
+
+Production, provider, and deployment details below are last-verified evidence
+only, not current-state guarantees, unless independently reverified read-only.
+This documentation change performs no provider read or mutation and does not
+provision, restore, migrate, grant access, create secrets, dispatch a workflow,
+or deploy anything.
 
 All provider commands below are examples for a later, separately authorized
 recovery run. Replace placeholders only at that checkpoint and never commit the
@@ -42,38 +50,34 @@ Without a new user-approved cost exception, do not create Cloud SQL, Compute
 Engine, GKE, Cloud Run minimum instances above zero, instance-based Cloud Run
 billing, Serverless VPC Access, Cloud NAT, GPUs, or indefinite upload retention.
 
-## Recovery state
+## Last-verified production evidence
 
-The following foundations were created manually and have been verified without
-committing their live identifiers:
+Last verified: 3 September 2026. This is a read-only evidence record supplied
+for the documentation update, not a live recheck by this PR. Reverify volatile
+provider state before any action; no production or provider state is changed by
+this documentation work.
 
-- a replacement Firebase/Google Cloud project and registered Firebase Hosting
-  web app;
-- Firebase Authentication with email/password and passwordless email-link
-  sign-in enabled;
-- the Secret Manager API;
-- separate runtime and deployment service accounts, both with no user-managed
-  keys;
-- a GitHub Actions Workload Identity Federation pool, OIDC provider, and
-  repository-scoped deployer binding;
-- a Neon PostgreSQL 17 project on AWS in Singapore, with the live production
-  compute limited to 0.25-0.5 CU and Free-plan autosuspend.
+- The deployed application baseline is
+  `749908290131882505efb011300d446ee9926c74`; repository `main` is the distinct
+  source baseline `130b1e61b2822d572f29f677ad4a9f2a786d98ce`.
+- The PR3I production schema and access structures are present in the recorded
+  production evidence; no new migration is authorized here.
+- The `core-api` Cloud Run service and Firebase Hosting application are recorded
+  as live. Their revision, traffic, release, and endpoint details remain
+  volatile evidence and must be independently reverified before use.
+- Cloud Run secret mappings are pinned to numeric Secret Manager versions:
+  database `:3` and admin-email allowlist `:2`. Secret values were not read and
+  must never be committed or printed.
+- Artifact Registry cleanup is recorded at 30 days; the temporary upload bucket
+  lifecycle is recorded at one day with restricted CORS. Exact provider
+  identifiers and endpoint values remain outside this repository.
+- The approved Neon PostgreSQL 17 target is recorded in Singapore with the
+  bounded 0.25-0.5 CU production compute range and Free-plan autosuspend. The
+  project-wide default may be higher; reverify before any provider action.
 
-The following resources or controls are still absent or have not been verified:
-
-- restored database schema and data, restricted runtime roles, and recovery
-  reconciliation evidence;
-- Secret Manager secrets for the pooled database URL and bootstrap admin
-  allowlist;
-- the temporary upload bucket, its one-day lifecycle, restricted CORS, and
-  signed-URL service-account capability;
-- the Artifact Registry repository and its 30-day cleanup policy;
-- the Cloud Run service and Firebase Hosting release;
-- exact least-privilege IAM grants for the deployment and runtime identities.
-
-The project-wide default Neon compute range may remain higher on the Free plan;
-only the verified live production compute is approved. Do not create another
-branch, endpoint, or compute without a new review.
+These facts do not authorize provider work, schema migration, secret rotation,
+IAM changes, workflow dispatch, or deployment. Do not create another project,
+database branch, endpoint, or compute without a new review and fresh evidence.
 
 ## Recovery blockers
 
@@ -162,9 +166,10 @@ the resource, IAM impact, cost impact, validation, and rollback.
 
 ### Neon
 
-The approved PostgreSQL 17 project already exists in Singapore. Retain the live
-0.25-0.5 CU compute range and Free-plan autosuspend. Do not create another
-project, branch, endpoint, or compute as part of deployment readiness.
+The last-verified evidence records an approved PostgreSQL 17 project in
+Singapore. Retain the recorded 0.25-0.5 CU compute range and Free-plan
+autosuspend only after a fresh read-only check. Do not create another project,
+branch, endpoint, or compute as part of deployment readiness.
 
 Neon provides two connection types:
 
@@ -179,9 +184,10 @@ during authorized provisioning. Do not commit either URL.
 
 ### Firebase
 
-The recovery project, Hosting web app, and email/password plus email-link sign-in
-already exist. Add only approved local and hosted domains, and do not enable
-additional sign-in providers without a separate authorization decision.
+The last-verified evidence records a recovery project, Hosting web app, and
+email/password plus email-link sign-in. Reverify them before any change. Add
+only approved local and hosted domains, and do not enable additional sign-in
+providers without a separate authorization decision.
 
 Cloud Run must be configured separately with public invocation so browser
 requests can reach the API. Before dispatch, the separate manual provider/IAM gate

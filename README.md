@@ -13,9 +13,19 @@ updates are reflected in the company's official training management system.
 - Firebase Auth for email magic-link sign-in and role-based access
 - Temporary Google Cloud Storage signed uploads with one-day retention
 
-No live Training Planner environment currently exists. The former Google project
-was deleted. This repository records the approved recovery design and cost
-guardrails, but does not provision or deploy any provider resource.
+## Repository and deployment evidence
+
+The repository `main` source baseline for this documentation change is
+`130b1e61b2822d572f29f677ad4a9f2a786d98ce`, verified read-only before the branch
+was created. The deployed application baseline is
+`749908290131882505efb011300d446ee9926c74`, recorded as last-verified evidence.
+These are intentionally distinct: repository `main` may contain changes that
+are not present in the deployed application baseline.
+
+Provider, production, and deployment facts are evidence records rather than
+current-state guarantees unless independently reverified. This documentation
+change performs no provider read or mutation and does not provision, configure,
+dispatch, or deploy any resource.
 
 ## Project map
 
@@ -23,6 +33,7 @@ guardrails, but does not provision or deploy any provider resource.
 - Delivery harness: [WORKFLOW_HARNESS.md](WORKFLOW_HARNESS.md)
 - Domain knowledge index: [docs/00-INDEX.md](docs/00-INDEX.md)
 - Local setup and recovery plan: [docs/SETUP.md](docs/SETUP.md)
+- Audit maintenance backlog: [docs/01-product/maintenance-backlog.md](docs/01-product/maintenance-backlog.md)
 - Machine-checked cost controls: [infra/cost-guardrails.json](infra/cost-guardrails.json)
 
 This repo is a planning aid, not the regulated system of record. Sensitive

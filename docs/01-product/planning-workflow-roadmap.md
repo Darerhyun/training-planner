@@ -1,7 +1,12 @@
 # Training Planner — Planning and Sessions Roadmap
 
-Status: Approved product direction; PR3G merged and deployed; PR3G-V visual foundation precedes PR3H
-Last updated: 26 August 2026
+Status: Approved product direction; historical PR3G-V foundation, PR3H, and PR3I complete; PR3G-V V4 and PR3J pending
+Last updated: 3 September 2026
+
+Repository `main` source baseline: `130b1e61b2822d572f29f677ad4a9f2a786d98ce`
+(verified read-only for this documentation change). Deployed application
+baseline: `749908290131882505efb011300d446ee9926c74` (last-verified evidence;
+not independently reverified in this change). These baselines are distinct.
 
 ## 1. Purpose
 
@@ -11,6 +16,16 @@ and the Admin Area.
 
 It extends the existing roadmap. It does not replace or renumber completed PR1,
 PR2, or PR3 work.
+
+## 1a. Planning rulebook versus audit backlog
+
+The numbered rules in `docs/02-domain/planning-rules.md` are the product
+planning rulebook: its R1–R12 IDs describe scheduling constraints and planning
+heuristics. The R1–R15 IDs in
+[`maintenance-backlog.md`](maintenance-backlog.md) are a separate set of audit
+recommendations about repository maintenance. Identical numbers across those
+two documents do not refer to the same work, and no audit recommendation changes
+the planning rulebook unless a future product decision explicitly says so.
 
 ## 2. Source-of-truth decision
 
@@ -271,8 +286,17 @@ AI functions, migrations, environment files, or future-feature routes.
 Historical PRs remain unchanged. Continue with PR3 sub-parts so the existing PR4
 Trainer Picker milestone keeps its original identity.
 
-PR3G is complete and deployed. PR3G-V is the presentation-only visual-foundation
-extension immediately before PR3H. It does not renumber or reopen historical PRs.
+The historical PR3G white/red foundation was followed by completed PR3H and
+PR3I implementations. The approved PR3G-V V4 Sessions revision remains
+upcoming. The last-verified deployed application baseline is
+`749908290131882505efb011300d446ee9926c74`; repository `main` is
+`130b1e61b2822d572f29f677ad4a9f2a786d98ce`. This distinction does not renumber
+or reopen historical PRs.
+
+The next bounded sequence is: this documentation truth-and-backlog PR → revised
+R5 → revised R1 → revised R12 (structural-only) → PR3G-V V4 Sessions revision →
+integrated validation/deployment gate → PR3J. None of those upcoming steps is
+started by this documentation change.
 
 ### PR3E — Product and data-ownership contract (completed)
 
@@ -302,28 +326,28 @@ extension immediately before PR3H. It does not renumber or reopen historical PRs
   import-conflict presentation.
 - Retained the old basic Sessions implementation because full local/mocked role,
   mobile, stale-edit, and conflict parity acceptance remains outstanding.
-- Merged at `2d061c990d4fd5bdb1aba062881cffb174870fd0` and deployed through
-  Cloud Run revision `core-api-00003-lqk` with Firebase Hosting release `4634ed`.
+- Merged at `2d061c990d4fd5bdb1aba062881cffb174870fd0`. Any Cloud Run revision or
+  Firebase Hosting release associated with that historical milestone is
+  last-verified evidence only; the deployed application baseline recorded above
+  is the distinct `749908290131882505efb011300d446ee9926c74`.
 - Trainer recommendations remain deferred to PR4.
 
 ### PR3G-V — ASK UX Visual Foundation
 
-- Apply the ASK white/red presentation tokens and branded login/access/application
-  shell to the existing PR3G frontend.
-- Adopt only feasible presentation patterns from the external Lovable export:
-  cards, metric hierarchy, pills, segmented date modes, filter organisation,
-  sticky table headers, selected rows, detail panels, Sync/conflict states, and
-  responsive hierarchy.
-- Preserve all current Sessions, Sync, Legacy Sessions, role, history, trainer
-  amendment, stale-write, conflict, pagination, and date-window behaviour.
-- Add no routes or future features and make no API, auth, backend, database,
-  infrastructure, provider, dependency, or deployment change.
-- Validate rendered desktop and 320px states with local or mocked fixtures only;
-  never use production application data.
-- Complete and accept this visual foundation before PR3H so subsequent pages use
-  one consistent component language.
+- **Historical foundation (completed).** The white/red presentation tokens and
+  branded shell merged at `ae9ef2018aeb2ea2086a98b3621876c242de721d` before
+  PR3H. That historical implementation remains separate and is not reopened.
+- **Approved V4 Sessions revision (upcoming).** Apply the approved V4
+  frontend-only Sessions visual/interaction revision using the immutable inputs
+  archived under `docs/03-design/`.
+- The V4 revision must preserve current Sessions, Sync, Legacy Sessions, role,
+  history, trainer amendment, stale-write, conflict, pagination, and date-window
+  behavior; it adds no API, auth, backend, database, infrastructure, provider,
+  dependency, or deployment change.
+- The V4 revision follows revised R12's structural-only extraction. This
+  documentation PR records the approval and assets only; it does not begin V4.
 
-### PR3H — Future Course Planning
+### PR3H — Future Course Planning (completed; merged)
 
 - Add a month-based course planning model and page.
 - Use the committed planning profiles and monthly profiles as read-only evidence.
@@ -332,8 +356,9 @@ extension immediately before PR3H. It does not renumber or reopen historical PRs
   action.
 - Do not automatically assign a trainer or generate dates.
 - Do not introduce AI recommendations.
+- Merged at `2c6a59895df2000a30e21f2c0056abb81363cccc`.
 
-### PR3I — Admin Panel: User Access
+### PR3I — Admin Panel: User Access (completed; merged)
 
 - Add an Admin-only User Access section.
 - Invite colleagues by email with an intended role.
@@ -341,6 +366,7 @@ extension immediately before PR3H. It does not renumber or reopen historical PRs
 - Deactivate or reactivate access without deleting user history.
 - Keep Firebase magic-link sign-in; Admins never create or know user passwords.
 - Do not include Trainer Directory changes in this PR.
+- Merged at `749908290131882505efb011300d446ee9926c74`.
 
 ### PR3J — Admin Panel: Trainer Directory
 

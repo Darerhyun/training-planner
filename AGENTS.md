@@ -33,11 +33,20 @@ Excel is an import source only. After import, the Training Planner app is author
 
 Multi-user from day one. Roles live on `users.role` (enum: `admin | ops | finance | viewer | pending | rejected`). New signups land as `pending` until an admin approves.
 
-## Architecture and deployment state
+## Architecture and deployment evidence
 
-The application uses standard PostgreSQL contracts and is live in the recovered, cost-controlled Google project. PR3G is merged at `2d061c990d4fd5bdb1aba062881cffb174870fd0` and deployed through Cloud Run revision `core-api-00003-lqk` with Firebase Hosting release `4634ed`.
+The application uses the approved PostgreSQL, Cloud Run, Firebase Hosting,
+Firebase Auth, and GCS contracts. The repository `main` source baseline for the
+current documentation work is `130b1e61b2822d572f29f677ad4a9f2a786d98ce`,
+verified read-only before branching. The deployed application baseline is
+`749908290131882505efb011300d446ee9926c74`, recorded as last-verified evidence.
+These are distinct baselines; repository `main` may contain changes that have
+not been deployed.
 
-Cloud Run, Firebase Hosting, Firebase Auth, GCS upload, and the connected PostgreSQL database remain the approved application architecture. This current-state record does not authorise another deployment or any provider change; those actions remain separately gated by `WORKFLOW_HARNESS.md`.
+Production and provider details are evidence records, not current-state
+guarantees, unless independently reverified read-only. This record does not
+authorise another deployment or provider change; those actions remain separately
+gated by `WORKFLOW_HARNESS.md`.
 
 Do not recreate Cloud SQL without a new, explicit user-approved cost exception. Cloud SQL, Compute Engine, GKE, minimum Cloud Run instances, instance-based Cloud Run billing, Serverless VPC Access connectors, and Cloud NAT all require an explicit user-approved cost estimate, ceiling, monitoring, and rollback plan.
 
@@ -79,16 +88,22 @@ Build in this order. Each PR is independently reviewable. Do not jump ahead.
 	- **PR3D — Planning Profile annotations.** Completed: read-only CSV-backed planning profile annotations for direct history, FT proxy history, no-history courses, and unavailable profiles.
 	- **PR3E — Product and data-ownership contract.** Completed: approved Course Planning vs Sessions workflow and ownership roadmap committed as documentation.
 	- **PR3F — Session write safety and audit foundation.** Completed: ownership, optimistic concurrency, session history, Admin/Ops trainer assignment endpoint, and Sync conflict protection.
-	- **PR3G — Sessions UX and navigation consolidation.** Completed, merged, and deployed: enhanced Sessions navigation, date modes, role-appropriate trainer amendment, history/detail states, stale-write handling, and protected Sync conflict presentation.
-	- **PR3G-V — ASK UX Visual Foundation.** Presentation-only extension before PR3H: apply ASK's white/red visual language and feasible patterns from the external Lovable export without importing its architecture or changing current behaviour.
-	- **PR3H — Future Course Planning.** Add month-based Course Planning using planning profiles as evidence, with explicit creation of draft Sessions from approved planned runs.
-	- **PR3I — Admin Panel: User Access.** Add the Admin-only workflow to invite, approve, reject, assign roles, deactivate, and reactivate application users.
+	- **PR3G — Sessions UX and navigation consolidation.** Completed and merged: enhanced Sessions navigation, date modes, role-appropriate trainer amendment, history/detail states, stale-write handling, and protected Sync conflict presentation. Any deployment details for this historical milestone are evidence only.
+	- **PR3G-V — ASK UX Visual Foundation.** Historical white/red presentation foundation completed before PR3H; the approved V4 Sessions frontend-only revision is upcoming after revised R12. Its V4 design inputs are archived under `docs/03-design/`; no V4 implementation is part of this work.
+	- **PR3H — Future Course Planning.** Completed: month-based Course Planning using planning profiles as evidence, with explicit creation of draft Sessions from approved planned runs.
+	- **PR3I — Admin Panel: User Access.** Completed: Admin-only workflow to invite, approve, reject, assign roles, deactivate, and reactivate application users.
 	- **PR3J — Admin Panel: Trainer Directory.** Add the Admin-only workflow to register and edit trainers, activate/deactivate records, and manage course links and module exclusions.
 4. **PR4 — Trainer picker drawer** with rules-based suggestions (skills, SME boost, exclusions, tier/cost awareness).
 5. **PR5 — AI assistant chat** (propose → confirm → execute pattern).
 6. **PR6 — Gantt trainers view, Calendar view, Activity page.**
 
-Complete and accept PR3G-V before PR3H so future pages inherit one visual foundation. PR3I and PR3J remain separate; PR4–PR6 retain their historical identities and numbering.
+The historical PR3G-V white/red foundation, PR3H, and PR3I retain their
+historical identities and are complete in the repository history. The approved
+PR3G-V V4 Sessions revision remains upcoming after revised R12; PR3J remains
+separate and pending. PR4–PR6 retain their historical identities and numbering.
+Audit recommendations R1–R15 are tracked separately in
+`docs/01-product/maintenance-backlog.md`; they must not be confused with the
+planning rulebook R1–R12 in `docs/02-domain/planning-rules.md`.
 
 ## Key domain concepts (one-liners — details in docs/)
 
