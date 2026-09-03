@@ -344,10 +344,7 @@ export function createAdminUsersRoutes(deps: AdminUsersRouteDeps = {}) {
         let invitationId: string | null = null;
         if (action === 'approve') {
           const invitations = await tx<DbRow>(
-            `SELECT * FROM user_invitations
-             WHERE email=$1 AND status='pending'
-             ORDER BY created_at DESC,id DESC
-             LIMIT 1 FOR UPDATE`,
+            `SELECT * FROM user_invitations WHERE email=$1 AND status='pending' ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE`,
             [target.email],
           );
           if (invitations.length) {
