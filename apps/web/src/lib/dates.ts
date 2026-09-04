@@ -30,7 +30,55 @@ export function daysBetweenInclusive(from: string, to: string): number {
 }
 
 export function formatDateRange(from: string, to: string): string {
-  return `${from} to ${to}`;
+  return `${formatReadableDate(from)} → ${formatReadableDate(to)}`;
+}
+
+export function formatReadableDate(dateText: string): string {
+  const date = new Date(`${dateText}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return dateText;
+  return new Intl.DateTimeFormat('en-SG', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date);
+}
+
+export function formatCompactDateRange(from: string, to: string): string {
+  const start = new Date(`${from}T00:00:00.000Z`);
+  const end = new Date(`${to}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return `${from}–${to}`;
+
+  const startParts = new Intl.DateTimeFormat('en-SG', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).formatToParts(start);
+  const endParts = new Intl.DateTimeFormat('en-SG', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).formatToParts(end);
+  const parts = (values: Intl.DateTimeFormatPart[]) => Object.fromEntries(values.map((part) => [part.type, part.value]));
+  const startValue = parts(startParts);
+  const endValue = parts(endParts);
+  if (startValue.year === endValue.year && startValue.month === endValue.month) {
+    if (startValue.day === endValue.day) return `${startValue.day} ${startValue.month}`;
+    return `${startValue.day}–${endValue.day} ${endValue.month}`;
+  }
+  return `${startValue.day} ${startValue.month}–${endValue.day} ${endValue.month}`;
+}
+
+export function formatMonthHeading(month: string): string {
+  const date = new Date(`${month.slice(0, 7)}-01T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return month;
+  return new Intl.DateTimeFormat('en-SG', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date);
 }
 
 export function getMonthEnd(month: string): string {
