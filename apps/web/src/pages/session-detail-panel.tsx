@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ComponentType, FormEvent } from 'react';
 import type { User } from 'firebase/auth';
-import { Check, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronRight, RefreshCw, X } from 'lucide-react';
 import {
   ApiError,
   fetchSessionHistory,
@@ -12,38 +12,74 @@ import {
   type TrainerOption,
 } from '../api.js';
 import {
+  formatReadableDate,
+} from '../lib/dates.js';
+import {
   formatHistoryAction,
   formatHistoryTime,
   formatMonths,
   formatNumber,
   formatPercent,
+  getProgrammeTone, // FIX: render the approved programme tone in the drawer identity.
   profileSourceLabels,
 } from '../lib/format.js';
 
 type ActiveRole = 'admin' | 'ops' | 'finance' | 'viewer';
 type ApiErrorHandler = (error: unknown, setError: (message: string) => void) => Promise<void>;
-type SessionRenderer = ComponentType<{ session: PlanningSession }>;
+type IssueRenderer = ComponentType<{ session: PlanningSession; compact?: boolean }>;
+
+const issueDetails = [
+  {
+    key: 'unassignedTrainer',
+    label: 'Unassigned trainer',
+    description: 'No trainer is assigned. An eligible trainer is needed before the session can be confirmed.',
+  },
+  {
+    key: 'unresolvedVenue',
+    label: 'Unresolved venue',
+    description: 'The venue could not be matched to a canonical venue record.',
+  },
+  {
+    key: 'ownedVenueMissingRoom',
+    label: 'Missing room',
+    description: 'This owned venue does not have a room assigned to the session.',
+  },
+  {
+    key: 'capacityOverrun',
+    label: 'Over capacity',
+    description: 'The effective pax is above the assigned room capacity.',
+  },
+] as const;
+
+const statusLabels: Record<PlanningSession['status'], string> = {
+  draft: 'Draft',
+  confirmed: 'Confirmed',
+  cancelled: 'Cancelled',
+  completed: 'Completed',
+};
 
 export default function SessionDetailPanel({
   user,
   role,
   session,
+  focusTrainer = false,
+  returnFocusRef,
   onClose,
   onReload,
   onSessionUpdated,
   onApiError,
   IssueBadges,
-  PlanningProfileAnnotation,
 }: {
   user: User;
   role: ActiveRole;
   session: PlanningSession | null;
+  focusTrainer?: boolean;
+  returnFocusRef: { current: HTMLElement | null };
   onClose: () => void;
   onReload: () => void;
   onSessionUpdated: (session: PlanningSession) => void;
   onApiError: ApiErrorHandler;
-  IssueBadges: SessionRenderer;
-  PlanningProfileAnnotation: SessionRenderer;
+  IssueBadges: IssueRenderer;
 }) {
   const canEditTrainer = role === 'admin' || role === 'ops';
   const [history, setHistory] = useState<SessionHistoryEntry[]>([]);
@@ -58,6 +94,13 @@ export default function SessionDetailPanel({
   const [trainerError, setTrainerError] = useState('');
   const [trainerMessage, setTrainerMessage] = useState('');
   const [reloadRequired, setReloadRequired] = useState(false);
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const trainerSelectRef = useRef<HTMLSelectElement | null>(null);
+  const apiErrorRef = useRef(onApiError);
+  const onCloseRef = useRef(onClose);
+  apiErrorRef.current = onApiError;
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     let cancelled = false;
@@ -70,7 +113,7 @@ export default function SessionDetailPanel({
     setReloadRequired(false);
     setNote('');
     setProposedTrainerId(session?.trainer.id ?? '');
-    if (!session) return () => { cancelled = true; };
+    if (!session) return undefined;
 
     setHistoryLoading(true);
     fetchSessionHistory(user, session.id)
@@ -78,7 +121,7 @@ export default function SessionDetailPanel({
         if (!cancelled) setHistory(entries);
       })
       .catch((error: unknown) => {
-        if (!cancelled) void onApiError(error, setHistoryError);
+        if (!cancelled) void apiErrorRef.current(error, setHistoryError);
       })
       .finally(() => {
         if (!cancelled) setHistoryLoading(false);
@@ -91,13 +134,11 @@ export default function SessionDetailPanel({
           if (!cancelled) setTrainerOptions(options);
         })
         .catch((error: unknown) => {
-          if (!cancelled) void onApiError(error, setOptionsError);
+          if (!cancelled) void apiErrorRef.current(error, setOptionsError);
         })
         .finally(() => {
           if (!cancelled) setOptionsLoading(false);
         });
-    } else {
-      setOptionsLoading(false);
     }
 
     return () => {
@@ -105,15 +146,57 @@ export default function SessionDetailPanel({
     };
   }, [canEditTrainer, session?.id, user]);
 
-  if (!session) {
-    return (
-      <aside className="panel detail-panel muted-detail">
-        <h2>Session details</h2>
-        <p className="empty">Select a row to inspect the read-only session details.</p>
-      </aside>
-    );
-  }
+  useEffect(() => {
+    if (!session || typeof document === 'undefined') return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const animationFrame = typeof window === 'undefined' ? 0 : window.requestAnimationFrame(() => {
+      if (focusTrainer && canEditTrainer && !optionsLoading) {
+        trainerSelectRef.current?.focus();
+      } else {
+        closeButtonRef.current?.focus();
+      }
+    });
 
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      )).filter((element) => element.getClientRects().length > 0); // FIX: fixed-position drawer controls have no offsetParent but must remain tabbable.
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [canEditTrainer, focusTrainer, optionsLoading, session?.id]);
+
+  if (!session) return null;
+
+  const courseTitle = session.course.name ?? session.course.tmsCode ?? session.externalRef ?? 'Unresolved course';
   const currentTrainerId = session.trainer.id ?? '';
   const currentTrainerName = session.trainer.name ?? session.trainer.rawName ?? 'Unassigned';
   const selectedTrainer = trainerOptions.find((trainer) => trainer.id === proposedTrainerId);
@@ -126,6 +209,9 @@ export default function SessionDetailPanel({
     : currentTrainerId && !proposedTrainerId
       ? 'Unassign trainer'
       : 'Change trainer';
+  const orderedHistory = [...history].sort((left, right) => (
+    new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+  ));
 
   async function saveTrainer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -164,7 +250,7 @@ export default function SessionDetailPanel({
         setHistory(await fetchSessionHistory(user, session.id));
         setHistoryError('');
       } catch (historyFailure) {
-        void onApiError(historyFailure, setHistoryError);
+        void apiErrorRef.current(historyFailure, setHistoryError);
       } finally {
         setHistoryLoading(false);
       }
@@ -173,175 +259,236 @@ export default function SessionDetailPanel({
         setTrainerError('This session changed after you opened it. Reload the session before saving again.');
         setReloadRequired(true);
       } else {
-        void onApiError(error, setTrainerError);
+        void apiErrorRef.current(error, setTrainerError);
       }
     } finally {
       setTrainerSaving(false);
     }
   }
 
-  const detailRows = [
-    ['Course', session.course.name ?? 'Unresolved'],
-    ['Course code', session.course.code ?? '-'],
-    ['TMS code', session.course.tmsCode ?? '-'],
-    ['External ref', session.externalRef ?? '-'],
-    ['Status', session.status],
-    ['Management source', session.managementSource],
-    ['Version', session.version],
-    ['Session span', `${session.dates.start} to ${session.dates.end}`],
-    ['Span length', `${session.dates.spanDays} day span`],
-    ['Time', session.dates.timeText ?? '-'],
-    ['Trainer', session.trainer.name ?? session.trainer.rawName ?? 'Unassigned'],
-    ['Venue', session.venue.name ?? 'Unresolved'],
-    ['Raw venue', session.venue.rawText ?? '-'],
-    ['Room', session.room.name ?? session.room.id ?? '-'],
-    ['Room capacity', session.room.capacity ?? '-'],
-    ['Expected pax', session.pax.expected ?? '-'],
-    ['Confirmed pax', session.pax.confirmed ?? '-'],
-    ['Effective pax', session.pax.effective ?? '-'],
-    ['Planning profile', profileSourceLabels[session.planningProfile.source]],
-    ['Profile course code', session.planningProfile.profileCourseCode ?? '-'],
-    ['Scheduled 18-month count', session.planningProfile.scheduled18MonthCount ?? '-'],
-    ['Confirmation rate', formatPercent(session.planningProfile.confirmationRate)],
-    ['Confirmed per month', formatNumber(session.planningProfile.confirmedPerMonth)],
-    ['Median gap days', formatNumber(session.planningProfile.medianGapDays)],
-    ['Strong months', formatMonths(session.planningProfile.strongMonths)],
-    ['Weak months', formatMonths(session.planningProfile.weakMonths)],
-    ['Historical confirmation flag', session.planningProfile.lowHistoricalConfirmation ? 'Low historical confirmation' : '-'],
-  ];
-
   return (
-    <aside
-      className="panel detail-panel"
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') onClose();
-      }}
-    >
-      <div className="panel-heading">
-        <div>
-          <span className="eyebrow">Selected session</span>
-          <h2>Session details</h2>
-          <span>{canEditTrainer ? 'Trainer changes enabled' : 'Read-only'}</span>
-        </div>
-        <button
-          className="icon-button secondary"
-          onClick={onClose}
-          aria-label="Close details"
-          title="Close details"
-          autoFocus
-        >
-          <X size={16} />
-        </button>
-      </div>
-      <IssueBadges session={session} />
-      <PlanningProfileAnnotation session={session} />
-      {canEditTrainer && (
-        <form className="trainer-editor" onSubmit={saveTrainer}>
-          <div className="panel-heading">
-            <div>
-              <h3>Trainer amendment</h3>
-              <span>Eligible trainers for this course only</span>
+    <div className="detail-overlay">
+      <div className="detail-backdrop" onClick={onClose} aria-hidden="true" />
+      <aside
+        ref={dialogRef}
+        className="detail-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={`session-detail-heading-${session.id}`}
+        tabIndex={-1}
+      >
+        <header className="detail-drawer-header">
+          <div className="detail-course-heading">
+            <span className="eyebrow">Session details</span>
+            <h2 id={`session-detail-heading-${session.id}`} title={session.course.name ?? undefined}>{courseTitle}</h2>
+            <div className="detail-identity">
+              <span className="detail-programme"><span className={`programme-dot ${getProgrammeTone(session.course.programmeCode)}`} aria-hidden="true" />{session.course.programmeCode ?? 'ASK standalone'}</span>
+              <span>Code {session.course.code ?? '—'}</span>
+              <span>TMS {session.course.tmsCode ?? '—'}</span>
+              <span>Ref {session.externalRef ?? '—'}</span>
             </div>
           </div>
-          {optionsLoading && <p className="empty">Loading eligible trainers...</p>}
-          {optionsError && <p className="error">{optionsError}</p>}
-          {!optionsLoading && !optionsError && trainerOptions.length === 0 && (
-            <p className="empty">No eligible trainers are currently available for this course.</p>
-          )}
-          <label>
-            Proposed trainer
-            <select
-              value={proposedTrainerId}
-              disabled={optionsLoading || trainerSaving || Boolean(optionsError) || reloadRequired}
-              onChange={(event) => {
-                setProposedTrainerId(event.target.value);
-                setTrainerError('');
-                setTrainerMessage('');
-              }}
-            >
-              <option value="">Unassigned</option>
-              {currentTrainerId && !trainerOptions.some((trainer) => trainer.id === currentTrainerId) && (
-                <option value={currentTrainerId} disabled>{currentTrainerName} (current; not eligible)</option>
-              )}
-              {trainerOptions.map((trainer) => (
-                <option value={trainer.id} key={trainer.id}>{trainer.name}</option>
-              ))}
-            </select>
-          </label>
-          <div className="trainer-preview" aria-live="polite">
-            <span>Current</span>
-            <strong>{currentTrainerName}</strong>
-            <span aria-hidden="true">→</span>
-            <span>Proposed</span>
-            <strong>{proposedTrainerName}</strong>
-          </div>
-          <label>
-            Optional note
-            <textarea
-              value={note}
-              maxLength={500}
-              disabled={trainerSaving || reloadRequired}
-              onChange={(event) => setNote(event.target.value)}
-            />
-            <span className="field-help">{note.length}/500 characters</span>
-          </label>
-          {trainerMessage && <p className="message" role="status">{trainerMessage}</p>}
-          {trainerError && <p className="error" role="alert">{trainerError}</p>}
-          <div className="action-row">
+          <div className="detail-header-actions">
+            <span className={`status-pill ${session.status}`}>{statusLabels[session.status]}</span>
             <button
-              type="submit"
-              disabled={!trainerChanged || trainerSaving || optionsLoading || Boolean(optionsError) || reloadRequired}
+              ref={closeButtonRef}
+              type="button"
+              className="icon-button secondary"
+              onClick={onClose}
+              aria-label="Close session details"
+              title="Close session details"
             >
-              {trainerSaving ? <RefreshCw size={16} className="spin" /> : <Check size={16} />}
-              {trainerAction}
+              <X size={16} />
             </button>
-            {reloadRequired && (
-              <button type="button" className="secondary" onClick={onReload}>
-                <RefreshCw size={16} />
-                Reload sessions
-              </button>
-            )}
           </div>
-        </form>
-      )}
-      <dl className="detail-list">
-        {detailRows.map(([label, value]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
+        </header>
+
+        <section className="detail-section detail-facts" aria-label="Session details">
+          <dl>
+            <DetailFact label="Dates" value={`${formatReadableDate(session.dates.start)} → ${formatReadableDate(session.dates.end)} · ${session.dates.spanDays} days`} />
+            <DetailFact label="Venue" value={session.venue.name ?? session.venue.rawText ?? 'Unresolved venue'} />
+            <DetailFact label="Room" value={getRoomLabel(session)} />
+            <DetailFact label="Pax" value={`${session.pax.expected ?? '—'} expected · ${session.pax.confirmed ?? '—'} confirmed`} />
+            <DetailFact label="Time" value={session.dates.timeText ?? 'Not provided'} />
+            <DetailFact label="Trainer" value={currentTrainerName} />
+          </dl>
+        </section>
+
+        <section className="detail-section" aria-labelledby={`session-issues-heading-${session.id}`}>
+          <div className="detail-section-heading">
+            <h3 id={`session-issues-heading-${session.id}`}>Issues</h3>
+            <IssueBadges session={session} />
           </div>
-        ))}
-      </dl>
-      <section className="history-section" aria-labelledby="session-history-heading">
-        <div className="panel-heading">
-          <div>
-            <h3 id="session-history-heading">Session history</h3>
-            <span>Newest first</span>
-          </div>
-          {historyLoading && <RefreshCw size={16} className="spin" aria-label="Loading history" />}
-        </div>
-        {historyError && <p className="error">{historyError}</p>}
-        {!historyLoading && !historyError && history.length === 0 && (
-          <p className="empty">No trainer changes have been recorded for this session.</p>
-        )}
-        {!historyError && history.length > 0 && (
-          <ol className="history-list">
-            {history.map((entry) => (
-              <li key={entry.id}>
-                <strong>{formatHistoryAction(entry.action)}</strong>
-                <span>{formatHistoryTime(entry.createdAt)}</span>
-                <span>By {entry.actor?.displayName ?? entry.actor?.email ?? entry.actor?.id ?? 'Unknown actor'}</span>
-                <span>
-                  {entry.previousTrainer?.name ?? entry.previousTrainer?.id ?? 'Unassigned'}
-                  {' → '}
-                  {entry.newTrainer?.name ?? entry.newTrainer?.id ?? 'Unassigned'}
-                </span>
-                {entry.note && <p>{entry.note}</p>}
-              </li>
+          <div className="issue-explanation-list">
+            {issueDetails.filter((issue) => session.issues[issue.key]).map((issue) => (
+              <div className="issue-explanation" key={issue.key}>
+                <AlertTriangle size={17} aria-hidden="true" />
+                <div><strong>{issue.label}</strong><p>{issue.description}</p></div>
+              </div>
             ))}
-          </ol>
+            {getIssueCount(session) === 0 && <p className="empty">No planning issues recorded.</p>}
+          </div>
+        </section>
+
+        {canEditTrainer ? (
+          <form className="trainer-editor detail-section" onSubmit={saveTrainer} aria-labelledby={`trainer-amendment-heading-${session.id}`}>
+            <div className="detail-section-heading">
+              <div>
+                <h3 id={`trainer-amendment-heading-${session.id}`}>Trainer amendment</h3>
+                <span>Eligible trainers only</span>
+              </div>
+            </div>
+            {optionsLoading && <p className="empty">Loading eligible trainers...</p>}
+            {optionsError && <p className="error" role="alert">{optionsError}</p>}
+            {!optionsLoading && !optionsError && trainerOptions.length === 0 && (
+              <p className="empty">No eligible trainers are currently available for this course.</p>
+            )}
+            <label>
+              Proposed trainer
+              <select
+                ref={trainerSelectRef}
+                value={proposedTrainerId}
+                disabled={optionsLoading || trainerSaving || Boolean(optionsError) || reloadRequired}
+                onChange={(event) => {
+                  setProposedTrainerId(event.target.value);
+                  setTrainerError('');
+                  setTrainerMessage('');
+                }}
+              >
+                <option value="">Unassigned</option>
+                {currentTrainerId && !trainerOptions.some((trainer) => trainer.id === currentTrainerId) && (
+                  <option value={currentTrainerId} disabled>{currentTrainerName} (current; not eligible)</option>
+                )}
+                {trainerOptions.map((trainer) => (
+                  <option value={trainer.id} key={trainer.id}>{trainer.name}</option>
+                ))}
+              </select>
+            </label>
+            <div className="trainer-preview" aria-live="polite">
+              <span>Current</span>
+              <strong>{currentTrainerName}</strong>
+              <ChevronRight size={15} aria-hidden="true" />
+              <span>Proposed</span>
+              <strong>{proposedTrainerName}</strong>
+            </div>
+            <label>
+              Note <span className="optional-label">(optional)</span>
+              <textarea
+                value={note}
+                maxLength={500}
+                disabled={trainerSaving || reloadRequired}
+                placeholder="Why this trainer?"
+                onChange={(event) => setNote(event.target.value)}
+              />
+              <span className="field-help">{note.length}/500 characters</span>
+            </label>
+            {trainerMessage && <p className="message" role="status">{trainerMessage}</p>}
+            {trainerError && <p className="error" role="alert">{trainerError}</p>}
+            <div className="action-row">
+              <button
+                type="submit"
+                disabled={!trainerChanged || trainerSaving || optionsLoading || Boolean(optionsError) || reloadRequired}
+              >
+                {trainerSaving ? <RefreshCw size={16} className="spin" /> : <Check size={16} />}
+                {trainerAction}
+              </button>
+              {reloadRequired && (
+                <button type="button" className="secondary" onClick={onReload}>
+                  <RefreshCw size={16} />
+                  Reload session
+                </button>
+              )}
+            </div>
+          </form>
+        ) : (
+          <section className="detail-section read-only-trainer" aria-labelledby={`trainer-readonly-heading-${session.id}`}>
+            <div className="detail-section-heading">
+              <div>
+                <h3 id={`trainer-readonly-heading-${session.id}`}>Trainer amendment</h3>
+                <span>Read-only for {role === 'finance' ? 'Finance' : 'Viewer'}</span>
+              </div>
+            </div>
+            <p>Current trainer: <strong>{currentTrainerName}</strong></p>
+          </section>
         )}
-      </section>
-    </aside>
+
+        <section className="detail-section history-evidence" aria-labelledby={`history-evidence-heading-${session.id}`}>
+          <div className="detail-section-heading">
+            <h3 id={`history-evidence-heading-${session.id}`}>History evidence</h3>
+            <span className={`profile-source ${session.planningProfile.source}`}>{profileSourceLabels[session.planningProfile.source]}</span>
+          </div>
+          <div className="evidence-grid">
+            <div><span>Confirmation</span><strong>{formatPercent(session.planningProfile.confirmationRate)}</strong></div>
+            <div><span>Cadence</span><strong>{formatNumber(session.planningProfile.confirmedPerMonth)} /mo</strong></div>
+            <div><span>Median gap</span><strong>{formatNumber(session.planningProfile.medianGapDays)} days</strong></div>
+          </div>
+          <p className="evidence-footnote">
+            {session.planningProfile.profileCourseCode
+              ? `${session.planningProfile.profileCourseCode} · ${formatMonths(session.planningProfile.strongMonths)} strong months${session.planningProfile.weakMonths.length ? ` · ${formatMonths(session.planningProfile.weakMonths)} weak months` : ''}`
+              : 'No matching course × venue profile.'}
+          </p>
+        </section>
+
+        <section className="detail-section audit-section" aria-labelledby={`audit-history-heading-${session.id}`}>
+          <div className="detail-section-heading">
+            <div>
+              <h3 id={`audit-history-heading-${session.id}`}>Audit history</h3>
+              <span>Newest first</span>
+            </div>
+            {historyLoading && <RefreshCw size={16} className="spin" aria-label="Loading audit history" />}
+          </div>
+          {historyError && <p className="error" role="alert">{historyError}</p>}
+          {!historyLoading && !historyError && orderedHistory.length === 0 && (
+            <p className="empty">No trainer changes have been recorded for this session.</p>
+          )}
+          {!historyError && orderedHistory.length > 0 && (
+            <ol className="history-list">
+              {orderedHistory.map((entry) => (
+                <li key={entry.id}>
+                  <div className="history-entry-heading">
+                    <strong>{formatHistoryAction(entry.action)}</strong>
+                    <time dateTime={entry.createdAt}>{formatHistoryTime(entry.createdAt)}</time>
+                  </div>
+                  <span>By {entry.actor?.displayName ?? entry.actor?.email ?? entry.actor?.id ?? 'Unknown actor'}</span>
+                  <div className="history-transition">
+                    <span>{entry.previousTrainer?.name ?? entry.previousTrainer?.id ?? 'Unassigned'}</span>
+                    <ChevronRight size={14} aria-hidden="true" />
+                    <span>{entry.newTrainer?.name ?? entry.newTrainer?.id ?? 'Unassigned'}</span>
+                  </div>
+                  {entry.note && <p>{entry.note}</p>}
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+
+        <footer className="detail-provenance">
+          <span className="provenance-label">{session.managementSource === 'import' ? 'Imported from Excel' : 'Managed in Training Planner'}</span>
+          <span>External ref <code>{session.externalRef ?? '—'}</code></span>
+        </footer>
+      </aside>
+    </div>
   );
+}
+
+function DetailFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  );
+}
+
+function getRoomLabel(session: PlanningSession): string {
+  if (session.room.name) return session.room.name;
+  if (session.room.id) return session.room.id; // FIX: preserve an assigned room id when its optional display name is absent.
+  if (session.venue.type === 'external') return 'Not needed (external venue)';
+  if (session.venue.type === 'virtual') return 'Not needed (virtual delivery)';
+  if (session.venue.type === 'owned') return 'No room assigned';
+  return 'Room not specified';
+}
+
+function getIssueCount(session: PlanningSession): number {
+  return issueDetails.filter((issue) => session.issues[issue.key]).length;
 }

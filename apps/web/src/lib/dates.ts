@@ -30,7 +30,51 @@ export function daysBetweenInclusive(from: string, to: string): number {
 }
 
 export function formatDateRange(from: string, to: string): string {
-  return `${from} to ${to}`;
+  return `${formatReadableDate(from)} → ${formatReadableDate(to)}`;
+}
+
+export function formatReadableDate(dateText: string): string {
+  const date = new Date(`${dateText}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return dateText;
+  return new Intl.DateTimeFormat('en-SG', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date);
+}
+
+export function formatCompactDateRange(from: string, to: string, referenceYear: number): string {
+  const start = new Date(`${from}T00:00:00.000Z`);
+  const end = new Date(`${to}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return `${from}–${to}`;
+
+  const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const startDay = start.getUTCDate();
+  const endDay = end.getUTCDate();
+  const startMonth = monthLabels[start.getUTCMonth()];
+  const endMonth = monthLabels[end.getUTCMonth()];
+  const startYear = start.getUTCFullYear();
+  const endYear = end.getUTCFullYear();
+  if (startYear !== endYear) {
+    return `${startDay} ${startMonth} ${startYear}–${endDay} ${endMonth} ${endYear}`;
+  }
+  const yearSuffix = startYear === referenceYear ? '' : ` ${startYear}`;
+  if (startMonth === endMonth) {
+    if (startDay === endDay) return `${startDay} ${startMonth}${yearSuffix}`;
+    return `${startDay}–${endDay} ${endMonth}${yearSuffix}`;
+  }
+  return `${startDay} ${startMonth}–${endDay} ${endMonth}${yearSuffix}`;
+}
+
+export function formatMonthHeading(month: string): string {
+  const date = new Date(`${month.slice(0, 7)}-01T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return month;
+  return new Intl.DateTimeFormat('en-SG', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date);
 }
 
 export function getMonthEnd(month: string): string {
