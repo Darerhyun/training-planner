@@ -1,8 +1,8 @@
 import { Storage } from '@google-cloud/storage';
 import { Hono, type MiddlewareHandler } from 'hono';
-import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { authMiddleware, getDb, requireRole, withTransaction } from '@training-planner/shared';
 import type { AppEnv, SqlQuery, TransactionHandler } from '@training-planner/shared';
+import { HttpError } from '../lib/http-error.js';
 import {
   applyScheduleParseResult,
   parseScheduleWorkbook,
@@ -44,16 +44,6 @@ type SyncOutcome = {
   status: 200 | 409;
 };
 
-class SyncHttpError extends Error {
-  constructor(
-    public readonly status: ContentfulStatusCode,
-    message: string,
-    public readonly body: Record<string, unknown> = { error: message },
-  ) {
-    super(message);
-    this.name = 'SyncHttpError';
-  }
-}
 
 export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
   const routes = new Hono<AppEnv>();
@@ -115,12 +105,12 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
     try {
       const outcome = await runTransaction(async (tx) => {
         const lockedBatch = await findUploadBatch(tx, uploadBatchId, true);
-        if (!lockedBatch) throw new SyncHttpError(404, 'Upload batch not found');
+        if (!lockedBatch) throw new HttpError(404, 'Upload batch not found');
 
         const lockedReplay = replayStoredBatch(lockedBatch);
         if (lockedReplay) return lockedReplay;
         if (lockedBatch.status !== 'uploaded') {
-          throw new SyncHttpError(409, 'Upload batch is not ready for parsing.');
+          throw new HttpError(409, 'Upload batch is not ready for parsing.');
         }
 
         if (!parseResult.summary.requiresConfirmation) {
@@ -140,7 +130,7 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
 
       return c.json(outcome.body, outcome.status);
     } catch (error) {
-      if (error instanceof SyncHttpError) return c.json(error.body, error.status);
+      if (error instanceof HttpError) return c.json(error.body, error.status);
       throw error;
     }
   });
@@ -153,7 +143,7 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
       const outcome = await runTransaction(async (tx) => {
         const batch = await findUploadBatch(tx, c.req.param('batchId'), true);
         if (!batch?.parse_result) {
-          throw new SyncHttpError(404, 'Parsed batch not found');
+          throw new HttpError(404, 'Parsed batch not found');
         }
 
         // A second confirmation observes the committed result after waiting
@@ -162,12 +152,12 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
         if (replay) return replay;
 
         if (batch.status === 'rejected') {
-          throw new SyncHttpError(409, 'Upload batch has been rejected.');
+          throw new HttpError(409, 'Upload batch has been rejected.');
         }
 
         const parseResult = batch.parse_result as ScheduleParseResult;
         if (parseResult.summary.blocked && !manualOverride) {
-          throw new SyncHttpError(
+          throw new HttpError(
             409,
             'Manual override is required for the cancellation guard.',
           );
@@ -180,7 +170,7 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
 
       return c.json(outcome.body, outcome.status);
     } catch (error) {
-      if (error instanceof SyncHttpError) return c.json(error.body, error.status);
+      if (error instanceof HttpError) return c.json(error.body, error.status);
       throw error;
     }
   });
@@ -189,9 +179,9 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
     try {
       const outcome = await runTransaction(async (tx) => {
         const batch = await findUploadBatch(tx, c.req.param('batchId'), true);
-        if (!batch) throw new SyncHttpError(404, 'Upload batch not found');
+        if (!batch) throw new HttpError(404, 'Upload batch not found');
         if (batch.status === 'applied') {
-          throw new SyncHttpError(409, 'Applied upload batches cannot be cancelled.');
+          throw new HttpError(409, 'Applied upload batches cannot be cancelled.');
         }
         if (batch.status === 'rejected') {
           return { id: batch.id, status: batch.status };
@@ -205,14 +195,14 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
           [batch.id],
         );
         if (updated.length === 0) {
-          throw new SyncHttpError(404, 'Upload batch not found');
+          throw new HttpError(404, 'Upload batch not found');
         }
         return updated[0];
       });
 
       return c.json(outcome);
     } catch (error) {
-      if (error instanceof SyncHttpError) return c.json(error.body, error.status);
+      if (error instanceof HttpError) return c.json(error.body, error.status);
       throw error;
     }
   });
