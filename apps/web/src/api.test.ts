@@ -6,6 +6,7 @@ import {
   apiFetch,
   approvePlannedCourseRun,
   createAdminInvitation,
+  fetchPlanningSessions,
   schedulePlannedCourseRun,
   updateAdminUser,
   updateSessionTrainer,
@@ -334,4 +335,27 @@ test('uploadMasterSchedule returns successful parse results with the upload batc
   );
 
   assert.deepEqual(result, { ...parsed, uploadBatchId: 'batch-success' });
+});
+
+test('fetchPlanningSessions serializes needsAttention only when true and maps its summary', async () => {
+  const requests: string[] = [];
+  const responseBody = { summary: { issues: { needsAttention: 4 } } };
+
+  await withFetch(
+    async (input) => {
+      requests.push(String(input));
+      return jsonResponse(responseBody);
+    },
+    async () => {
+      const baseRequest = { from: '2026-08-01', to: '2026-08-31' };
+      await fetchPlanningSessions(user, baseRequest);
+      await fetchPlanningSessions(user, { ...baseRequest, needsAttention: false });
+      const result = await fetchPlanningSessions(user, { ...baseRequest, needsAttention: true });
+      assert.equal(result.summary.issues.needsAttention, 4);
+    },
+  );
+
+  assert.equal(new URL(requests[0]).searchParams.has('needsAttention'), false);
+  assert.equal(new URL(requests[1]).searchParams.has('needsAttention'), false);
+  assert.equal(new URL(requests[2]).searchParams.get('needsAttention'), 'true');
 });

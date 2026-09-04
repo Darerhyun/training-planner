@@ -113,6 +113,7 @@ export interface PlanningRequest {
   venueCode?: string;
   roomId?: string;
   issue?: PlanningIssue[];
+  needsAttention?: boolean;
   includeCancelled?: boolean;
   limit?: number;
   cursor?: string | null;
@@ -191,6 +192,7 @@ export interface PlanningResponse {
       unresolvedVenues: number;
       ownedVenuesWithoutRooms: number;
       capacityOverruns: number;
+      needsAttention: number;
     };
   };
   filters: {
@@ -507,6 +509,7 @@ export async function fetchPlanningSessions(user: User, request: PlanningRequest
   if (request.venueCode) query.set('venueCode', request.venueCode);
   if (request.roomId) query.set('roomId', request.roomId);
   if (request.issue?.length) query.set('issue', request.issue.join(','));
+  if (request.needsAttention) query.set('needsAttention', 'true');
   if (request.includeCancelled) query.set('includeCancelled', 'true');
   if (request.limit) query.set('limit', String(request.limit));
   if (request.cursor) query.set('cursor', request.cursor);
