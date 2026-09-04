@@ -71,7 +71,15 @@ type SummaryRow = {
   unresolved_venue: number;
   owned_venue_missing_room: number;
   capacity_overrun: number;
+  needs_attention: number;
 };
+
+const needsAttentionPredicate = [
+  's.trainer_id IS NULL',
+  's.venue_code IS NULL',
+  "(v.type = 'owned' AND s.room_id IS NULL)",
+  '(r.capacity IS NOT NULL AND COALESCE(s.confirmed_pax, s.expected_pax) > r.capacity)',
+].join(' OR ');
 
 function parseIsoDate(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -146,6 +154,7 @@ function buildWhere(params: unknown[], options: {
   venueCode?: string;
   roomId?: string;
   issues: PlanningIssue[];
+  needsAttention: boolean;
 }): string {
   const filters = [
     's.end_date >= $1::date',
@@ -190,6 +199,8 @@ function buildWhere(params: unknown[], options: {
       filters.push('r.capacity IS NOT NULL AND COALESCE(s.confirmed_pax, s.expected_pax) > r.capacity');
     }
   }
+
+  if (options.needsAttention) filters.push(needsAttentionPredicate);
 
   return filters.map((filter) => `(${filter})`).join(' AND ');
 }
@@ -292,6 +303,7 @@ export function createPlanningRoutes(options: PlanningRouteOptions = {}): Hono<A
       venueCode: c.req.query('venueCode'),
       roomId: c.req.query('roomId'),
       issues: issues as PlanningIssue[],
+      needsAttention: parseBoolean(c.req.query('needsAttention')),
     });
 
     const summaryRows = await db<SummaryRow>(
@@ -304,7 +316,8 @@ export function createPlanningRoutes(options: PlanningRouteOptions = {}): Hono<A
         COUNT(*) FILTER (WHERE s.trainer_id IS NULL)::int AS unassigned_trainer,
         COUNT(*) FILTER (WHERE s.venue_code IS NULL)::int AS unresolved_venue,
         COUNT(*) FILTER (WHERE v.type = 'owned' AND s.room_id IS NULL)::int AS owned_venue_missing_room,
-        COUNT(*) FILTER (WHERE r.capacity IS NOT NULL AND COALESCE(s.confirmed_pax, s.expected_pax) > r.capacity)::int AS capacity_overrun
+        COUNT(*) FILTER (WHERE r.capacity IS NOT NULL AND COALESCE(s.confirmed_pax, s.expected_pax) > r.capacity)::int AS capacity_overrun,
+        COUNT(*) FILTER (WHERE (${needsAttentionPredicate}))::int AS needs_attention
        FROM sessions s
        LEFT JOIN courses c ON c.code = s.course_code
        LEFT JOIN venues v ON v.code = s.venue_code
@@ -398,6 +411,7 @@ export function createPlanningRoutes(options: PlanningRouteOptions = {}): Hono<A
       unresolved_venue: 0,
       owned_venue_missing_room: 0,
       capacity_overrun: 0,
+      needs_attention: 0,
     };
 
     return c.json({
@@ -420,6 +434,7 @@ export function createPlanningRoutes(options: PlanningRouteOptions = {}): Hono<A
           unresolvedVenues: summary.unresolved_venue,
           ownedVenuesWithoutRooms: summary.owned_venue_missing_room,
           capacityOverruns: summary.capacity_overrun,
+          needsAttention: summary.needs_attention,
         },
       },
       filters: {
@@ -448,4 +463,3 @@ export function createPlanningRoutes(options: PlanningRouteOptions = {}): Hono<A
 
   return planningRoutes;
 }
-

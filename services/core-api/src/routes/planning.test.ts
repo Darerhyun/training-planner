@@ -16,6 +16,7 @@ const baseSummary = {
   unresolved_venue: 1,
   owned_venue_missing_room: 0,
   capacity_overrun: 1,
+  needs_attention: 2,
 };
 
 const baseRows = [
@@ -152,6 +153,37 @@ test('applies filters and special values without training-day conflict SQL', asy
   assert.equal('days' in result.body.sessions[0].dates, false);
 });
 
+test('needsAttention filters with one parenthesized OR predicate', async () => {
+  const result = await request('ops', '/planning/sessions?from=2026-08-01&to=2026-08-31&needsAttention=true');
+  assert.equal(result.response.status, 200);
+
+  const summarySql = result.calls[0].sql;
+  const pageSql = result.calls[1].sql;
+  const predicate = /s\.trainer_id IS NULL OR s\.venue_code IS NULL OR \(v\.type = 'owned' AND s\.room_id IS NULL\) OR \(r\.capacity IS NOT NULL AND COALESCE\(s\.confirmed_pax, s\.expected_pax\) > r\.capacity\)/;
+  assert.match(summarySql, predicate);
+  assert.match(pageSql, predicate);
+  assert.doesNotMatch(summarySql, /s\.trainer_id IS NULL\) AND \(s\.venue_code IS NULL\)/);
+});
+
+test('absent and false needsAttention preserve the current SQL and results', async () => {
+  const absent = await request('ops', '/planning/sessions?from=2026-08-01&to=2026-08-31');
+  const falseValue = await request('ops', '/planning/sessions?from=2026-08-01&to=2026-08-31&needsAttention=false');
+
+  assert.deepEqual(falseValue.body, absent.body);
+  assert.equal(falseValue.calls[0].sql, absent.calls[0].sql);
+  assert.equal(falseValue.calls[1].sql, absent.calls[1].sql);
+});
+
+test('multiple explicit issue filters remain ANDed with needsAttention', async () => {
+  const result = await request(
+    'ops',
+    '/planning/sessions?from=2026-08-01&to=2026-08-31&issue=unassigned_trainer,capacity_overrun&needsAttention=true',
+  );
+  const summarySql = result.calls[0].sql;
+  assert.match(summarySql, /\(s\.trainer_id IS NULL\) AND \(r\.capacity IS NOT NULL AND COALESCE\(s\.confirmed_pax, s\.expected_pax\) > r\.capacity\)/);
+  assert.match(summarySql, /s\.trainer_id IS NULL OR s\.venue_code IS NULL OR \(v\.type = 'owned' AND s\.room_id IS NULL\) OR \(r\.capacity IS NOT NULL AND COALESCE\(s\.confirmed_pax, s\.expected_pax\) > r\.capacity\)/);
+});
+
 test('excludes cancelled sessions by default and includes them when requested', async () => {
   const excluded = await request('ops', '/planning/sessions?from=2026-08-01&to=2026-08-31');
   assert.match(excluded.calls[0].sql, /s\.status <> 'cancelled'/);
@@ -172,11 +204,12 @@ test('uses stable cursor pagination ordered by start_date and id', async () => {
 });
 
 test('summary is calculated before pagination and issue counts are returned for filtered rows', async () => {
-  const fake = createFakeDb({ rows: baseRows, summary: { ...baseSummary, total: 7, unassigned_trainer: 7 } });
+  const fake = createFakeDb({ rows: baseRows, summary: { ...baseSummary, total: 7, unassigned_trainer: 7, needs_attention: 5 } });
   const result = await request('ops', '/planning/sessions?from=2026-08-01&to=2026-08-31&limit=1&issue=unassigned_trainer', fake);
   assert.equal(result.body.sessions.length, 1);
   assert.equal(result.body.summary.total, 7);
   assert.equal(result.body.summary.issues.unassignedTrainers, 7);
+  assert.equal(result.body.summary.issues.needsAttention, 5);
 });
 
 test('allows active roles and denies pending or rejected users', async () => {
