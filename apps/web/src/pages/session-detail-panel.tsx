@@ -12,7 +12,6 @@ import {
   type TrainerOption,
 } from '../api.js';
 import {
-  formatCompactDateRange,
   formatReadableDate,
 } from '../lib/dates.js';
 import {
@@ -28,7 +27,6 @@ import {
 type ActiveRole = 'admin' | 'ops' | 'finance' | 'viewer';
 type ApiErrorHandler = (error: unknown, setError: (message: string) => void) => Promise<void>;
 type IssueRenderer = ComponentType<{ session: PlanningSession; compact?: boolean }>;
-type ProfileRenderer = ComponentType<{ session: PlanningSession }>;
 
 const issueDetails = [
   {
@@ -71,7 +69,6 @@ export default function SessionDetailPanel({
   onSessionUpdated,
   onApiError,
   IssueBadges,
-  PlanningProfileAnnotation,
 }: {
   user: User;
   role: ActiveRole;
@@ -83,7 +80,6 @@ export default function SessionDetailPanel({
   onSessionUpdated: (session: PlanningSession) => void;
   onApiError: ApiErrorHandler;
   IssueBadges: IssueRenderer;
-  PlanningProfileAnnotation: ProfileRenderer;
 }) {
   const canEditTrainer = role === 'admin' || role === 'ops';
   const [history, setHistory] = useState<SessionHistoryEntry[]>([]);
@@ -426,7 +422,6 @@ export default function SessionDetailPanel({
             <div><span>Cadence</span><strong>{formatNumber(session.planningProfile.confirmedPerMonth)} /mo</strong></div>
             <div><span>Median gap</span><strong>{formatNumber(session.planningProfile.medianGapDays)} days</strong></div>
           </div>
-          <PlanningProfileAnnotation session={session} />
           <p className="evidence-footnote">
             {session.planningProfile.profileCourseCode
               ? `${session.planningProfile.profileCourseCode} · ${formatMonths(session.planningProfile.strongMonths)} strong months${session.planningProfile.weakMonths.length ? ` · ${formatMonths(session.planningProfile.weakMonths)} weak months` : ''}`
@@ -487,8 +482,11 @@ function DetailFact({ label, value }: { label: string; value: string }) {
 
 function getRoomLabel(session: PlanningSession): string {
   if (session.room.name) return session.room.name;
+  if (session.room.id) return session.room.id; // FIX: preserve an assigned room id when its optional display name is absent.
   if (session.venue.type === 'external') return 'Not needed (external venue)';
-  return 'No room assigned';
+  if (session.venue.type === 'virtual') return 'Not needed (virtual delivery)';
+  if (session.venue.type === 'owned') return 'No room assigned';
+  return 'Room not specified';
 }
 
 function getIssueCount(session: PlanningSession): number {

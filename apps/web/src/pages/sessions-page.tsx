@@ -27,10 +27,7 @@ import {
   getSingaporeDate,
 } from '../lib/dates.js';
 import {
-  formatNumber,
-  formatPercent,
   getProgrammeTone,
-  profileSourceLabels,
 } from '../lib/format.js';
 import SessionDetailPanel from './session-detail-panel.js';
 
@@ -93,6 +90,7 @@ export default function SessionsPage({
   const initialTo = useMemo(() => addCalendarMonths(initialFrom, 6), [initialFrom]);
   const initialPastFrom = useMemo(() => addCalendarMonths(initialFrom, -6), [initialFrom]);
   const initialPastTo = useMemo(() => addCalendarDays(initialFrom, -1), [initialFrom]);
+  const displayYear = Number(initialFrom.slice(0, 4));
   const [primaryView, setPrimaryView] = useState<PrimaryView>('upcoming');
   const [dateMode, setDateMode] = useState<DateMode>('upcoming');
   const [from, setFrom] = useState(initialFrom);
@@ -151,16 +149,10 @@ export default function SessionsPage({
     setBaselineBusy(true);
     setBaselineError('');
     try {
-      const [upcoming, attention, past, cancelled] = await Promise.all([
+      const [upcoming, past, cancelled] = await Promise.all([
         fetchPlanningSessions(user, {
           from: initialFrom,
           to: initialTo,
-          limit: 1,
-        }),
-        fetchPlanningSessions(user, {
-          from: initialFrom,
-          to: initialTo,
-          needsAttention: true,
           limit: 1,
         }),
         fetchPlanningSessions(user, {
@@ -178,7 +170,7 @@ export default function SessionsPage({
       ]);
       setBaselineCounts({
         upcoming: upcoming.summary.total,
-        attention: attention.summary.total,
+        attention: upcoming.summary.issues.needsAttention,
         past: past.summary.total,
         cancelled: cancelled.summary.total,
       });
@@ -331,7 +323,7 @@ export default function SessionsPage({
     if (dateMode === 'custom') {
       chips.push({
         id: 'date-range',
-        label: `Custom · ${formatCompactDateRange(from, to)}`,
+        label: `Custom · ${formatCompactDateRange(from, to, displayYear)}`,
         remove: () => {
           setDateMode('upcoming');
           setFrom(initialFrom);
@@ -383,7 +375,7 @@ export default function SessionsPage({
       remove: () => toggleIssue(issue),
     }));
     return chips;
-  }, [data, dateMode, from, initialFrom, initialTo, issues, primaryView, programme, roomId, statuses, to, trainerId, venueCode]);
+  }, [data, dateMode, displayYear, from, initialFrom, initialTo, issues, primaryView, programme, roomId, statuses, to, trainerId, venueCode]);
 
   return (
     <section className="planning-stack sessions-page">
@@ -615,6 +607,7 @@ export default function SessionsPage({
                 <SessionTableRow
                   key={session.id}
                   session={session}
+                  referenceYear={displayYear}
                   onOpen={(opener) => openDetails(session, opener)}
                   onTrainerOpen={(opener) => openDetails(session, opener, true)}
                 />
@@ -632,6 +625,7 @@ export default function SessionsPage({
                   <SessionMobileCard
                     key={session.id}
                     session={session}
+                    referenceYear={displayYear}
                     onOpen={(opener) => openDetails(session, opener)}
                     onTrainerOpen={(opener) => openDetails(session, opener, true)}
                   />
@@ -657,10 +651,9 @@ export default function SessionsPage({
         focusTrainer={focusTrainer}
         returnFocusRef={openerRef}
         onClose={closeDetails}
-        onReload={() => void loadActive(null)}
+        onReload={() => void loadActive(null, true)}
         onApiError={onApiError}
         IssueBadges={IssueBadges}
-        PlanningProfileAnnotation={PlanningProfileAnnotation}
         onSessionUpdated={(updated) => {
           setSelectedSession(updated);
           setSessions((current) => current.map((item) => item.id === updated.id ? updated : item));
@@ -676,19 +669,22 @@ export default function SessionsPage({
 
 function SessionTableRow({
   session,
+  referenceYear,
   onOpen,
   onTrainerOpen,
 }: {
   session: PlanningSession;
+  referenceYear: number;
   onOpen: (opener: HTMLElement) => void;
   onTrainerOpen: (opener: HTMLElement) => void;
 }) {
   const courseTitle = session.course.name ?? session.course.tmsCode ?? session.externalRef ?? 'Unresolved course';
   const trainerName = session.trainer.name ?? session.trainer.rawName;
+  const roomLabel = getRoomLabel(session);
   return (
     <tr className={`${session.issues.unassignedTrainer ? 'needs-attention-row ' : ''}${session.status === 'cancelled' ? 'cancelled-row' : ''}`}>
       <td className="date-cell">
-        <strong>{formatCompactDateRange(session.dates.start, session.dates.end)}</strong>
+        <strong>{formatCompactDateRange(session.dates.start, session.dates.end, referenceYear)}</strong>
         <span>{session.dates.spanDays}d</span>
       </td>
       <td className="course-cell">
@@ -721,7 +717,7 @@ function SessionTableRow({
       </td>
       <td className="venue-cell">
         <strong>{session.venue.name ?? session.venue.rawText ?? 'Unresolved venue'}</strong>
-        <span>{session.room.name ?? (session.room.id ? session.room.id : 'No room')}</span>
+        {roomLabel && <span>{roomLabel}</span>}
       </td>
       <td className={`pax-cell${session.issues.capacityOverrun ? ' over-capacity' : ''}`}>
         {formatPax(session)}
@@ -734,15 +730,18 @@ function SessionTableRow({
 
 function SessionMobileCard({
   session,
+  referenceYear,
   onOpen,
   onTrainerOpen,
 }: {
   session: PlanningSession;
+  referenceYear: number;
   onOpen: (opener: HTMLElement) => void;
   onTrainerOpen: (opener: HTMLElement) => void;
 }) {
   const courseTitle = session.course.name ?? session.course.tmsCode ?? session.externalRef ?? 'Unresolved course';
   const trainerName = session.trainer.name ?? session.trainer.rawName;
+  const roomLabel = getRoomLabel(session);
   return (
     <article className={`session-card${session.issues.unassignedTrainer ? ' needs-attention-row' : ''}${session.status === 'cancelled' ? ' cancelled-row' : ''}`}>
       <div className="session-card-heading">
@@ -763,7 +762,7 @@ function SessionMobileCard({
       </div>
       <div className="session-card-row">
         <CalendarDays size={14} aria-hidden="true" />
-        <strong>{formatCompactDateRange(session.dates.start, session.dates.end)}</strong>
+        <strong>{formatCompactDateRange(session.dates.start, session.dates.end, referenceYear)}</strong>
         <span>· {session.dates.spanDays}d</span>
         {session.dates.timeText && <span className="session-card-time">· {session.dates.timeText}</span>}
       </div>
@@ -782,7 +781,7 @@ function SessionMobileCard({
       <div className="session-card-row venue-card-row">
         <MapPin size={14} aria-hidden="true" />
         <span>{session.venue.name ?? session.venue.rawText ?? 'Unresolved venue'}</span>
-        <span>· {session.room.name ?? (session.room.id ? session.room.id : 'No room')}</span>
+        {roomLabel && <span>· {roomLabel}</span>}
       </div>
       <div className="session-card-footer">
         <IssueBadges session={session} compact />
@@ -810,6 +809,12 @@ function formatPax(session: PlanningSession): string {
   return String(session.pax.effective ?? session.pax.expected ?? '—');
 }
 
+function getRoomLabel(session: PlanningSession): string | null {
+  if (session.room.name) return session.room.name;
+  if (session.room.id) return session.room.id; // FIX: an assigned room id remains meaningful when the optional room name is absent.
+  return session.venue.type === 'owned' ? 'No room assigned' : null;
+}
+
 function getSessionIssues(session: PlanningSession): PlanningIssue[] {
   return [
     session.issues.unassignedTrainer ? 'unassigned_trainer' : null,
@@ -831,27 +836,6 @@ export function IssueBadges({ session, compact = false }: { session: PlanningSes
   return (
     <div className={`issue-list${compact ? ' compact' : ''}`}>
       {issues.map((issue) => <span className="issue-pill" key={issue}>{issueLabels[issue]}</span>)}
-    </div>
-  );
-}
-
-export function PlanningProfileAnnotation({ session }: { session: PlanningSession }) {
-  const profile = session.planningProfile;
-  const hasProfile = profile.source === 'direct' || profile.source === 'ft_proxy';
-
-  return (
-    <div className="profile-annotation">
-      <span className={`profile-source ${profile.source}`}>{profileSourceLabels[profile.source]}</span>
-      {hasProfile ? (
-        <>
-          <span>{profile.profileCourseCode}</span>
-          <span>{formatPercent(profile.confirmationRate)} confirm · {formatNumber(profile.confirmedPerMonth)}/mo</span>
-          <span>Median gap {formatNumber(profile.medianGapDays)} days</span>
-          {profile.lowHistoricalConfirmation && <span className="low-confirmation">Low historical confirmation</span>}
-        </>
-      ) : (
-        <span>{profile.source === 'no_history' ? 'New FT course' : 'No matching course × venue profile'}</span>
-      )}
     </div>
   );
 }

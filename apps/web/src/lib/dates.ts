@@ -44,31 +44,27 @@ export function formatReadableDate(dateText: string): string {
   }).format(date);
 }
 
-export function formatCompactDateRange(from: string, to: string): string {
+export function formatCompactDateRange(from: string, to: string, referenceYear: number): string {
   const start = new Date(`${from}T00:00:00.000Z`);
   const end = new Date(`${to}T00:00:00.000Z`);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return `${from}–${to}`;
 
-  const startParts = new Intl.DateTimeFormat('en-SG', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).formatToParts(start);
-  const endParts = new Intl.DateTimeFormat('en-SG', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).formatToParts(end);
-  const parts = (values: Intl.DateTimeFormatPart[]) => Object.fromEntries(values.map((part) => [part.type, part.value]));
-  const startValue = parts(startParts);
-  const endValue = parts(endParts);
-  if (startValue.year === endValue.year && startValue.month === endValue.month) {
-    if (startValue.day === endValue.day) return `${startValue.day} ${startValue.month}`;
-    return `${startValue.day}–${endValue.day} ${endValue.month}`;
+  const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const startDay = start.getUTCDate();
+  const endDay = end.getUTCDate();
+  const startMonth = monthLabels[start.getUTCMonth()];
+  const endMonth = monthLabels[end.getUTCMonth()];
+  const startYear = start.getUTCFullYear();
+  const endYear = end.getUTCFullYear();
+  if (startYear !== endYear) {
+    return `${startDay} ${startMonth} ${startYear}–${endDay} ${endMonth} ${endYear}`;
   }
-  return `${startValue.day} ${startValue.month}–${endValue.day} ${endValue.month}`;
+  const yearSuffix = startYear === referenceYear ? '' : ` ${startYear}`;
+  if (startMonth === endMonth) {
+    if (startDay === endDay) return `${startDay} ${startMonth}${yearSuffix}`;
+    return `${startDay}–${endDay} ${endMonth}${yearSuffix}`;
+  }
+  return `${startDay} ${startMonth}–${endDay} ${endMonth}${yearSuffix}`;
 }
 
 export function formatMonthHeading(month: string): string {
