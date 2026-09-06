@@ -29,7 +29,7 @@ import {
 import {
   getProgrammeTone,
 } from '../lib/format.js';
-import SessionDetailPanel from './session-detail-panel.js';
+import SessionDetailPanel, { type SelectedSessionRefreshResult } from './session-detail-panel.js';
 
 type ActiveRole = 'admin' | 'ops' | 'finance' | 'viewer';
 type DateMode = 'upcoming' | 'past' | 'custom';
@@ -77,6 +77,37 @@ const primaryViewLabels: Record<PrimaryView, string> = {
   cancelled: 'Cancelled',
 };
 
+const authoritativeReloadLimit = 100;
+const maxAuthoritativeReloadPages = 100;
+
+export async function fetchAuthoritativeSelectedSession(
+  user: User,
+  selected: PlanningSession,
+  fetchPage: typeof fetchPlanningSessions = fetchPlanningSessions,
+): Promise<PlanningSession | null> {
+  const seenCursors = new Set<string>();
+  let cursor: string | null = null;
+
+  for (let page = 0; page < maxAuthoritativeReloadPages; page += 1) {
+    const result = await fetchPage(user, {
+      from: selected.dates.start,
+      to: selected.dates.end,
+      includeCancelled: true,
+      limit: authoritativeReloadLimit,
+      cursor,
+    });
+    const refreshed = result.sessions.find((session) => session.id === selected.id);
+    if (refreshed) return refreshed;
+
+    const nextCursor = result.page.nextCursor;
+    if (!nextCursor || seenCursors.has(nextCursor)) return null;
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+
+  return null;
+}
+
 export default function SessionsPage({
   user,
   role,
@@ -119,8 +150,10 @@ export default function SessionsPage({
   const [baselineBusy, setBaselineBusy] = useState(false);
   const [baselineError, setBaselineError] = useState('');
   const openerRef = useRef<HTMLElement | null>(null);
+  const selectedSessionRef = useRef<PlanningSession | null>(null);
   const requestSequence = useRef(0);
   const apiErrorRef = useRef(onApiError);
+  selectedSessionRef.current = selectedSession;
   apiErrorRef.current = onApiError;
 
   const activeStatuses = useMemo(() => {
@@ -185,6 +218,24 @@ export default function SessionsPage({
     void refreshBaseline();
   }, [refreshBaseline]);
 
+  async function refreshSelectedSession(selected: PlanningSession): Promise<SelectedSessionRefreshResult> {
+    try {
+      const refreshed = await fetchAuthoritativeSelectedSession(user, selected);
+      if (!refreshed) return { ok: false, kind: 'not_found' };
+      setSelectedSession((current) => current?.id === selected.id ? refreshed : current);
+      setSessions((current) => current.map((item) => item.id === refreshed.id ? refreshed : item));
+      return { ok: true, session: refreshed };
+    } catch (error: unknown) {
+      return { ok: false, kind: 'error', error };
+    }
+  }
+
+  async function reloadSelectedSession(selected: PlanningSession): Promise<SelectedSessionRefreshResult> {
+    const result = await refreshSelectedSession(selected);
+    if (result.ok) void refreshBaseline();
+    return result;
+  }
+
   async function loadActive(cursor?: string | null, preserveSelection = false): Promise<void> {
     const append = Boolean(cursor);
     const sequence = ++requestSequence.current;
@@ -216,11 +267,6 @@ export default function SessionsPage({
       setSessions((current) => append ? mergePlanningSessions(current, result.sessions) : result.sessions);
       if (!append && !preserveSelection) {
         setSelectedSession(null);
-      } else if (!append && preserveSelection) {
-        setSelectedSession((current) => {
-          if (!current) return null;
-          return result.sessions.find((item) => item.id === current.id) ?? null;
-        });
       }
     } catch (caught) {
       if (sequence === requestSequence.current) void apiErrorRef.current(caught, setError);
@@ -390,7 +436,7 @@ export default function SessionsPage({
           <button
             className="icon-button secondary"
             onClick={() => {
-              void loadActive(null);
+              void loadActive(null, Boolean(selectedSessionRef.current));
               void refreshBaseline();
             }}
             disabled={busy || loadingMore || baselineBusy}
@@ -651,17 +697,10 @@ export default function SessionsPage({
         focusTrainer={focusTrainer}
         returnFocusRef={openerRef}
         onClose={closeDetails}
-        onReload={() => void loadActive(null, true)}
+        onReload={(session) => reloadSelectedSession(session)}
         onApiError={onApiError}
         IssueBadges={IssueBadges}
-        onSessionUpdated={(updated) => {
-          setSelectedSession(updated);
-          setSessions((current) => current.map((item) => item.id === updated.id ? updated : item));
-          void Promise.all([
-            loadActive(null, true),
-            refreshBaseline(),
-          ]);
-        }}
+        onSessionUpdated={(updated) => reloadSelectedSession(updated)}
       />
     </section>
   );

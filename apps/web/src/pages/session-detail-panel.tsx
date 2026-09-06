@@ -28,6 +28,10 @@ type ActiveRole = 'admin' | 'ops' | 'finance' | 'viewer';
 type ApiErrorHandler = (error: unknown, setError: (message: string) => void) => Promise<void>;
 type IssueRenderer = ComponentType<{ session: PlanningSession; compact?: boolean }>;
 
+export type SelectedSessionRefreshResult =
+  | { ok: true; session: PlanningSession }
+  | { ok: false; kind: 'not_found' | 'error'; error?: unknown };
+
 const issueDetails = [
   {
     key: 'unassignedTrainer',
@@ -76,8 +80,8 @@ export default function SessionDetailPanel({
   focusTrainer?: boolean;
   returnFocusRef: { current: HTMLElement | null };
   onClose: () => void;
-  onReload: () => void;
-  onSessionUpdated: (session: PlanningSession) => void;
+  onReload: (session: PlanningSession) => Promise<SelectedSessionRefreshResult>;
+  onSessionUpdated: (session: PlanningSession) => Promise<SelectedSessionRefreshResult>;
   onApiError: ApiErrorHandler;
   IssueBadges: IssueRenderer;
 }) {
@@ -94,23 +98,32 @@ export default function SessionDetailPanel({
   const [trainerError, setTrainerError] = useState('');
   const [trainerMessage, setTrainerMessage] = useState('');
   const [reloadRequired, setReloadRequired] = useState(false);
+  const [reloadError, setReloadError] = useState('');
+  const [reloadLoading, setReloadLoading] = useState(false);
   const dialogRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const trainerSelectRef = useRef<HTMLSelectElement | null>(null);
   const apiErrorRef = useRef(onApiError);
   const onCloseRef = useRef(onClose);
+  const previousSessionIdRef = useRef<string | null>(null);
   apiErrorRef.current = onApiError;
   onCloseRef.current = onClose;
 
+  const sessionContentKey = session ? JSON.stringify(session) : '';
+
   useEffect(() => {
     let cancelled = false;
+    const sessionChanged = previousSessionIdRef.current !== (session?.id ?? null);
+    previousSessionIdRef.current = session?.id ?? null;
     setHistory([]);
     setHistoryError('');
     setTrainerOptions([]);
     setOptionsError('');
     setTrainerError('');
-    setTrainerMessage('');
+    if (sessionChanged) setTrainerMessage('');
     setReloadRequired(false);
+    setReloadError('');
+    if (sessionChanged) setReloadLoading(false);
     setNote('');
     setProposedTrainerId(session?.trainer.id ?? '');
     if (!session) return undefined;
@@ -144,7 +157,7 @@ export default function SessionDetailPanel({
     return () => {
       cancelled = true;
     };
-  }, [canEditTrainer, session?.id, user]);
+  }, [canEditTrainer, sessionContentKey, user]);
 
   useEffect(() => {
     if (!session || typeof document === 'undefined') return undefined;
@@ -213,13 +226,54 @@ export default function SessionDetailPanel({
     new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
   ));
 
+  async function reportReloadFailure(
+    result: Extract<SelectedSessionRefreshResult, { ok: false }>,
+    fallbackMessage: string,
+  ): Promise<void> {
+    setReloadRequired(true);
+    setReloadError(fallbackMessage);
+    if (result.kind === 'error' && result.error !== undefined) {
+      await apiErrorRef.current(result.error, setReloadError);
+    }
+  }
+
+  async function reloadSession(): Promise<void> {
+    if (!session || reloadLoading) return;
+    setReloadLoading(true);
+    setReloadError('');
+    try {
+      const result = await onReload(session);
+      if (!result.ok) {
+        await reportReloadFailure(
+          result,
+          result.kind === 'not_found'
+            ? 'The session was not found in the authoritative schedule. Keep this drawer open and try Reload session again before saving.'
+            : 'The authoritative session could not be refreshed. Keep this drawer open and try Reload session again before saving.',
+        );
+        return;
+      }
+      setReloadRequired(false);
+      setReloadError('');
+      setTrainerError('');
+      setProposedTrainerId(result.session.trainer.id ?? '');
+    } catch (error: unknown) {
+      await reportReloadFailure(
+        { ok: false, kind: 'error', error },
+        'The authoritative session could not be refreshed. Keep this drawer open and try Reload session again before saving.',
+      );
+    } finally {
+      setReloadLoading(false);
+    }
+  }
+
   async function saveTrainer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!session || !trainerChanged) return;
+    if (!session || !trainerChanged || reloadRequired || reloadLoading) return;
     setTrainerSaving(true);
     setTrainerError('');
     setTrainerMessage('');
     setReloadRequired(false);
+    setReloadError('');
 
     try {
       const result = await updateSessionTrainer(
@@ -241,8 +295,18 @@ export default function SessionDetailPanel({
           unassignedTrainer: result.session.trainer === null,
         },
       };
-      onSessionUpdated(updated);
-      setProposedTrainerId(result.session.trainer?.id ?? '');
+      const refreshed = await onSessionUpdated(updated);
+      if (!refreshed.ok) {
+        await reportReloadFailure(
+          refreshed,
+          refreshed.kind === 'not_found'
+            ? 'The trainer change was saved, but the session was not found in the authoritative schedule. Reload session before making another change.'
+            : 'The trainer change was saved, but the authoritative session could not be refreshed. Reload session before making another change.',
+        );
+        setTrainerError('The trainer change was saved, but the session still needs an authoritative reload before another change.');
+        return;
+      }
+      setProposedTrainerId(refreshed.session.trainer.id ?? '');
       setNote('');
       setTrainerMessage(`${trainerAction} saved.`);
       setHistoryLoading(true);
@@ -258,6 +322,7 @@ export default function SessionDetailPanel({
       if (error instanceof ApiError && error.code === 'stale_session_version') {
         setTrainerError('This session changed after you opened it. Reload the session before saving again.');
         setReloadRequired(true);
+        setReloadError('');
       } else {
         void apiErrorRef.current(error, setTrainerError);
       }
@@ -302,6 +367,13 @@ export default function SessionDetailPanel({
             </button>
           </div>
         </header>
+
+        {reloadError && (
+          <div className="detail-reload-error error" role="alert">
+            <strong>Authoritative reload required.</strong>
+            <p>{reloadError}</p>
+          </div>
+        )}
 
         <section className="detail-section detail-facts" aria-label="Session details">
           <dl>
@@ -393,9 +465,9 @@ export default function SessionDetailPanel({
                 {trainerAction}
               </button>
               {reloadRequired && (
-                <button type="button" className="secondary" onClick={onReload}>
-                  <RefreshCw size={16} />
-                  Reload session
+                <button type="button" className="secondary" onClick={() => void reloadSession()} disabled={reloadLoading}>
+                  <RefreshCw size={16} className={reloadLoading ? 'spin' : ''} />
+                  {reloadLoading ? 'Reloading session' : 'Reload session'}
                 </button>
               )}
             </div>
