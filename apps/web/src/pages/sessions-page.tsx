@@ -858,7 +858,7 @@ function formatPax(session: PlanningSession): string {
 function getRoomLabel(session: PlanningSession): string | null {
   if (session.room.name) return session.room.name;
   if (session.room.id) return session.room.id; // FIX: an assigned room id remains meaningful when the optional room name is absent.
-  return session.venue.type === 'owned' ? 'No room assigned' : null;
+  return session.venue.type === 'owned' ? 'No room' : null;
 }
 
 function getSessionIssues(session: PlanningSession): PlanningIssue[] {
