@@ -27,6 +27,7 @@ import {
 type ActiveRole = 'admin' | 'ops' | 'finance' | 'viewer';
 type ApiErrorHandler = (error: unknown, setError: (message: string) => void) => Promise<void>;
 type IssueRenderer = ComponentType<{ session: PlanningSession; compact?: boolean }>;
+type SessionOperation = { sessionId: string; generation: number };
 
 export type SelectedSessionRefreshResult =
   | { ok: true; session: PlanningSession }
@@ -106,13 +107,41 @@ export default function SessionDetailPanel({
   const apiErrorRef = useRef(onApiError);
   const onCloseRef = useRef(onClose);
   const previousSessionIdRef = useRef<string | null>(null);
+  const activeSessionIdRef = useRef<string | null>(null);
+  const operationGenerationRef = useRef(0);
   apiErrorRef.current = onApiError;
   onCloseRef.current = onClose;
 
+  const activeSessionId = session?.id ?? null;
+  if (activeSessionIdRef.current !== activeSessionId) {
+    activeSessionIdRef.current = activeSessionId;
+    operationGenerationRef.current += 1;
+  }
+
   const sessionContentKey = session ? JSON.stringify(session) : '';
+
+  function beginOperation(sessionId: string): SessionOperation {
+    operationGenerationRef.current += 1;
+    return { sessionId, generation: operationGenerationRef.current };
+  }
+
+  function isCurrentOperation(operation: SessionOperation): boolean {
+    return activeSessionIdRef.current === operation.sessionId
+      && operationGenerationRef.current === operation.generation;
+  }
+
+  function setErrorIfCurrent(
+    operation: SessionOperation,
+    setError: (message: string) => void,
+  ): (message: string) => void {
+    return (message: string) => {
+      if (isCurrentOperation(operation)) setError(message);
+    };
+  }
 
   useEffect(() => {
     let cancelled = false;
+    const sessionId = session?.id ?? null;
     const sessionChanged = previousSessionIdRef.current !== (session?.id ?? null);
     previousSessionIdRef.current = session?.id ?? null;
     setHistory([]);
@@ -123,7 +152,10 @@ export default function SessionDetailPanel({
     if (sessionChanged) setTrainerMessage('');
     setReloadRequired(false);
     setReloadError('');
-    if (sessionChanged) setReloadLoading(false);
+    if (sessionChanged) {
+      setReloadLoading(false);
+      setTrainerSaving(false);
+    }
     setNote('');
     setProposedTrainerId(session?.trainer.id ?? '');
     if (!session) return undefined;
@@ -131,26 +163,26 @@ export default function SessionDetailPanel({
     setHistoryLoading(true);
     fetchSessionHistory(user, session.id)
       .then((entries) => {
-        if (!cancelled) setHistory(entries);
+        if (!cancelled && activeSessionIdRef.current === sessionId) setHistory(entries);
       })
       .catch((error: unknown) => {
-        if (!cancelled) void apiErrorRef.current(error, setHistoryError);
+        if (!cancelled && activeSessionIdRef.current === sessionId) void apiErrorRef.current(error, setHistoryError);
       })
       .finally(() => {
-        if (!cancelled) setHistoryLoading(false);
+        if (!cancelled && activeSessionIdRef.current === sessionId) setHistoryLoading(false);
       });
 
     if (canEditTrainer) {
       setOptionsLoading(true);
       fetchTrainerOptions(user, session.id)
         .then((options) => {
-          if (!cancelled) setTrainerOptions(options);
+          if (!cancelled && activeSessionIdRef.current === sessionId) setTrainerOptions(options);
         })
         .catch((error: unknown) => {
-          if (!cancelled) void apiErrorRef.current(error, setOptionsError);
+          if (!cancelled && activeSessionIdRef.current === sessionId) void apiErrorRef.current(error, setOptionsError);
         })
         .finally(() => {
-          if (!cancelled) setOptionsLoading(false);
+          if (!cancelled && activeSessionIdRef.current === sessionId) setOptionsLoading(false);
         });
     }
 
@@ -161,9 +193,11 @@ export default function SessionDetailPanel({
 
   useEffect(() => {
     if (!session || typeof document === 'undefined') return undefined;
+    const sessionId = session.id;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const animationFrame = typeof window === 'undefined' ? 0 : window.requestAnimationFrame(() => {
+      if (activeSessionIdRef.current !== sessionId) return;
       if (focusTrainer && canEditTrainer && !optionsLoading) {
         trainerSelectRef.current?.focus();
       } else {
@@ -227,24 +261,29 @@ export default function SessionDetailPanel({
   ));
 
   async function reportReloadFailure(
+    operation: SessionOperation,
     result: Extract<SelectedSessionRefreshResult, { ok: false }>,
     fallbackMessage: string,
   ): Promise<void> {
+    if (!isCurrentOperation(operation)) return;
     setReloadRequired(true);
     setReloadError(fallbackMessage);
     if (result.kind === 'error' && result.error !== undefined) {
-      await apiErrorRef.current(result.error, setReloadError);
+      await apiErrorRef.current(result.error, setErrorIfCurrent(operation, setReloadError));
     }
   }
 
   async function reloadSession(): Promise<void> {
     if (!session || reloadLoading) return;
+    const operation = beginOperation(session.id);
     setReloadLoading(true);
     setReloadError('');
     try {
       const result = await onReload(session);
+      if (!isCurrentOperation(operation)) return;
       if (!result.ok) {
         await reportReloadFailure(
+          operation,
           result,
           result.kind === 'not_found'
             ? 'The session was not found in the authoritative schedule. Keep this drawer open and try Reload session again before saving.'
@@ -252,23 +291,27 @@ export default function SessionDetailPanel({
         );
         return;
       }
+      if (!isCurrentOperation(operation)) return;
       setReloadRequired(false);
       setReloadError('');
       setTrainerError('');
       setProposedTrainerId(result.session.trainer.id ?? '');
     } catch (error: unknown) {
+      if (!isCurrentOperation(operation)) return;
       await reportReloadFailure(
+        operation,
         { ok: false, kind: 'error', error },
         'The authoritative session could not be refreshed. Keep this drawer open and try Reload session again before saving.',
       );
     } finally {
-      setReloadLoading(false);
+      if (isCurrentOperation(operation)) setReloadLoading(false);
     }
   }
 
   async function saveTrainer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!session || !trainerChanged || reloadRequired || reloadLoading) return;
+    const operation = beginOperation(session.id);
     setTrainerSaving(true);
     setTrainerError('');
     setTrainerMessage('');
@@ -295,30 +338,41 @@ export default function SessionDetailPanel({
           unassignedTrainer: result.session.trainer === null,
         },
       };
+      if (!isCurrentOperation(operation)) return;
       const refreshed = await onSessionUpdated(updated);
+      if (!isCurrentOperation(operation)) return;
       if (!refreshed.ok) {
         await reportReloadFailure(
+          operation,
           refreshed,
           refreshed.kind === 'not_found'
             ? 'The trainer change was saved, but the session was not found in the authoritative schedule. Reload session before making another change.'
             : 'The trainer change was saved, but the authoritative session could not be refreshed. Reload session before making another change.',
         );
+        if (!isCurrentOperation(operation)) return;
         setTrainerError('The trainer change was saved, but the session still needs an authoritative reload before another change.');
         return;
       }
+      if (!isCurrentOperation(operation)) return;
       setProposedTrainerId(refreshed.session.trainer.id ?? '');
       setNote('');
       setTrainerMessage(`${trainerAction} saved.`);
       setHistoryLoading(true);
       try {
-        setHistory(await fetchSessionHistory(user, session.id));
-        setHistoryError('');
+        const nextHistory = await fetchSessionHistory(user, session.id);
+        if (isCurrentOperation(operation)) {
+          setHistory(nextHistory);
+          setHistoryError('');
+        }
       } catch (historyFailure) {
-        void apiErrorRef.current(historyFailure, setHistoryError);
+        if (isCurrentOperation(operation)) {
+          await apiErrorRef.current(historyFailure, setErrorIfCurrent(operation, setHistoryError));
+        }
       } finally {
-        setHistoryLoading(false);
+        if (isCurrentOperation(operation)) setHistoryLoading(false);
       }
     } catch (error) {
+      if (!isCurrentOperation(operation)) return;
       if (error instanceof ApiError && error.code === 'stale_session_version') {
         setTrainerError('This session changed after you opened it. Reload the session before saving again.');
         setReloadRequired(true);
@@ -327,7 +381,7 @@ export default function SessionDetailPanel({
         void apiErrorRef.current(error, setTrainerError);
       }
     } finally {
-      setTrainerSaving(false);
+      if (isCurrentOperation(operation)) setTrainerSaving(false);
     }
   }
 
