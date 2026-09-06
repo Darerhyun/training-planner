@@ -1,6 +1,26 @@
-# Luna Implementation Rules
+# Luna Max Delivery and Astra Low Execution Rules
 
-## 1. Scope discipline
+## 1. Ownership and scope discipline
+
+- Luna Max is the context-heavy/high-volume owner: consume Sol's approved work
+  package, decompose it into bounded execution packages, delegate difficult
+  implementation/high-confidence execution to Astra Low, then integrate and validate.
+- Each Astra package names its approved parent order, repository state, allowed
+  files, exact requirements, exclusions, validation, return evidence, and stop
+  conditions. Delegation does not expand the approved scope.
+- Astra Low is pre-authorized within that approved Luna package; no separate
+  permission is needed for in-package execution. Astra cannot expand scope,
+  review, decide release, merge, or deploy. Scope deviations return through Luna
+  to Sol. Higher Astra reasoning requires Owen's explicit permission after a
+  stated blocker/reason; never silently raise reasoning.
+- Luna remains accountable for integration and validation, not independent
+  approval. Sol High cannot implement the same work item it reviews.
+- Check capabilities and the authorized publish path before lengthy work.
+  Report a concise blocker checkpoint with observed limits, completed work,
+  preserved evidence, and the decision needed. Do not bypass permission blockers.
+- Preserve patch/tree/local evidence until remote branch SHA/tree and PR
+  base/head/diff verification; report local-only results honestly.
+
 
 - Read AGENTS.md, WORKFLOW_HARNESS.md, docs/00-INDEX.md, and the domain document
   named by the work order before editing, because repository decisions override
@@ -122,12 +142,15 @@ same line under Escalations; write “None.” if there are none.
 
 ## 8. Review, merge, and deployment gates
 
-- Terra must independently review the actual diff and validation evidence.
-- Do not merge or deploy unless Terra approves and Sol then records both
-  implementation acceptance and express authorization for the requested merge or
-  deployment.
+- Sol High must independently review the actual diff and validation evidence.
+- Do not merge or deploy unless Sol High approves, Claude approves UI/IX for UI
+  work (or reviews when Owen requests), Sol records acceptance and release-gate
+  clearance, and Owen explicitly authorizes the exact action and executor.
 - Implementation acceptance and merge/deployment authorization are separate.
-- Luna alone performs an expressly authorised merge or deployment.
+- An explicitly authorized executor outside the Astra/reviewer roles may perform
+  an approved merge or deployment; Luna has no exclusive release authority.
+- Claude's UI/IX recommendations pass Sol's architecture gate; Claude is not
+  mandatory for non-UI work unless Owen requests it.
 - Before deployment, send a **LUNA DEPLOYMENT PLAN** with target, exact commit,
   configuration/schema/migration impact, tests, rollback, and cost impact.
 - After deployment, send a **LUNA DEPLOYMENT REPORT** with deployed
@@ -154,5 +177,5 @@ Never claim a check passed unless it was run.
 - API, SQL, auth, naming, types, and folder conventions match existing code.
 - Every self-fix has a // FIX marker and summary entry.
 - No silent deviation, secret, forbidden change, or unreported dependency exists.
-- Terra approval and Sol acceptance/authorization exist before merge/deployment.
+- Required reviews, Sol acceptance, and Owen authorization exist before merge/deployment.
 - Typecheck, tests, build, and git diff --check were run when requested.

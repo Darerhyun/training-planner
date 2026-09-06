@@ -303,11 +303,11 @@ Federation authentication and fails closed when the prerequisite is absent. It
 cannot grant, remove, or otherwise mutate IAM; no `roles/run.invoker` binding
 is created by this PR.
 
-#### Separate user/Sol/Terra process gate
+#### Separate Owen/Sol/Sol High process gate
 
-Before every dispatch, the user must provide fresh explicit authorization for
+Before every dispatch, Owen must provide fresh explicit authorization for
 the exact accepted commit and target. Sol performs preflight against the
-recorded repository-variable names and deployment contract, and Terra performs
+recorded repository-variable names and deployment contract, and Sol High performs
 an independent read-only verification of the accepted commit, configuration
 evidence, and preflight evidence. This process gate is a compensating control,
 not independent GitHub-native approval, and it does not authorize merge,
@@ -415,9 +415,10 @@ into the authorized deployment build.
 The remaining recovery work is split into independent gates. Approval at one
 gate does not imply approval for any later gate:
 
-1. **Merge gate** — Terra must approve the actual recovery diff and validation
-   evidence, then Sol must separately accept the implementation and expressly
-   authorize the merge.
+1. **Merge gate** — Sol High must approve the actual recovery diff and validation
+   evidence, then Sol must separately record implementation acceptance and
+   release-gate clearance. Owen alone must expressly authorize the exact merge
+   and executor.
 2. **Repository configuration gate** — configure and verify the 11
    repository-level Actions variable names and record the external
    authorization and preflight evidence under a separate work order. GitHub
@@ -427,8 +428,8 @@ gate does not imply approval for any later gate:
    verify every already-created provider resource under a separate work order;
    this workflow does not create resources, secrets, IAM bindings, or database
    objects.
-4. **Dispatch gate** — Sol and the user must expressly authorize the exact
-   accepted commit and target before Luna may enter the two manual confirmation
+4. **Dispatch gate** — Sol must clear release gates and Owen must expressly authorize the exact
+   accepted commit and target before an explicitly authorized executor outside the Astra/reviewer roles may enter the manual confirmation
    values and dispatch the workflow.
 
 The workflow also verifies that the approved Artifact Registry repository and
