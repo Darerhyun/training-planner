@@ -313,6 +313,7 @@ export default function SessionsPage({
 
   function changeDateMode(nextMode: DateMode) {
     setDateMode(nextMode);
+    if (nextMode === 'custom') setMoreFiltersOpen(true);
     if (nextMode === 'upcoming') {
       setFrom(initialFrom);
       setTo(initialTo);
@@ -653,6 +654,7 @@ export default function SessionsPage({
                 <SessionTableRow
                   key={session.id}
                   session={session}
+                  selected={selectedSession?.id === session.id}
                   referenceYear={displayYear}
                   onOpen={(opener) => openDetails(session, opener)}
                   onTrainerOpen={(opener) => openDetails(session, opener, true)}
@@ -671,6 +673,7 @@ export default function SessionsPage({
                   <SessionMobileCard
                     key={session.id}
                     session={session}
+                    selected={selectedSession?.id === session.id}
                     referenceYear={displayYear}
                     onOpen={(opener) => openDetails(session, opener)}
                     onTrainerOpen={(opener) => openDetails(session, opener, true)}
@@ -708,11 +711,13 @@ export default function SessionsPage({
 
 function SessionTableRow({
   session,
+  selected,
   referenceYear,
   onOpen,
   onTrainerOpen,
 }: {
   session: PlanningSession;
+  selected: boolean;
   referenceYear: number;
   onOpen: (opener: HTMLElement) => void;
   onTrainerOpen: (opener: HTMLElement) => void;
@@ -721,7 +726,7 @@ function SessionTableRow({
   const trainerName = session.trainer.name ?? session.trainer.rawName;
   const roomLabel = getRoomLabel(session);
   return (
-    <tr className={`${session.issues.unassignedTrainer ? 'needs-attention-row ' : ''}${session.status === 'cancelled' ? 'cancelled-row' : ''}`}>
+    <tr aria-selected={selected} className={`${session.issues.unassignedTrainer ? 'needs-attention-row ' : ''}${session.status === 'cancelled' ? 'cancelled-row' : ''}`}>
       <td className="date-cell">
         <strong>{formatCompactDateRange(session.dates.start, session.dates.end, referenceYear)}</strong>
         <span>{session.dates.spanDays}d</span>
@@ -756,7 +761,7 @@ function SessionTableRow({
       </td>
       <td className="venue-cell">
         <strong>{session.venue.name ?? session.venue.rawText ?? 'Unresolved venue'}</strong>
-        {roomLabel && <span>{roomLabel}</span>}
+        {roomLabel && <span> · {roomLabel}</span>}
       </td>
       <td className={`pax-cell${session.issues.capacityOverrun ? ' over-capacity' : ''}`}>
         {formatPax(session)}
@@ -769,11 +774,13 @@ function SessionTableRow({
 
 function SessionMobileCard({
   session,
+  selected,
   referenceYear,
   onOpen,
   onTrainerOpen,
 }: {
   session: PlanningSession;
+  selected: boolean;
   referenceYear: number;
   onOpen: (opener: HTMLElement) => void;
   onTrainerOpen: (opener: HTMLElement) => void;
@@ -782,7 +789,7 @@ function SessionMobileCard({
   const trainerName = session.trainer.name ?? session.trainer.rawName;
   const roomLabel = getRoomLabel(session);
   return (
-    <article className={`session-card${session.issues.unassignedTrainer ? ' needs-attention-row' : ''}${session.status === 'cancelled' ? ' cancelled-row' : ''}`}>
+    <article aria-current={selected ? 'true' : undefined} className={`session-card${selected ? ' selected-row' : ''}${session.issues.unassignedTrainer ? ' needs-attention-row' : ''}${session.status === 'cancelled' ? ' cancelled-row' : ''}`}>
       <div className="session-card-heading">
         <button
           type="button"
@@ -871,10 +878,17 @@ function mergePlanningSessions(current: PlanningSession[], next: PlanningSession
 export function IssueBadges({ session, compact = false }: { session: PlanningSession; compact?: boolean }) {
   const issues = getSessionIssues(session);
   if (issues.length === 0) return <span className="issue-none">—</span>;
+  const visibleIssues = compact ? issues.slice(0, 1) : issues;
+  const remainingLabels = issues.slice(1).map((issue) => issueLabels[issue]).join(', ');
 
   return (
     <div className={`issue-list${compact ? ' compact' : ''}`}>
-      {issues.map((issue) => <span className="issue-pill" key={issue}>{issueLabels[issue]}</span>)}
+      {visibleIssues.map((issue) => <span className="issue-pill" key={issue}>{issueLabels[issue]}</span>)}
+      {compact && issues.length > 1 && (
+        <span className="issue-overflow-pill" title={remainingLabels} aria-label={`${issues.length - 1} more issues: ${remainingLabels}`}>
+          +{issues.length - 1}
+        </span>
+      )}
     </div>
   );
 }
