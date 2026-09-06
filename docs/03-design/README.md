@@ -11,7 +11,7 @@ Immutable review inputs for UI/IX PRs. Each subfolder holds the PNG exports of t
 
 Design baseline: `main` @ `53bffa55daaf1f22c34e2d921b08db08a5463431`.
 
-Review model: Terra Max reviews technical correctness and Claude reviews UI/IX conformance in parallel against the same exact head; neither edits.
+Review model: Sol High independently reviews technical correctness after implementation and cannot implement the same work item. Claude reviews UI/IX conformance against the same exact head; neither reviewer edits. Claude's recommendations pass Sol's architecture gate; Claude is not mandatory for non-UI work unless Owen requests it.
 
 Every person, trainer, planner, session, reference and timestamp shown in these canvases is fictional and synthetic (Demo Planner, Demo Trainer 1–5). No production data was used. Course codes and names, programme codes, venues and room names are the canonical seeded records from `db/schema.sql` and `docs/02-domain/`. Every displayed value maps to a field in the current `PlanningSession` / `SessionHistoryEntry` client contract; nothing shown requires a backend change. Provenance is `managementSource` + `externalRef` only; trainer-history transitions use "Unassigned" for an empty side.
 

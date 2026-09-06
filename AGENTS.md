@@ -7,9 +7,14 @@
 - Read and follow `WORKFLOW_HARNESS.md` for every change to application code, infrastructure, database schema, GitHub state, or deployment.
 - Sol must read `SOL_RULES.md` before planning, architecture, work orders, or acceptance.
 - Luna must read `LUNA_RULES.md`, perform read-only inspection, send a pre-edit notice, and wait for `APPROVED_TO_EDIT` before editing.
-- Terra must read `TERRA_RULES.md` and independently review the actual diff and evidence without editing.
-- Sol must not record implementation acceptance before Terra approves.
-- Only Luna may merge or deploy, and only after Terra approval plus separate Sol acceptance and express merge/deployment authorization.
+- Luna Max owns context-heavy/high-volume delivery, decomposes the approved work package, delegates bounded difficult implementation to Astra Low, then integrates and validates.
+- Astra Low is pre-authorized only within Luna's approved bounded execution package; it cannot expand scope, review, decide release, merge, or deploy. Higher Astra reasoning requires Owen's explicit permission after a stated blocker/reason.
+- Sol High must read `SOL_HIGH_RULES.md` and independently review the actual diff and evidence without editing; it cannot implement the same work item.
+- Claude is the UI/IX authority and reviewer for UI changes; recommendations pass Sol's architecture gate. Non-UI work does not require Claude unless Owen requests it.
+- Sol coordinates architecture, scope, sequencing, and release gates; implementation acceptance requires Sol High approval and, for UI work, Claude approval.
+- Owen approves product/scope choices, exceptions, merges, and deployments. Only an explicitly authorized executor outside the Astra/reviewer roles may perform an approved merge or deployment after review and Sol acceptance.
+- Terra is retired from the active workflow; historical review evidence remains unchanged.
+- Before lengthy work, check capabilities and the authorized publish path; report blockers concisely and preserve patch/tree/local evidence until remote branch and PR verification.
 - Any scope or repository-state deviation returns to Sol.
 - If a rolebook or the harness conflicts with this file, stop and escalate.
 
@@ -54,7 +59,7 @@ Do not introduce Vertex AI, Firestore, or Cloudflare without a separately approv
 
 ## How to read this project
 
-The product workflow and domain knowledge are captured in `docs/`. **Read the relevant doc before writing code that touches that product or domain area.** Start with `docs/00-INDEX.md`, which maps every file. Sol, Luna, and Terra must read `WORKFLOW_HARNESS.md` and their root rolebook. For Course Planning vs Sessions workflow, Excel/app/TMS ownership, Admin Area decisions, and PR3E–PR3J scope, read `docs/01-product/planning-workflow-roadmap.md`.
+The product workflow and domain knowledge are captured in `docs/`. **Read the relevant doc before writing code that touches that product or domain area.** Start with `docs/00-INDEX.md`, which maps every file. All active roles must read `WORKFLOW_HARNESS.md` and their applicable root rolebook; Astra reads `LUNA_RULES.md` for its execution contract, and Claude reads the design brief for UI work. For Course Planning vs Sessions workflow, Excel/app/TMS ownership, Admin Area decisions, and PR3E–PR3J scope, read `docs/01-product/planning-workflow-roadmap.md`.
 
 The data model is driven by the CSVs in `docs/` — they are the seed data. The markdown files explain the model and the business rules.
 

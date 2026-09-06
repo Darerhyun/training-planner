@@ -5,19 +5,22 @@
 ## Mandatory operating files
 
 - `../AGENTS.md` — always-loaded project brief and build sequence.
-- `../WORKFLOW_HARNESS.md` — mandatory Sol → Luna → Terra delivery gates.
+- `../WORKFLOW_HARNESS.md` — mandatory Sol → Luna Max (bounded Astra Low execution) → Sol High delivery gates.
 - `../SOL_RULES.md` — mandatory planning, architecture, work-order, and acceptance contract for Sol.
 - `../LUNA_RULES.md` — mandatory pre-edit, implementation, escalation, and release contract for Luna.
-- `../TERRA_RULES.md` — mandatory independent review and post-deployment verification contract for Terra.
+- `../SOL_HIGH_RULES.md` — mandatory independent read-only technical review and post-deployment verification contract; no implementation of the same work item.
+- `../TERRA_RULES.md` — retired-role notice, not an active review gate.
+- UI work also requires Claude UI/IX review through Sol's architecture gate; non-UI work does not unless Owen requests it. Owen retains product/scope, exception, merge, and deployment approval.
 
 ## How the knowledge base is organised
 
 ```
 ../AGENTS.md                       ← project brief and mandatory role entry point
-../WORKFLOW_HARNESS.md              ← Sol → Luna → Terra delivery harness
+../WORKFLOW_HARNESS.md              ← Sol → Luna Max (bounded Astra Low execution) → Sol High delivery harness
 ../SOL_RULES.md                    ← Sol operating contract
 ../LUNA_RULES.md                   ← Luna operating contract
-../TERRA_RULES.md                  ← Terra operating contract
+../SOL_HIGH_RULES.md               ← independent technical review contract
+../TERRA_RULES.md                  ← retired-role notice
 ../infra/
 ├── cost-guardrails.json           ← locked cost and scaling limits
 ├── gcs-lifecycle.json             ← one-day upload deletion policy
@@ -57,7 +60,7 @@ docs/
 
 1. **`../AGENTS.md`** — the project brief
 2. **`../WORKFLOW_HARNESS.md`** — mandatory delivery gates
-3. **The applicable rolebook** — `../SOL_RULES.md`, `../LUNA_RULES.md`, or `../TERRA_RULES.md`
+3. **The applicable rolebook** — `../SOL_RULES.md`, `../LUNA_RULES.md`, or `../SOL_HIGH_RULES.md`; Astra uses `../LUNA_RULES.md`, Claude uses `03-design/design-brief.md`
 4. **This index**
 5. The specific domain doc for the work
 

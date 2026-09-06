@@ -218,12 +218,92 @@ for (const [fragment, description] of [
   ['residual risk is single-owner control', 'single-owner residual-risk contract'],
   ['fresh explicit authorization', 'fresh user authorization process gate'],
   ['Sol performs preflight', 'Sol preflight process gate'],
-  // FIX: match the documented Terra wording across wrapped lines.
-  ['Terra performs', 'Terra read-only process gate'],
-  ['independent read-only verification', 'Terra read-only verification wording'],
+  ['Sol High performs', 'Sol High read-only process gate'],
+  ['independent read-only verification', 'Sol High read-only verification wording'],
 ]) {
   assert(setupDocument.includes(fragment), `setup guide must document ${description}`);
 }
+
+// Active governance only: historical audit/review records retain their attribution.
+const activeGovernanceFiles = [
+  'AGENTS.md',
+  'WORKFLOW_HARNESS.md',
+  'SOL_RULES.md',
+  'LUNA_RULES.md',
+  'SOL_HIGH_RULES.md',
+  'docs/00-INDEX.md',
+  'docs/SETUP.md',
+  'docs/03-design/README.md',
+  'docs/03-design/design-brief.md',
+];
+// Match authorization within a clause without attributing Owen's authority to
+// Sol, or treating explicit prohibitions as grants. Normalize Markdown emphasis.
+const solAuthorizationPatterns = [
+  /\bSol\b(?! High\b)(?:(?!\b(?:Owen|not|never|cannot)\b)[^.;:!?])*?\bauthoriz\w*\b[^.;:!?]*?\b(?:merg\w*|deploy\w*)\b/i,
+  /\b(?:merg\w*|deploy\w*)\b[^.;:!?]*?\bauthoriz\w*\s+by\s+Sol\b(?! High\b)/i,
+  /\bSol(?:'s)?\s+(?:merge|deployment|deploy)\s+authoriz\w*\b/i,
+];
+const grantsSolAuthorization = (text) =>
+  solAuthorizationPatterns.some((pattern) => pattern.test(text.replace(/[*_`]/g, '').replace(/\s+/g, ' ')));
+for (const forbidden of [
+  'Sol must separately accept the implementation and expressly\n authorize the merge.',
+  '**Sol** may authorize deployment.',
+  'The merge must be authorized by Sol.',
+  "Sol's deployment authorization is required.",
+]) {
+  assert(grantsSolAuthorization(forbidden), 'Sol authorization guard must reject: ' + forbidden);
+}
+for (const allowed of [
+  'Sol records acceptance and clears release gates. Owen alone authorizes the exact merge and executor.',
+  'Sol must clear release gates and Owen must expressly authorize the exact accepted commit and target.',
+  'Sol cannot authorize merge or deployment.',
+]) {
+  assert(!grantsSolAuthorization(allowed), 'Sol authorization guard must allow: ' + allowed);
+}
+for (const relativePath of activeGovernanceFiles) {
+  const text = readText(relativePath).replace(/\s+/g, ' ');
+  assert(
+    !/Terra (?:Max )?(?:must|approv\w*|reviews?|performs|independently)|before Terra|after Terra|only Luna|Luna alone/i.test(text),
+    `${relativePath}: retired reviewer or exclusive Luna authority in active governance`,
+  );
+  assert(
+    !grantsSolAuthorization(text),
+    `${relativePath}: Sol may record acceptance and clear release gates; only Owen authorizes merge or deployment`,
+  );
+}
+const harness = readText('WORKFLOW_HARNESS.md').replace(/\s+/g, ' ');
+for (const fragment of [
+  '**Sol** owns coordination, architecture, scope, sequencing',
+  '**Luna Max** owns context-heavy/high-volume delivery',
+  'delegates difficult implementation and high-confidence execution to Astra Low',
+  '**Astra Low** is implementation/execution only within Luna\'s bounded package',
+  'pre-authorized by that approved package',
+  'No scope expansion, review, release decision, merge, or deploy',
+  'Higher Astra reasoning requires Owen\'s explicit permission after a stated blocker/reason',
+  '**Sol High** is the independent read-only code/technical reviewer after implementation',
+  'it cannot implement the same work item',
+  'recommendations pass Sol\'s architecture gate',
+  'Not required for non-UI work unless Owen requests it',
+  'Only Owen authorizes merge or deployment',
+  'outside the Astra/reviewer roles',
+  'capabilities and the authorized publish path before lengthy work',
+  'concise checkpoint',
+  'Preserve the patch, tree, and local validation evidence until the remote branch',
+]) {
+  assert(harness.includes(fragment), `delivery harness must preserve: ${fragment}`);
+}
+const reviewerRules = readText('SOL_HIGH_RULES.md').replace(/\s+/g, ' ');
+assert(
+  reviewerRules.includes('Sol High cannot implement the same work item it reviews; no self-review') &&
+    reviewerRules.includes('Remain read-only') &&
+    reviewerRules.includes('SOL HIGH REVIEW: APPROVED') &&
+    reviewerRules.includes('SOL HIGH REVIEW: CHANGES REQUIRED'),
+  'Sol High contract must enforce independence and evidence-based review verdicts',
+);
+assert(
+  readText('TERRA_RULES.md').includes('Terra is retired from the active workflow'),
+  'Terra rolebook must remain a retirement notice, not an active approval gate',
+);
 
 assert(
   frontendEnvironment.endsWith(
