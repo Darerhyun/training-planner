@@ -23,6 +23,8 @@ type TrainerValidationRow = {
   trainer_id: string;
   name: string;
   is_active: boolean;
+  scheduling_readiness: 'ready' | 'needs_setup';
+  course_excluded: boolean;
   module_excludes: string[] | null;
   course_linked: boolean;
 };
@@ -171,7 +173,9 @@ export function createSessionsRoutes(options: SessionRouteOptions = {}): Hono<Ap
            ON tc.trainer_id = t.trainer_id
           AND tc.course_code = $1
          WHERE t.is_active = true
-           AND NOT ($1 = ANY(COALESCE(t.module_excludes, ARRAY[]::text[])))
+           AND t.scheduling_readiness = 'ready'
+           AND NOT EXISTS (SELECT 1 FROM trainer_course_exclusions x
+             WHERE x.trainer_id=t.trainer_id AND x.course_code=$1)
          GROUP BY t.trainer_id, t.name
          ORDER BY lower(t.name) ASC, t.trainer_id ASC`,
         [session.course_code],
@@ -204,7 +208,7 @@ export function createSessionsRoutes(options: SessionRouteOptions = {}): Hono<Ap
              FROM sessions s
              LEFT JOIN trainers pt ON pt.trainer_id = s.trainer_id
              WHERE s.id = $1
-             FOR UPDATE`,
+             FOR UPDATE OF s`,
             [c.req.param('id')],
           );
           const session = lockedRows[0];
@@ -326,13 +330,17 @@ async function validateTrainer(
       t.trainer_id,
       t.name,
       t.is_active,
+      t.scheduling_readiness,
       t.module_excludes,
+      EXISTS (SELECT 1 FROM trainer_course_exclusions x
+        WHERE x.trainer_id=t.trainer_id AND x.course_code=$2) AS course_excluded,
       (tc.trainer_id IS NOT NULL) AS course_linked
      FROM trainers t
      LEFT JOIN trainer_courses tc
        ON tc.trainer_id = t.trainer_id
       AND tc.course_code = $2
-     WHERE t.trainer_id = $1`,
+     WHERE t.trainer_id = $1
+     FOR SHARE OF t`,
     [trainerId, courseCode],
   );
   const trainer = rows[0];
@@ -340,7 +348,10 @@ async function validateTrainer(
   if (!trainer.is_active) {
     throw new HttpError(422, 'Trainer is inactive.', { code: 'inactive_trainer' });
   }
-  if ((trainer.module_excludes ?? []).includes(courseCode)) {
+  if (trainer.scheduling_readiness !== 'ready') {
+    throw new HttpError(422, 'Trainer needs eligibility setup.', { code: 'trainer_not_ready' });
+  }
+  if (trainer.course_excluded) {
     throw new HttpError(422, 'Trainer is excluded from this course.', { code: 'trainer_excluded' });
   }
   if (!trainer.course_linked) {

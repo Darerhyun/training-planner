@@ -16,6 +16,7 @@ type TrainerState = {
   trainer_id: string;
   name: string;
   is_active: boolean;
+  scheduling_readiness?: 'ready' | 'needs_setup';
   module_excludes: string[] | null;
   linkedCourses: string[];
 };
@@ -69,6 +70,7 @@ function createFakeStore(overrides: Partial<SessionState> = {}) {
     ['inactive', { trainer_id: 'inactive', name: 'Inactive Trainer', is_active: false, module_excludes: null, linkedCourses: ['ASKMEI'] }],
     ['unlinked', { trainer_id: 'unlinked', name: 'Unlinked Trainer', is_active: true, module_excludes: null, linkedCourses: ['OTHER'] }],
     ['excluded', { trainer_id: 'excluded', name: 'Excluded Trainer', is_active: true, module_excludes: ['ASKMEI'], linkedCourses: ['ASKMEI'] }],
+    ['needs-setup', { trainer_id: 'needs-setup', name: 'Demo Trainer 6', is_active: true, scheduling_readiness: 'needs_setup', module_excludes: [], linkedCourses: ['ASKMEI'] }],
   ]);
   const history: HistoryState[] = [];
   const calls: string[] = [];
@@ -111,6 +113,7 @@ function createFakeStore(overrides: Partial<SessionState> = {}) {
       return [...trainers.values()]
         .filter((trainer) => (
           trainer.is_active &&
+          trainer.scheduling_readiness !== 'needs_setup' &&
           trainer.linkedCourses.includes(courseCode) &&
           !(trainer.module_excludes ?? []).includes(courseCode)
         ))
@@ -146,6 +149,8 @@ function createFakeStore(overrides: Partial<SessionState> = {}) {
         trainer_id: trainer.trainer_id,
         name: trainer.name,
         is_active: trainer.is_active,
+        scheduling_readiness: trainer.scheduling_readiness ?? 'ready',
+        course_excluded: (trainer.module_excludes ?? []).includes(String(params[1])),
         module_excludes: trainer.module_excludes,
         course_linked: trainer.linkedCourses.includes(String(params[1])),
       }] as R[];
@@ -182,7 +187,7 @@ function createFakeStore(overrides: Partial<SessionState> = {}) {
     return [];
   });
 
-  return { query, transaction, session, history, calls };
+  return { query, transaction, session, history, calls, trainers };
 }
 
 async function request(role: UserRole, path: string, init: RequestInit, store = createFakeStore()) {
@@ -264,6 +269,8 @@ test('trainer options are admin and ops only, unique, eligible, deterministic, a
     assert.doesNotMatch(result.store.calls.join('\n').toLowerCase(), /trainer[_ ]?rate|economics|revenue|cost|viability/);
     const optionsSql = result.store.calls.find((sql) => sql.includes('INNER JOIN trainer_courses tc')) ?? '';
     assert.match(optionsSql, /GROUP BY t\.trainer_id, t\.name/);
+    assert.match(optionsSql, /t\.scheduling_readiness = 'ready'/);
+    assert.match(optionsSql, /NOT EXISTS \(SELECT 1 FROM trainer_course_exclusions/);
     assert.match(optionsSql, /ORDER BY lower\(t\.name\) ASC, t\.trainer_id ASC/);
   }
 
@@ -301,6 +308,7 @@ test('rejects unknown, inactive, unlinked, and excluded trainers', async () => {
   const cases = [
     ['missing', 404, 'Trainer not found'],
     ['inactive', 422, 'inactive_trainer'],
+    ['needs-setup', 422, 'trainer_not_ready'],
     ['unlinked', 422, 'trainer_not_linked_to_course'],
     ['excluded', 422, 'trainer_excluded'],
   ] as const;
@@ -346,4 +354,51 @@ test('history is read-only, newest first, and contains no fees or recommendation
     JSON.stringify(body).toLowerCase(),
     /trainerfee|trainerrate|economics|revenue|cost|viability|recommendation|aiassistant/,
   );
+});
+
+test('grandfathering preserves the complete course/trainer picker pair set', async () => {
+  const store = createFakeStore();
+  const seeded = [...store.trainers.values()].filter((trainer) => trainer.trainer_id !== 'needs-setup');
+  store.trainers.delete('needs-setup');
+  const courseCodes = [...new Set(seeded.flatMap((trainer) => trainer.linkedCourses))];
+  const before = [...new Set(seeded.flatMap((trainer) => trainer.linkedCourses
+    .filter((course) => trainer.is_active && !(trainer.module_excludes ?? []).includes(course))
+    .map((course) => `${course}:${trainer.trainer_id}`)))].sort();
+  for (const trainer of seeded) {
+    trainer.scheduling_readiness = trainer.is_active && trainer.linkedCourses.some((course) => !(trainer.module_excludes ?? []).includes(course)) ? 'ready' : 'needs_setup';
+  }
+  const after: string[] = [];
+  for (const course of courseCodes) {
+    store.session.course_code = course;
+    const result = await request('ops', `/sessions/${sessionId}/trainer-options`, { method: 'GET' }, store);
+    assert.equal(result.response.status, 200);
+    for (const trainer of result.body.trainers as { id: string }[]) after.push(`${course}:${trainer.id}`);
+  }
+  assert.deepEqual(after.sort(), before);
+});
+
+test('assignment locks only the session outer-join row before sharing the trainer eligibility lock', async () => {
+  const store = createFakeStore();
+  for (const [trainerId, version] of [['trainer-1', 1], ['trainer-2', 2], [null, 3]] as const) {
+    store.calls.length = 0;
+    const result = await request('ops', `/sessions/${sessionId}/trainer`, patchBody(trainerId, version), store);
+    assert.equal(result.response.status, 200);
+    const sessionLockIndex = store.calls.findIndex((sql) => sql.includes('LEFT JOIN trainers pt'));
+    assert.ok(sessionLockIndex >= 0);
+    assert.match(store.calls[sessionLockIndex], /FOR UPDATE OF s\s*$/);
+    const trainerLockIndex = store.calls.findIndex((sql) => sql.includes('FOR SHARE OF t'));
+    if (trainerId) assert.ok(trainerLockIndex > sessionLockIndex);
+    else assert.equal(trainerLockIndex, -1);
+  }
+});
+
+test('existing inactive assignments remain visible and new validation holds a trainer lock', async () => {
+  const store = createFakeStore({ trainer_id: 'inactive' });
+  const listed = await request('viewer', '/sessions', { method: 'GET' }, store);
+  assert.equal(listed.body.sessions[0].trainer_id, 'inactive');
+  assert.equal(store.session.trainer_id, 'inactive');
+  await request('ops', `/sessions/${sessionId}/trainer`, patchBody('trainer-1', 1), store);
+  const sql = store.calls.find((query) => query.includes('AS course_linked')) ?? '';
+  assert.match(sql, /FOR SHARE OF t/);
+  assert.match(sql, /FROM trainer_course_exclusions/);
 });
