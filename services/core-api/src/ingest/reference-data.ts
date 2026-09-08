@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getDb } from '@training-planner/shared';
+import type { SqlQuery } from '@training-planner/shared';
 import type {
   CourseAliasRow,
   CourseLookupRow,
@@ -220,6 +221,17 @@ export async function ensureFulltimeCourseData(): Promise<void> {
       ],
     );
   }
+}
+
+/**
+ * Finalizes trainer-directory reference data after all seed links are loaded.
+ * The database function is shared with the PR3J upgrade migration so a fresh
+ * schema and an upgraded database converge on the same readiness state.
+ */
+export async function finalizeTrainerDirectoryReferenceData(
+  db: SqlQuery = getDb(),
+): Promise<void> {
+  await db('SELECT finalize_trainer_directory_reference_data()');
 }
 
 export async function loadScheduleLookups(): Promise<{
