@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
 import type { User } from 'firebase/auth';
+import { hasTrainerDialogInput, restoreTrainerFocus, trainerAccessDenied, trainerAliasFocusTarget } from './pages/admin-trainer-directory-page.js';
 import {
   ApiError,
   apiFetch,
   approvePlannedCourseRun,
   createAdminInvitation,
   fetchPlanningSessions,
+  fetchAdminTrainers,
+  fetchTrainerSnapshot,
+  mutateAdminTrainer,
   schedulePlannedCourseRun,
   updateAdminUser,
   updateSessionTrainer,
@@ -17,6 +22,104 @@ import {
 const user = {
   getIdToken: async () => 'test-token',
 } as unknown as User;
+
+test('trainer directory query and audited alias removal preserve exact contract', async () => {
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  await withFetch(async (input, init) => { requests.push({ url: String(input), init }); return jsonResponse({ trainer: { version: 10 }, trainers: [], counts: { ready: 0, needs_setup: 0, inactive: 0 } }); }, async () => {
+    await fetchAdminTrainers(user, { state: 'ready', q: 'Demo & Trainer', cursor: 'cursor/+' });
+    await mutateAdminTrainer(user, 'demo/id', 9, { action: 'remove-alias', aliasId: 4, note: 'Duplicate mapping removed.' });
+  });
+  assert.equal(new URL(requests[0].url).searchParams.get('q'), 'Demo & Trainer');
+  assert.equal(new URL(requests[0].url).searchParams.get('cursor'), 'cursor/+');
+  assert.ok(requests[1].url.endsWith('/admin/trainers/demo%2Fid/aliases/4'));
+  assert.equal(requests[1].init?.method, 'DELETE');
+  assert.deepEqual(JSON.parse(String(requests[1].init?.body)), { aliasId: 4, note: 'Duplicate mapping removed.', expectedVersion: 9 });
+});
+
+test('trainer snapshot does not resolve before authoritative History and list counts', async () => {
+  let finishHistory: (() => void) | undefined; let finished = false;
+  await withFetch(async (input) => {
+    if (String(input).endsWith('/history')) { await new Promise<void>((resolve) => { finishHistory = resolve; }); return jsonResponse({ events: [{ id: 'event-10' }] }); }
+    if (String(input).includes('?')) return jsonResponse({ trainers: [], counts: { ready: 2, needs_setup: 1, inactive: 0 } });
+    return jsonResponse({ trainer: { trainer_id: 'demo', version: 10 } });
+  }, async () => {
+    const pending = fetchTrainerSnapshot(user, 'demo', { state: 'ready' }).then((value) => { finished = true; return value; });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(finished, false); assert.ok(finishHistory); finishHistory();
+    const snapshot = await pending; assert.equal(snapshot.trainer.version, 10); assert.equal(snapshot.history[0].id, 'event-10'); assert.equal(snapshot.list.counts.ready, 2);
+  });
+});
+
+test('trainer mutation preserves typed stale and not-found failures without retry', async () => {
+  for (const [status, code] of [[409, 'stale_trainer_version'], [404, 'trainer_not_found']] as const) {
+    let calls = 0;
+    await withFetch(async () => { calls++; return jsonResponse({ error: 'Reload trainer', code, currentVersion: 10 }, status); }, async () => {
+      await assert.rejects(mutateAdminTrainer(user, 'demo', 9, { action: 'deactivate', acknowledgeAssignments: true, note: '' }), (error: unknown) => {
+        assert.ok(error instanceof ApiError); assert.equal(error.status, status); assert.equal(error.code, code); return true;
+      });
+    });
+    assert.equal(calls, 1);
+  }
+});
+
+test('directory regression guards cover staged success, awaited History, shared 404 cleanup and exact mobile gutters', async () => {
+  const page = await readFile(new URL('./pages/admin-trainer-directory-page.tsx', import.meta.url), 'utf8');
+  const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+  const app = await readFile(new URL('./App.tsx', import.meta.url), 'utf8');
+  assert.match(page, /const snapshot = await fetchTrainerSnapshot/);
+  assert.ok(page.indexOf('const snapshot = await fetchTrainerSnapshot') < page.indexOf('setMessage(success)'));
+  assert.match(page, /await Promise\.all\(\[fetchAdminTrainer\(user, id\), fetchAdminTrainerHistory\(user, id\), fetchAdminTrainers/);
+  assert.match(page, /async function unavailable\(\)[\s\S]*?await loadList\(\);\s*setRestoreFocusVersion/);
+  assert.match(page, /useLayoutEffect\(\(\) => \{[\s\S]*?restoreTrainerFocus\(opener.current, searchRef.current\)/);
+  assert.match(page, /const dirty = profileDirty \|\| eligibilityDirty \|\| hasTrainerDialogInput\(dialogName, dialogNote\)/);
+  assert.match(page, /if \(accessDenied\) return[\s\S]*?Admin access is required for Trainer Directory\./);
+  assert.match(css, /\.administration-shell > \.topbar \{ margin: 0 0 24px;/);
+  assert.match(css, /\.administration-content \{ width: auto; margin-inline: 12px; \}/);
+  assert.match(css, /\.administration-content \{ margin-inline: 8px; \}/);
+  assert.match(page, /\['smeEnabled', 'enabled'\], \['smeDisabled', 'disabled'\]/);
+  assert.match(page, /if \(savedId\) \{\s*setStale\(true\)/);
+  assert.match(page, /The change was saved, but the updated records could not be loaded/);
+  assert.match(app, /if \(changeAdminSection\(next\)\).*\.focus\(\)/);
+});
+
+test('hidden stale dialog input remains dirty until explicitly cleared', () => {
+  for (const [name, note] of [['Demo alias', ''], ['', 'Required audit reason'], ['', ' ']]) {
+    assert.equal(hasTrainerDialogInput(name, note), true);
+    // Closing the dialog changes visibility, not these retained values.
+    const shouldConfirmReload = hasTrainerDialogInput(name, note);
+    assert.equal(shouldConfirmReload, true);
+  }
+  assert.equal(hasTrainerDialogInput('', ''), false);
+});
+
+test('alias removal focuses next chip or Add alias when the removed chip was last', () => {
+  const first = { id: 'first' }; const next = { id: 'next' }; const add = { id: 'add' };
+  assert.equal(trainerAliasFocusTarget([next], 0, add), next);
+  assert.equal(trainerAliasFocusTarget([first], 1, add), add);
+  assert.equal(trainerAliasFocusTarget([], 0, add), add);
+});
+
+test('post-commit restoration rechecks detached opener and focuses connected search', () => {
+  const focused: string[] = [];
+  const opener = { isConnected: true, focus: () => focused.push('opener') };
+  const search = { isConnected: true, focus: () => focused.push('search') };
+  const afterCommit = () => restoreTrainerFocus(opener, search);
+  opener.isConnected = false;
+  afterCommit();
+  assert.deepEqual(focused, ['search']);
+  opener.isConnected = true; afterCommit();
+  assert.deepEqual(focused, ['search', 'opener']);
+});
+
+test('typed 403 Insufficient permissions reaches the Admin-required classifier', async () => {
+  await withFetch(async () => jsonResponse({ error: 'Insufficient permissions' }, 403), async () => {
+    await assert.rejects(fetchAdminTrainers(user, { state: 'ready' }), (failure: unknown) => {
+      assert.equal(trainerAccessDenied(failure), true); return true;
+    });
+  });
+  assert.equal(trainerAccessDenied(new ApiError('Server error', 500)), false);
+  assert.equal(trainerAccessDenied(new Error('403')), false);
+});
 
 type FetchHandler = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 type StalePayload = { error: string; code: string; currentVersion: number };

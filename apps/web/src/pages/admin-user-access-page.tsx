@@ -102,7 +102,7 @@ export default function AdminUserAccessPage({ user }: { user: User }) {
   };
   return <section className="admin-access-grid">
     <div className="panel admin-panel">
-      <div className="panel-heading row-heading"><div><span className="eyebrow">Controlled access</span><h2>Admin User Access</h2><span>Approve people explicitly; invitations never grant a role automatically.</span></div><button className="icon-button" onClick={() => void load()} disabled={busy} aria-label="Refresh access records"><RefreshCw size={17} className={busy ? 'spin' : ''} /></button></div>
+      <div className="panel-heading row-heading"><div><h2>User Access</h2><span>Approve people explicitly; invitations never grant a role automatically.</span></div><button className="icon-button" onClick={() => void load()} disabled={busy} aria-label="Refresh access records"><RefreshCw size={17} className={busy ? 'spin' : ''} /></button></div>
       {error && <p className="error" role="alert">{error}</p>}{message && <p className="success" role="status">{message}</p>}
       <form className="admin-invite-form" onSubmit={invite}>
         <label htmlFor="invite-email">Email<input id="invite-email" type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>

@@ -9,6 +9,7 @@ import {
 } from './api.js';
 import { auth, completeMagicLink, isSignInWithEmailLink, sendMagicLink, signInWithPassword, signOut } from './firebase.js';
 import AdminUserAccessPage from './pages/admin-user-access-page.js';
+import AdminTrainerDirectoryPage from './pages/admin-trainer-directory-page.js';
 import CoursePlanningPage from './pages/course-planning-page.js';
 import LegacySessionsPage from './pages/legacy-sessions-page.js';
 import SessionsPage from './pages/sessions-page.js';
@@ -39,6 +40,18 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
   const [view, setView] = useState<View>('sessions');
+  const [adminSection, setAdminSection] = useState<'users' | 'trainers'>('users');
+  const [trainerDirty, setTrainerDirty] = useState(false);
+  function changeView(next: View) {
+    if (view === 'admin' && trainerDirty && !window.confirm('Discard unsaved trainer changes?')) return;
+    setView(next);
+  }
+  function changeAdminSection(next: 'users' | 'trainers'): boolean {
+    if (next === adminSection) return true;
+    if (trainerDirty && !window.confirm('Discard unsaved trainer changes?')) return false;
+    setAdminSection(next);
+    return true;
+  }
 
   useEffect(() => onAuthStateChanged(auth, (nextUser) => {
     setUser(nextUser);
@@ -180,7 +193,7 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell${view === 'admin' ? ' administration-shell' : ''}`}>
       <header className="topbar">
         <div className="topbar-identity">
           <BrandLockup compact />
@@ -190,23 +203,23 @@ export default function App() {
           </p>
         </div>
         <nav className="tabs" aria-label="Primary">
-          <button className={view === 'course-planning' ? 'active' : ''} onClick={() => setView('course-planning')}>
+          <button className={view === 'course-planning' ? 'active' : ''} onClick={() => changeView('course-planning')}>
             <BookOpen size={16} />
             Course Planning
           </button>
-          <button className={view === 'sessions' ? 'active' : ''} onClick={() => setView('sessions')}>
+          <button className={view === 'sessions' ? 'active' : ''} onClick={() => changeView('sessions')}>
             <CalendarDays size={16} />
             Sessions
           </button>
-          <button className={view === 'sync' ? 'active' : ''} onClick={() => setView('sync')}>
+          <button className={view === 'sync' ? 'active' : ''} onClick={() => changeView('sync')}>
             <Upload size={16} />
             Sync
           </button>
-          {profile.role === 'admin' && <button className={view === 'admin' ? 'active' : ''} onClick={() => setView('admin')}>
+          {profile.role === 'admin' && <button className={view === 'admin' ? 'active' : ''} onClick={() => changeView('admin')}>
             <ClipboardList size={16} />
             Admin
           </button>}
-          <button className={`legacy-tab${view === 'legacy-sessions' ? ' active' : ''}`} onClick={() => setView('legacy-sessions')}>
+          <button className={`legacy-tab${view === 'legacy-sessions' ? ' active' : ''}`} onClick={() => changeView('legacy-sessions')}>
             <ListFilter size={16} />
             Legacy sessions
           </button>
@@ -218,7 +231,19 @@ export default function App() {
       {view === 'course-planning' && <CoursePlanningPage user={user} role={profile.role as ActiveRole} onApiError={handleApiError} />}
       {view === 'sessions' && <SessionsPage user={user} role={profile.role as ActiveRole} onApiError={handleApiError} />}
       {view === 'sync' && <SyncPage user={user} onApiError={handleApiError} />}
-      {view === 'admin' && profile.role === 'admin' && <AdminUserAccessPage user={user} />}
+      {view === 'admin' && profile.role === 'admin' && <div className="administration-content">
+        <header className="administration-heading"><span className="eyebrow">Controlled access</span><h1>Administration</h1><p>Manage application access and trainer reference records.</p></header>
+        <div className="trainer-tabs" role="tablist" aria-label="Administration sections">
+          {(['users', 'trainers'] as const).map((section) => <button key={section} role="tab" aria-selected={adminSection === section} tabIndex={adminSection === section ? 0 : -1} onClick={() => changeAdminSection(section)} onKeyDown={(event) => {
+            if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+              event.preventDefault(); const next = event.key === 'Home' ? 'users' : event.key === 'End' ? 'trainers' : section === 'users' ? 'trainers' : 'users';
+              // FIX: keyboard tab activation also moves DOM focus after discard approval.
+              if (changeAdminSection(next)) (event.currentTarget.parentElement?.children[next === 'users' ? 0 : 1] as HTMLElement)?.focus();
+            }
+          }}>{section === 'users' ? 'User Access' : 'Trainer Directory'}</button>)}
+        </div>
+        <div role="tabpanel" aria-label={adminSection === 'users' ? 'User Access' : 'Trainer Directory'}>{adminSection === 'users' ? <AdminUserAccessPage user={user} /> : <AdminTrainerDirectoryPage user={user} onApiError={handleApiError} onDirtyChange={setTrainerDirty} />}</div>
+      </div>}
       {view === 'legacy-sessions' && <LegacySessionsPage user={user} onApiError={handleApiError} />}
     </main>
   );

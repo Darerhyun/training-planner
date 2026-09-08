@@ -78,6 +78,76 @@ export async function fetchAdminUserHistory(user: User, id: string): Promise<Use
   return data.events;
 }
 
+export type TrainerState = 'ready' | 'needs_setup' | 'inactive';
+export interface TrainerAlias { id: number; alias_name: string; source: string | null; }
+export interface TrainerCourse { code: string; name: string; programme_code: string | null; programme_name: string | null; }
+export interface TrainerLink extends Omit<TrainerCourse, 'code'> { course_code: string; is_sme: boolean; excluded?: boolean; }
+export interface TrainerExclusion extends Omit<TrainerCourse, 'code'> { course_code: string; }
+export interface AdminTrainer {
+  trainer_id: string; name: string; notes: string | null; is_active: boolean; version: number;
+  eligibility_version: number; scheduling_readiness: 'ready' | 'needs_setup';
+  readiness_origin: 'grandfathered' | 'admin_confirmed' | null;
+  readiness_confirmed_at: string | null; readiness_confirmed_by: string | null;
+  readiness_version: number | null; exclusions_acknowledged_version: number | null;
+  created_at: string; updated_at: string;
+}
+export interface TrainerDetail extends AdminTrainer { aliases: TrainerAlias[]; links: TrainerLink[]; exclusions: TrainerExclusion[]; }
+export interface TrainerListRow extends AdminTrainer {
+  aliases: TrainerAlias[]; eligible_course_count: number; sme_count: number; exclusion_count: number;
+  upcoming_session_count: number; updated_by: AccessPerson | null; matched_course: string | null;
+}
+export interface TrainerList { trainers: TrainerListRow[]; counts: Record<TrainerState, number>; filteredCount: number; nextCursor: string | null; }
+export interface TrainerHistory {
+  id: string; action: string; actor: AccessPerson; created_at: string; new_version: number;
+  note: string | null; metadata: Record<string, unknown>;
+}
+export interface TrainerListRequest { state: TrainerState; q?: string; cursor?: string; }
+export async function fetchAdminTrainers(user: User, request: TrainerListRequest): Promise<TrainerList> {
+  const params = new URLSearchParams({ state: request.state });
+  if (request.q) params.set('q', request.q);
+  if (request.cursor) params.set('cursor', request.cursor);
+  return apiFetch(user, `/admin/trainers?${params}`);
+}
+export async function fetchAdminTrainer(user: User, id: string): Promise<TrainerDetail> {
+  return (await apiFetch<{ trainer: TrainerDetail }>(user, `/admin/trainers/${encodeURIComponent(id)}`)).trainer;
+}
+export async function fetchAdminTrainerHistory(user: User, id: string): Promise<TrainerHistory[]> {
+  return (await apiFetch<{ events: TrainerHistory[] }>(user, `/admin/trainers/${encodeURIComponent(id)}/history`)).events;
+}
+export async function fetchTrainerCourses(user: User): Promise<TrainerCourse[]> {
+  return (await apiFetch<{ courses: TrainerCourse[] }>(user, '/admin/trainers/courses')).courses;
+}
+export async function fetchTrainerImpact(user: User, id: string): Promise<{ version: number; upcomingSessionCount: number }> {
+  return apiFetch(user, `/admin/trainers/${encodeURIComponent(id)}/deactivation-impact`);
+}
+export async function createAdminTrainer(user: User, input: { name: string; notes: string }): Promise<AdminTrainer> {
+  return (await apiFetch<{ trainer: AdminTrainer }>(user, '/admin/trainers', { method: 'POST', body: JSON.stringify(input) })).trainer;
+}
+export type TrainerMutation =
+  | { action: 'profile'; name: string; notes: string }
+  | { action: 'eligibility'; links: { courseCode: string; isSme: boolean }[]; exclusions: string[] }
+  | { action: 'readiness/confirm'; expectedEligibilityVersion: number; acknowledgeExclusions: true }
+  | { action: 'aliases'; aliasName: string }
+  | { action: 'remove-alias'; aliasId: number; note: string }
+  | { action: 'deactivate'; acknowledgeAssignments: true; note: string }
+  | { action: 'reactivate'; note: string };
+export async function mutateAdminTrainer(user: User, id: string, expectedVersion: number, input: TrainerMutation): Promise<AdminTrainer> {
+  const { action, ...fields } = input;
+  const path = action === 'remove-alias' ? `aliases/${encodeURIComponent(String(input.aliasId))}` : action;
+  const method = action === 'profile' ? 'PATCH' : action === 'eligibility' ? 'PUT' : action === 'remove-alias' ? 'DELETE' : 'POST';
+  return (await apiFetch<{ trainer: AdminTrainer }>(user, `/admin/trainers/${encodeURIComponent(id)}/${path}`, {
+    method, body: JSON.stringify({ ...fields, expectedVersion }),
+  })).trainer;
+}
+
+// Fetch the whole authoritative presentation before committing any success state.
+export async function fetchTrainerSnapshot(user: User, id: string, request: TrainerListRequest) {
+  const [trainer, history, list] = await Promise.all([
+    fetchAdminTrainer(user, id), fetchAdminTrainerHistory(user, id), fetchAdminTrainers(user, request),
+  ]);
+  return { trainer, history, list };
+}
+
 export interface ApiSession {
   id: string;
   course_code: string | null;
