@@ -454,8 +454,10 @@ Rate Reconciliation:
   forward is opt-in after full server revalidation and can carry an exclusion
   only when normalized name, category, and server-only row/profile fingerprints
   match.
-- Use distinct terminal states `uploaded`, `parsed`, `needs_resolution`, `ready`, `applied`, `rejected`, `failed`, `discarded`. Every terminal state
-  is read-only and releases the open-batch lock. Upload Cancel exists only
+- Use eight distinct lifecycle states: `uploaded`, `parsed`, `needs_resolution`,
+  `ready`, `applied`, `rejected`, `failed`, and `discarded`. Only `applied`,
+  `rejected`, `failed`, and `discarded` are terminal; each terminal state is
+  read-only and releases the open-batch lock. Upload Cancel exists only
   before the `uploaded` record; after that, audited Discard is the
   only pre-apply exit. Rejected offers only **Start a new batch**. Failed
   retains no workbook object and requires re-upload. Carry-forward is always
