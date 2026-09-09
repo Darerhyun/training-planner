@@ -128,7 +128,7 @@ select option { color: var(--text); }
 .trainer-search input { min-width: 0; width: 360px; max-width: 100%; flex: 1; }
 .trainer-table { table-layout: fixed; width: 100%; border-collapse: collapse; font-size: 12px; }
 .trainer-table th { text-align: left; background: #f5f6f8; color: #475467; padding: 10px 8px; white-space: normal; }
-.trainer-table td { padding: 6px 8px; height: 56px; border-bottom: 1px solid #dde1e7; overflow: hidden; }
+.trainer-table td { padding: 5px 8px; height: 56px; border-bottom: 1px solid #dde1e7; overflow: hidden; }
 .trainer-table td strong, .trainer-table td small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 16px; }
 .trainer-table tbody tr { cursor: pointer; }
 .trainer-table tbody tr:hover { background: #f8f9fb; }
@@ -179,8 +179,8 @@ select option { color: var(--text); }
 .trainer-save-bar { position: sticky; bottom: -24px; background: #fff; padding: 12px 0; border-top: 1px solid #dde1e7; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
 .trainer-save-bar span { width: 100%; }
 .trainer-save-bar button { flex: 1; }
-.trainer-modal-backdrop { z-index: 50; display: grid; place-items: center; padding: 12px; }
-.trainer-modal { background: #fff; border-radius: 12px; padding: 24px; width: 520px; max-width: 100%; max-height: calc(100dvh - 24px); overflow-y: auto; overflow-wrap: anywhere; }
+.trainer-modal-backdrop { z-index: 50; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; padding: 12px; }
+.trainer-modal { background: #fff; border-radius: 12px; padding: 24px; width: min(520px, 100%); max-width: 100%; max-height: calc(100dvh - 24px); overflow-y: auto; overflow-wrap: anywhere; }
 .trainer-modal h3 { margin-top: 0; }
 .trainer-modal .trainer-actions { margin-top: 20px; }
 .trainer-danger { background: #b42318; border-color: #b42318; }

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import type { User } from 'firebase/auth';
-import { hasTrainerDialogInput, restoreTrainerFocus, trainerAccessDenied, trainerAliasFocusTarget } from './pages/admin-trainer-directory-page.js';
+import { hasTrainerDialogInput, restoreTrainerFocus, trainerAccessDenied, trainerAliasFocusTarget, trainerSetupBlocker } from './pages/admin-trainer-directory-page.js';
 import {
   ApiError,
   apiFetch,
@@ -90,6 +90,37 @@ test('hidden stale dialog input remains dirty until explicitly cleared', () => {
     assert.equal(shouldConfirmReload, true);
   }
   assert.equal(hasTrainerDialogInput('', ''), false);
+});
+
+test('trainer UI corrections preserve distinct failure recovery and commit-aware focus', async () => {
+  const page = await readFile(new URL('./pages/admin-trainer-directory-page.tsx', import.meta.url), 'utf8');
+  assert.match(page, /useLayoutEffect\(\(\) => \{\s*if \(!pendingFocus \|\| busy\) return;/);
+  assert.match(page, /pendingFocus === 'reload'[\s\S]*?\[data-trainer-reload\]/);
+  assert.match(page, /else if \(input\?\.action === 'remove-alias'\) \{ setDialog\(null\); setDialogName\(''\); setDialogNote\(''\); setPendingFocus\('opener'\); \}/);
+  assert.match(page, /startsWith\('stale_trainer'\)\) \{ setStale\(true\); setDialog\(null\); setPendingFocus\('reload'\); \}/);
+  assert.match(page, /if \(savedId\) \{[\s\S]*?setPendingFocus\('reload'\)/);
+  assert.match(page, /const modal = document.querySelector<HTMLElement>\('\.trainer-modal'\);\s*\(modal \? modal.querySelector/);
+  assert.doesNotMatch(page, /'\.trainer-modal input, \.trainer-modal textarea, \.trainer-drawer input'/);
+  assert.match(page, /result.version !== detail.version\) \{ setStale\(true\); setDialog\(null\);[\s\S]*?setPendingFocus\('reload'\)/);
+  assert.match(page, /<button data-trainer-reload/);
+  assert.match(page, /<span aria-hidden="true">\{pass \? '✓' : '○'\}<\/span><span className="sr-only">\{pass \? 'Met: ' : 'Not met: '\}/);
+});
+
+test('setup blockers use effective counts on both directory rows and cards', async () => {
+  assert.equal(trainerSetupBlocker(0), 'No eligible courses');
+  assert.equal(trainerSetupBlocker(1), 'Not yet confirmed');
+  assert.equal(trainerSetupBlocker(12), 'Not yet confirmed');
+  const page = await readFile(new URL('./pages/admin-trainer-directory-page.tsx', import.meta.url), 'utf8');
+  assert.equal(page.split('trainerSetupBlocker(row.eligible_course_count)').length - 1, 2);
+});
+
+test('dialogs constrain their grid track and three-line search rows retain the height budget', async () => {
+  const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.trainer-modal-backdrop \{[^}]*grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(css, /\.trainer-modal \{[^}]*width: min\(520px, 100%\)/);
+  assert.match(css, /\.trainer-table td \{ padding: 5px 8px; height: 56px;/);
+  assert.match(css, /\.trainer-table td strong, \.trainer-table td small \{[^}]*line-height: 16px;/);
+  assert.equal(3 * 16 + 2 * 5 + 1, 59);
 });
 
 test('alias removal focuses next chip or Add alias when the removed chip was last', () => {
