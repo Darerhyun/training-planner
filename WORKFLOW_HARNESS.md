@@ -108,10 +108,10 @@ when product authority is needed, the user approves the decision.
 
 ## 6. Repository and deployment evidence
 
-The repository `main` source baseline for the current documentation work is
-`130b1e61b2822d572f29f677ad4a9f2a786d98ce`, verified read-only before branching.
-The deployed application baseline is
-`749908290131882505efb011300d446ee9926c74`, recorded as last-verified evidence.
+The repository `main` source baseline for the current Sync/reference-data repair
+documentation work is `d786d19452f069e26569bb35115cea341acb21fa`, verified
+read-only before editing. The deployed application baseline is
+`645ea70b816a82fae3482dd862d8602c92035106`, recorded as last-verified evidence.
 These baselines are intentionally distinct; repository `main` may contain
 changes that are not present in the deployed application.
 
@@ -121,3 +121,10 @@ documentation work performs no provider read or mutation and does not authorize
 another deployment, rollback, infrastructure, or provider change. Every future
 release remains subject to the review, acceptance, express authorization,
 rollback, cost, and post-deployment gates above.
+
+The approved schedule Sync/reference-data repair contract is
+`docs/01-product/sync-reference-repair.md`. Its documentation-only preparation
+does not authorize production queries, writes, migrations, cleanup, rate or
+session-economics changes, implementation, branch publication, or deployment.
+PR3K implementation remains paused until the preventive Sync repair has passed
+its separate implementation and release gates.

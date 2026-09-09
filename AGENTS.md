@@ -42,9 +42,10 @@ Multi-user from day one. Roles live on `users.role` (enum: `admin | ops | financ
 
 The application uses the approved PostgreSQL, Cloud Run, Firebase Hosting,
 Firebase Auth, and GCS contracts. The repository `main` source baseline for the
-current documentation work is `130b1e61b2822d572f29f677ad4a9f2a786d98ce`,
-verified read-only before branching. The deployed application baseline is
-`749908290131882505efb011300d446ee9926c74`, recorded as last-verified evidence.
+current Sync/reference-data repair documentation is
+`d786d19452f069e26569bb35115cea341acb21fa`, verified read-only before editing.
+The deployed application baseline is
+`645ea70b816a82fae3482dd862d8602c92035106`, recorded as last-verified evidence.
 These are distinct baselines; repository `main` may contain changes that have
 not been deployed.
 
@@ -59,7 +60,7 @@ Do not introduce Vertex AI, Firestore, or Cloudflare without a separately approv
 
 ## How to read this project
 
-The product workflow and domain knowledge are captured in `docs/`. **Read the relevant doc before writing code that touches that product or domain area.** Start with `docs/00-INDEX.md`, which maps every file. All active roles must read `WORKFLOW_HARNESS.md` and their applicable root rolebook; Astra reads `LUNA_RULES.md` for its execution contract, and Claude reads the design brief for UI work. For Course Planning vs Sessions workflow, Excel/app/TMS ownership, Admin Area decisions, and PR3E–PR3J scope, read `docs/01-product/planning-workflow-roadmap.md`.
+The product workflow and domain knowledge are captured in `docs/`. **Read the relevant doc before writing code that touches that product or domain area.** Start with `docs/00-INDEX.md`, which maps every file. All active roles must read `WORKFLOW_HARNESS.md` and their applicable root rolebook; Astra reads `LUNA_RULES.md` for its execution contract, and Claude reads the design brief for UI work. For Course Planning vs Sessions workflow, Excel/app/TMS ownership, Admin Area decisions, PR3E–PR3K scope, or schedule Sync safety, read `docs/01-product/planning-workflow-roadmap.md` and `docs/01-product/sync-reference-repair.md`.
 
 The data model is driven by the CSVs in `docs/` — they are the seed data. The markdown files explain the model and the business rules.
 
@@ -85,7 +86,7 @@ The data model is driven by the CSVs in `docs/` — they are the seed data. The 
 Build in this order. Each PR is independently reviewable. Do not jump ahead.
 
 1. **PR1 — Foundation.** Postgres schema + Firebase Auth shell + Cloud Run scaffold (`services/shared` + `services/core-api` with `/health` and `/me`) + admin allowlist + `.env.example`. **Mandatory checkpoint: stop after the schema is written and get it reviewed before writing application code.**
-2. **PR2 — Ingest.** GCS signed uploads + `parse-schedule` function + Sync page UI + Sessions list page. Tiered confirm: auto-apply when fewer than 10 changes and no cancellations, otherwise require explicit confirm. Defensive guard if a parse would cancel more than 50% of existing sessions.
+2. **PR2 — Ingest (historical baseline).** GCS signed uploads + `parse-schedule` function + Sync page UI + Sessions list page. The original implementation used tiered confirmation, including auto-apply for fewer than 10 changes and no cancellations, plus a defensive guard if a parse would cancel more than 50% of existing sessions. The approved repair contract in `docs/01-product/sync-reference-repair.md` supersedes auto-apply and defines the staged safety work required before further operational Sync use.
 3. **PR3 — Planning dashboard and session workflow.** Preserve completed PR3 history while extending PR3 before PR4:
 	- **PR3A — Room/reference polish.** Completed: generic owned-room label resolution for the observed August workbook labels (`ip-class1`, `ip-class2`, `ip-classroom`, `jtc-classroom`) without adding unobserved JTC class variants.
 	- **PR3B — Read-only Planning Dashboard API.** Completed: `/planning/sessions` span-overlap API with filters, pagination, summaries, role access, and deferred training-day conflict detection.
@@ -94,18 +95,21 @@ Build in this order. Each PR is independently reviewable. Do not jump ahead.
 	- **PR3E — Product and data-ownership contract.** Completed: approved Course Planning vs Sessions workflow and ownership roadmap committed as documentation.
 	- **PR3F — Session write safety and audit foundation.** Completed: ownership, optimistic concurrency, session history, Admin/Ops trainer assignment endpoint, and Sync conflict protection.
 	- **PR3G — Sessions UX and navigation consolidation.** Completed and merged: enhanced Sessions navigation, date modes, role-appropriate trainer amendment, history/detail states, stale-write handling, and protected Sync conflict presentation. Any deployment details for this historical milestone are evidence only.
-	- **PR3G-V — ASK UX Visual Foundation.** Historical white/red presentation foundation completed before PR3H; the approved V4 Sessions frontend-only revision is upcoming after revised R12. Its V4 design inputs are archived under `docs/03-design/`; no V4 implementation is part of this work.
+	- **PR3G-V — ASK UX Visual Foundation.** The white/red presentation foundation and approved V4 Sessions frontend-only revision are completed, merged, and included in deployed baseline `645ea70b816a82fae3482dd862d8602c92035106`. Preserve its historical PR identity and archived V4 design inputs under `docs/03-design/`; do not reopen or renumber it.
 	- **PR3H — Future Course Planning.** Completed: month-based Course Planning using planning profiles as evidence, with explicit creation of draft Sessions from approved planned runs.
 	- **PR3I — Admin Panel: User Access.** Completed: Admin-only workflow to invite, approve, reject, assign roles, deactivate, and reactivate application users.
-	- **PR3J — Admin Panel: Trainer Directory.** Add the Admin-only workflow to register and edit trainers, activate/deactivate records, and manage course links and module exclusions.
+	- **PR3J — Admin Panel: Trainer Directory.** Completed and deployed at `645ea70b816a82fae3482dd862d8602c92035106`: Admin-only registration/editing, activation/deactivation, course links, module exclusions, audited alias removal, and scheduling-readiness setup.
+	- **SYNC-REPAIR — Schedule Sync and reference-data safety.** Approved documentation contract in `docs/01-product/sync-reference-repair.md`; implementation is pending and must precede further operational Sync use and PR3K implementation.
 4. **PR4 — Trainer picker drawer** with rules-based suggestions (skills, SME boost, exclusions, tier/cost awareness).
 5. **PR5 — AI assistant chat** (propose → confirm → execute pattern).
 6. **PR6 — Gantt trainers view, Calendar view, Activity page.**
 
-The historical PR3G-V white/red foundation, PR3H, and PR3I retain their
-historical identities and are complete in the repository history. The approved
-PR3G-V V4 Sessions revision remains upcoming after revised R12; PR3J remains
-separate and pending. PR4–PR6 retain their historical identities and numbering.
+The historical PR3G-V white/red foundation and V4 Sessions revision, PR3H,
+PR3I, and PR3J retain their historical identities and are complete in the
+repository history; the PR3G-V revision and PR3J are included in the deployed
+baseline above. Schedule Sync repair is the current prerequisite, and PR3K
+remains approved at the contract level but paused until that repair is complete.
+PR4–PR6 retain their historical identities and numbering.
 Audit recommendations R1–R15 are tracked separately in
 `docs/01-product/maintenance-backlog.md`; they must not be confused with the
 planning rulebook R1–R12 in `docs/02-domain/planning-rules.md`.
@@ -115,6 +119,7 @@ planning rulebook R1–R12 in `docs/02-domain/planning-rules.md`.
 - **Course / module** — a thing that can be taught. Standalone (ASK courses) or part of a programme (ACDM, DDM, SDDM, CIIO, ACIIO, DIIO). See `docs/02-domain/courses.md`.
 - **Course Planning** — future-month course × venue planning. It decides what should be run, not who teaches it.
 - **Session** — one delivery of one course on specific dates at a venue/room, for a cohort. Imported from Excel or created from approved Course Planning. Trainer assignment and session amendments happen here.
+- **Sync repair** — the staged safety contract that previews every schedule batch, blocks unsafe interpretations, requires exact-preview acknowledgement, and separates reference-data and existing-session repair. See `docs/01-product/sync-reference-repair.md`.
 - **Trainer** — someone who can teach courses. Skill matrix + SME flags + exclusions. See `docs/02-domain/trainers.md`.
 - **Venue / Room** — where sessions happen. Owned venues (IP, JTC) have rooms with capacities; external (hotels) and virtual (HBL) do not. See `docs/02-domain/venues-rooms.md`.
 - **Trainer rate / tier** — what a trainer costs, by programme category and pax band. Sensitive. See `docs/02-domain/trainer-rates.md`.
