@@ -89,7 +89,7 @@ export default function AdminTrainerDirectoryPage({ user, onApiError, onDirtyCha
   const [name, setName] = useState(''); const [notes, setNotes] = useState(''); const [links, setLinks] = useState<TrainerLink[]>([]); const [exclusions, setExclusions] = useState<TrainerExclusion[]>([]);
   const [courses, setCourses] = useState<TrainerCourse[]>([]); const [courseError, setCourseError] = useState(''); const [ack, setAck] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null); const [dialogName, setDialogName] = useState(''); const [dialogNote, setDialogNote] = useState(''); const [dialogAck, setDialogAck] = useState(false);
-  const [pendingFocus, setPendingFocus] = useState<'opener' | 'error' | 'reload' | null>(null);
+  const [pendingFocus, setPendingFocus] = useState<'opener' | 'error' | 'reload' | 'heading' | null>(null);
   const [alias, setAlias] = useState<TrainerAlias | null>(null); const [impact, setImpact] = useState<number | null>(null); const [impactError, setImpactError] = useState('');
   const opener = useRef<HTMLElement | null>(null); const dialogOpener = useRef<HTMLElement | null>(null); const searchRef = useRef<HTMLInputElement>(null); const drawer = useRef<HTMLElement>(null); const heading = useRef<HTMLHeadingElement>(null);
   const listEpoch = useRef(0); const detailEpoch = useRef(0); const landed = useRef(false);
@@ -108,6 +108,7 @@ export default function AdminTrainerDirectoryPage({ user, onApiError, onDirtyCha
   useLayoutEffect(() => {
     if (!pendingFocus || busy) return;
     if (pendingFocus === 'reload') drawer.current?.querySelector<HTMLElement>('[data-trainer-reload]')?.focus();
+    else if (pendingFocus === 'heading') heading.current?.focus();
     else if (pendingFocus === 'opener') dialogOpener.current?.focus();
     else {
       const modal = document.querySelector<HTMLElement>('.trainer-modal');
@@ -147,18 +148,22 @@ export default function AdminTrainerDirectoryPage({ user, onApiError, onDirtyCha
     await loadList();
     setRestoreFocusVersion((version) => version + 1);
   }
-  async function loadDetail(id: string) {
+  async function loadDetail(id: string, reload = false) {
     const epoch = ++detailEpoch.current; setDetailLoading(true); setDetailError(''); setError('');
     try {
       const [trainer, events, currentList] = await Promise.all([fetchAdminTrainer(user, id), fetchAdminTrainerHistory(user, id), fetchAdminTrainers(user, { state, q: search })]);
       if (epoch === detailEpoch.current) {
         // FIX: reload recovery stages list/counts alongside detail and History.
         listEpoch.current++; setList(currentList); setListLoading(false); applyDetail(trainer, events);
+        if (reload) setPendingFocus('heading');
       }
     } catch (failure) {
       if (epoch !== detailEpoch.current) return;
       if (failure instanceof ApiError && failure.status === 404) await unavailable();
-      else await reportFailure(failure, setDetailError);
+      else {
+        await reportFailure(failure, setDetailError);
+        if (reload && epoch === detailEpoch.current && !trainerAccessDenied(failure)) setPendingFocus('reload');
+      }
     } finally { if (epoch === detailEpoch.current) setDetailLoading(false); }
   }
   function closeDrawer() {
@@ -230,7 +235,7 @@ export default function AdminTrainerDirectoryPage({ user, onApiError, onDirtyCha
       <header className="trainer-drawer-header"><div><h3 ref={heading} tabIndex={-1}>{detail?.name ?? 'Trainer details'}</h3>{detail && <><span className={`trainer-pill ${stateOf(detail)}`}>{labels[stateOf(detail)]}</span><small>ID {detail.trainer_id} · Version {detail.version}</small></>}</div><button className="secondary" aria-label="Close trainer details" disabled={busy} onClick={closeDrawer}>×</button></header>
       {detailLoading && <div aria-busy="true"><p role="status">Loading trainer details and History…</p><div className="trainer-skeleton" /></div>}
       {detailError && <div role="alert"><p>Trainer details could not be loaded.</p><button onClick={() => void loadDetail(selectedId)}>Retry</button></div>}
-      {stale && <div role="alert"><p>This trainer changed after you opened it. Reload the latest version before saving.</p><button data-trainer-reload className="secondary" onClick={() => { if (!dirty || window.confirm('Discard unsaved input and reload trainer?')) void loadDetail(selectedId); }}>Reload trainer</button></div>}
+      {stale && <div role="alert"><p>This trainer changed after you opened it. Reload the latest version before saving.</p><button data-trainer-reload className="secondary" onClick={() => { if (!dirty || window.confirm('Discard unsaved input and reload trainer?')) void loadDetail(selectedId, true); }}>Reload trainer</button></div>}
       {error && !dialog && <p role="alert">{error}</p>}
       {detail && !detailError && <><Tabs values={['Overview', 'Eligibility', 'History']} active={tab} change={setTab} label="Trainer details" /><div role="tabpanel" aria-label={tab} className="trainer-drawer-content">
       {tab === 'Overview' && <><h4>Profile</h4><label htmlFor="trainer-name">Name</label><input id="trainer-name" value={name} minLength={2} maxLength={120} disabled={blocked} onChange={(event) => setName(event.target.value)} /><label htmlFor="trainer-notes">Administrative notes</label><textarea id="trainer-notes" maxLength={500} value={notes} disabled={blocked} onChange={(event) => setNotes(event.target.value)} /><small>{notes.length}/500</small><button disabled={blocked || !profileDirty || eligibilityDirty || name.trim().length < 2} onClick={() => void save({ action: 'profile', name, notes }, 'Trainer profile saved.')}>Save profile</button>

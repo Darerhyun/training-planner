@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
+import ts from 'typescript';
 import type { User } from 'firebase/auth';
 import { hasTrainerDialogInput, restoreTrainerFocus, trainerAccessDenied, trainerAliasFocusTarget, trainerSetupBlocker } from './pages/admin-trainer-directory-page.js';
 import {
@@ -112,6 +114,95 @@ test('setup blockers use effective counts on both directory rows and cards', asy
   assert.equal(trainerSetupBlocker(12), 'Not yet confirmed');
   const page = await readFile(new URL('./pages/admin-trainer-directory-page.tsx', import.meta.url), 'utf8');
   assert.equal(page.split('trainerSetupBlocker(row.eligible_course_count)').length - 1, 2);
+});
+
+test('Reload commits heading focus inside the drawer, traps keyboard focus, and restores Reload on failure', async () => {
+  const page = await readFile(new URL('./pages/admin-trainer-directory-page.tsx', import.meta.url), 'utf8');
+  const source = ts.createSourceFile('trainer.tsx', page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const functions = new Map<string, string>();
+  let focusEffect = '';
+  function visit(node: ts.Node) {
+    if (ts.isFunctionDeclaration(node) && node.name) functions.set(node.name.text, node.getText(source));
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'useLayoutEffect') {
+      const callback = node.arguments[0];
+      if (callback.getText(source).includes('if (!pendingFocus || busy) return;')) focusEffect = callback.getText(source);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  assert.ok(functions.has('loadDetail')); assert.ok(functions.has('trap')); assert.ok(focusEffect);
+  assert.match(page, /<h3 ref=\{heading\} tabIndex=\{-1\}>\{detail\?\.name/);
+  assert.match(page, /data-trainer-reload[\s\S]*?void loadDetail\(selectedId, true\)/);
+  assert.match(page, /if \(!dialog\) trap\(event, drawer.current, closeDrawer\)/);
+  // Execute the production callbacks, not a duplicate of their control flow.
+  // The fixture explicitly separates React's state updates from its DOM commit.
+  const callbacks = ts.transpileModule(`${functions.get('loadDetail')}\n${functions.get('trap')}\n({ loadDetail, trap, commitFocus: ${focusEffect} });`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  for (const outcome of ['success', 'failure', 'superseded', 'denied', 'missing'] as const) {
+    const document = { activeElement: null as object | null };
+    const node = () => ({ isConnected: true, focus() { if (this.isConnected) document.activeElement = this; }, getClientRects: () => [1] });
+    const heading = node(); const reload = node(); const first = node(); const last = node();
+    const body = node(); const nodes = [first, last];
+    const drawer = {
+      querySelector: () => reload.isConnected ? reload : null,
+      querySelectorAll: () => nodes,
+      contains: (target: object | null) => [heading, reload, ...nodes].some((entry) => entry === target && entry.isConnected),
+    };
+    let resolveDetail!: (value: object) => void; let rejectDetail!: (reason: Error) => void;
+    const request = new Promise<object>((resolve, reject) => { resolveDetail = resolve; rejectDetail = reject; });
+    let applied = false;
+    const context = {
+      user, state: 'needs_setup', search: '', ApiError, trainerAccessDenied,
+      detailEpoch: { current: 0 }, listEpoch: { current: 0 }, busy: false,
+      pendingFocus: null as string | null, heading: { current: heading }, drawer: { current: drawer }, document,
+      fetchAdminTrainer: () => request, fetchAdminTrainerHistory: async () => [], fetchAdminTrainers: async () => ({}),
+      setDetailLoading: (_value: boolean) => {}, setDetailError: (_value: string) => {}, setError: (_value: string) => {},
+      setList: (_value: object) => {}, setListLoading: (_value: boolean) => {},
+      applyDetail: () => { applied = true; },
+      setPendingFocus: (value: string | null) => { context.pendingFocus = value; },
+      reportFailure: async (failure: unknown) => { if (trainerAccessDenied(failure)) context.detailEpoch.current++; },
+      unavailable: async () => { context.detailEpoch.current++; },
+    };
+    const actual = runInNewContext(callbacks, context) as {
+      loadDetail: (id: string, reload: boolean) => Promise<void>;
+      commitFocus: () => void;
+      trap: (event: object, root: object, close: () => void) => void;
+    };
+    reload.focus();
+    const pending = actual.loadDetail('demo', true);
+    actual.commitFocus();
+    assert.equal(document.activeElement, reload, 'loading must not move focus early');
+    assert.equal(applied, false);
+    if (outcome === 'superseded') context.detailEpoch.current++;
+    if (outcome === 'failure') rejectDetail(new Error('Network unavailable'));
+    else if (outcome === 'denied' || outcome === 'missing') rejectDetail(new ApiError(outcome, outcome === 'denied' ? 403 : 404));
+    else resolveDetail({ trainer_id: 'demo', name: 'Demo Trainer 1', version: 10 });
+    await pending;
+    assert.equal(document.activeElement, reload, 'state update alone must not focus the heading');
+    if (outcome === 'success') {
+      assert.equal(applied, true); assert.equal(context.pendingFocus, 'heading');
+      reload.isConnected = false; body.focus(); // Successful commit removes the stale alert/button.
+      actual.commitFocus();
+      assert.equal(document.activeElement, heading);
+      assert.equal(drawer.contains(document.activeElement), true);
+      for (const shiftKey of [false, true]) {
+        heading.focus(); let prevented = false;
+        actual.trap({ key: 'Tab', shiftKey, preventDefault: () => { prevented = true; } }, drawer, () => {});
+        assert.equal(prevented, true);
+        assert.equal(document.activeElement, shiftKey ? last : first);
+        assert.equal(drawer.contains(document.activeElement), true);
+      }
+    } else if (outcome === 'failure') {
+      assert.equal(applied, false); assert.equal(context.pendingFocus, 'reload');
+      body.focus(); actual.commitFocus();
+      assert.equal(document.activeElement, reload);
+      assert.equal(drawer.contains(document.activeElement), true);
+    } else {
+      assert.equal(applied, false);
+      assert.equal(context.pendingFocus, null, 'superseded/closed/hidden drawers must not receive focus');
+    }
+  }
 });
 
 test('dialogs constrain their grid track and three-line search rows retain the height budget', async () => {
