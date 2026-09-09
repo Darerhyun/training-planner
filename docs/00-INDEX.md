@@ -31,7 +31,7 @@ docs/
 │   ├── planning-workflow-roadmap.md ← approved Course Planning, Sessions, Admin Area, and ownership roadmap
 │   └── trainer-rate-reconciliation.md ← Admin-only protected rate import, identity reconciliation, preview, audit, and atomic-apply contract
 ├── SETUP.md                        ← local setup and authorized infrastructure-recovery guide
-└── 02-domain/                      ← the domain model: what the business actually is
+├── 02-domain/                      ← the domain model: what the business actually is
     ├── courses.md                  ← courses, programmes, modules, fees, durations
     ├── courses_catalog.csv         ← seed data: 142 original courses/modules
     ├── courses_fulltime_2026.csv   ← seed data: 35 full-time restructure courses
@@ -54,6 +54,10 @@ docs/
     ├── programme_categories.csv    ← seed data: 5 pricing categories
     ├── trainer_rate_tiers.csv      ← NOT in repo — schema only; real rates live in the protected production database, outside GitHub
     └── trainer_tier_assignments.csv← seed data: which trainer is in which tier
+└── 03-design/
+    ├── README.md                   ← immutable design-input index
+    ├── design-brief.md             ← standing UI/IX brief
+    └── admin-pr3k-rate-reconciliation/README.md ← PR3K mapping and reconciliation UI/IX contract
 ```
 
 ## Reading order for a new agent
@@ -71,7 +75,8 @@ docs/
 | Delivery workflow, review, acceptance, merge, or deployment | `../WORKFLOW_HARNESS.md` and the applicable rolebooks |
 | Infrastructure recovery, cost controls, GCS lifecycle, or CORS | `SETUP.md`, `../infra/cost-guardrails.json`, `../infra/gcs-lifecycle.json`, `../infra/gcs-cors.example.json` |
 | Course Planning / Sessions workflow, Excel/app/TMS ownership, Admin Area decisions, PR3E–PR3K scope | `01-product/planning-workflow-roadmap.md` |
-| Trainer-rate workbook upload, name/alias/new-trainer reconciliation, category/profile mapping, effective dating, preview, audit, or atomic apply | `01-product/trainer-rate-reconciliation.md`, `02-domain/trainer-rates.md`, `02-domain/trainers.md` |
+| Trainer-rate workbook upload, name/alias/new-trainer reconciliation, eight category/profile mapping, effective dating, preview, audit, or atomic apply | `01-product/trainer-rate-reconciliation.md`, `02-domain/trainer-rates.md`, `02-domain/trainers.md` |
+| Canonical course-to-rate-category mapping and the PR3K reconciliation UI/IX | `03-design/admin-pr3k-rate-reconciliation/README.md`, `03-design/design-brief.md` |
 | Database schema, seed data | All four domain `.md` files + every `.csv` |
 | Parsing the master schedule Excel | `courses.md` (to match course codes), `trainers.md` (trainer name aliasing), `venues-rooms.md` (venue codes) |
 | Sessions list / planning grid | `courses.md`, `venues-rooms.md` |
@@ -100,13 +105,13 @@ docs/
 - **No SSG/TGS codes stored.** Those are TMS data, not planning data.
 - **Sessions are dynamic** (from Excel upload); **catalog is static** (rarely changes). The catalog must be solid so the parser has something reliable to match against.
 - **Trainer fees are sensitive.** The repo has the rate *model* and *tier groupings*; the actual dollar rates live only in the protected production database, outside GitHub, and are surfaced to users only as viability badges (except for finance/admin roles).
-- **Trainer-rate reconciliation is Admin-only.** Supported category mapping includes `AI` and `WSQ-Writing`; AI workbook column B is ignored for every calculation and profile decision. The protected workflow is specified in `01-product/trainer-rate-reconciliation.md`.
+- **Trainer-rate reconciliation is Admin-only.** Template v3 has eight independent categories (IIO, DM, IT-Normal, IT-WSQ, IT-Special, WSQ-Writing, AI, and Video); Sheet1 is ignored. AI workbook column B is ignored for every calculation and profile decision. The separate Admin Rate categories mapping screen is the third Administration subtab and Rate Reconciliation is fourth; the protected workflow is specified in `01-product/trainer-rate-reconciliation.md` and `03-design/admin-pr3k-rate-reconciliation/README.md`.
 
 ## Known gaps / to-do (documented in the domain files)
 
 - PR3 polish: surface API authentication/authorization failures in the UI (for example, "Your account isn't authorised — contact admin") instead of reporting them only in the browser console.
 - 10 catalog courses have no trainer assignments yet (4 capstones + 2 new AI courses + 4 name-variant mismatches) — see `trainers.md`.
-- Trainer-rate reconciliation implementation is pending: permanent aliases, explicit new-trainer handling, category/profile deduplication, effective dating, protected preview/audit, and atomic apply are specified in `01-product/trainer-rate-reconciliation.md`. Real workbook names and values remain outside GitHub.
+- Trainer-rate reconciliation implementation is pending: canonical course-category mapping, permanent aliases, explicit new-trainer handling, category/profile deduplication, effective dating, protected preview/audit, terminal batch lifecycle, and atomic apply are specified in `01-product/trainer-rate-reconciliation.md` and the PR3K design contract. Real workbook names and values remain outside GitHub; no mapping seed is committed.
 - 11 JTC rooms have no capacity captured yet — see `venues-rooms.md`.
 - Leadership / personal-development courses (~50 ASK courses) have no tier-based rates in the fee sheet — see `trainer-rates.md` open questions.
 - Training Assistants entity (#6) not yet modelled.
