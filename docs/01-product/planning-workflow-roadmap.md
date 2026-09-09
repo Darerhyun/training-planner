@@ -1,9 +1,9 @@
 # Training Planner — Planning and Sessions Roadmap
 
-Status: Approved product direction; historical PR3G-V foundation, PR3H, and PR3I complete; PR3G-V V4 and PR3J pending
-Last updated: 3 September 2026
+Status: Approved product direction; PR3G-V V4 and PR3J complete; PR3K contract approved and implementation pending
+Last updated: 9 September 2026
 
-Repository `main` source baseline: `130b1e61b2822d572f29f677ad4a9f2a786d98ce`
+Repository `main` source baseline: `645ea70b816a82fae3482dd862d8602c92035106`
 (verified read-only for this documentation change). Deployed application
 baseline: `749908290131882505efb011300d446ee9926c74` (last-verified evidence;
 not independently reverified in this change). These baselines are distinct.
@@ -37,6 +37,10 @@ the planning rulebook unless a future product decision explicitly says so.
   apply, the application is authoritative for trainer identities, permanent aliases,
   rate categories, deduplicated profiles, effective-dated assignments, and audit
   history.
+- Canonical course-to-rate-category mapping is a separate Admin-controlled
+  authority. It is keyed by the exact canonical course code, has at most one
+  category per course, and is required before any course economics can use a
+  trainer rate. No workbook text or reconciliation decision populates it.
 - A later schedule or rate workbook is a proposed change set and must never silently
   replace application-managed records.
 - The website does not need to write changes back to an Excel workbook or generate
@@ -138,10 +142,12 @@ but cannot run reconciliation.
 
 ## 6. Admin Area
 
-Approved Admin Area option 3 uses one Admin navigation area with three separate
-sections and implementation PRs. Only active Admin users may access or modify any
-section. Confidential rate values are available only inside the protected Trainer
-Rate Reconciliation workflow.
+Approved Admin Area option 3 uses one Admin navigation area with four separate
+sections and implementation PRs. The section tablist order is **User Access |
+Trainer Directory | Rate categories | Rate Reconciliation**: Rate categories
+is the third subtab and Rate Reconciliation is the fourth. Only active Admin
+users may access or modify any section. Confidential rate values are available
+only inside the protected Trainer Rate Reconciliation workflow.
 
 ### User Access
 
@@ -168,19 +174,46 @@ Rate Reconciliation workflow.
 - Reconcile exact names, permanent aliases, and explicitly confirmed new trainers.
 - Put each newly created trainer into **Needs eligibility setup**, keep them unavailable
   to Trainer Picker, and provide a direct handoff to their Trainer Directory record.
-- Map controlled categories including `AI` and `WSQ-Writing`; AI column B is ignored
-  for calculations, profile fingerprints, deduplication, and assignments.
-- Deduplicate category-specific pax 3–20 profiles and create effective-dated,
-  non-overlapping trainer assignments.
-- Require a protected preview with zero unresolved blockers, immutable audit, stale-
-  preview protection, and one atomic apply with full rollback on error or mismatch.
-- Never infer course eligibility, delete missing records, or expose confidential
-  values to Ops or Viewer.
+- Map all eight controlled categories (`IIO`, `DM`, `IT-Normal`, `IT-WSQ`, `IT-Special`, `WSQ-Writing`, `AI`, `Video`); `Sheet1` is ignored and AI
+  column B is ignored for calculations, profile fingerprints, deduplication, and
+  assignments. Video is never merged into IT-Special.
+- Run only after the first PR3K sub-workstream, the Admin-only **Rate categories**
+  screen, establishes explicit canonical course mappings. A mapped course may
+  use the relevant rate; an unmapped course cannot. An ambiguous mapping is a
+  preflight conflict for that course only. Reconciliation always applies the
+  rate assignment itself and never seeds or infers a mapping. Every category
+  row displays the same configuration status so a missing badge cannot be read
+  as implicit approval.
+- Resolve one identity per normalized source name across the batch, while
+  excluding category rows individually with a required reason. Opt-in
+  cross-hash carry-forward is allowed only after full server revalidation and
+  only when normalized name, category, and server-only row/profile fingerprints
+  match.
+- Keep temporary workbook files only through parsing; remove them afterward.
+  No batch may reopen or download the workbook. `rejected`, `failed`, `discarded`, `applied` are distinct terminal states with lock release;
+  upload Cancel is pre-record only, while audited Discard is post-record.
 
-The detailed contract is in `trainer-rate-reconciliation.md`. User Access, Trainer
-Directory, and Trainer Rate Reconciliation must remain separate implementation PRs
-so authentication risk, trainer-reference-data changes, confidential economics,
-and rollback are independently reviewable.
+### Rate categories
+
+- Provide the first bounded PR3K sub-workstream: an Admin-only course mapping
+  screen over exact canonical active courses grouped by programme.
+- Maintain an authoritative one-row-per-course table with at most one category.
+  Display **Not mapped** and provide a filter plus an explicit mapping action.
+  Display **Ambiguous** only for a legacy/preflight conflict; never auto-resolve
+  it.
+- Save one course at a time through the combobox of all eight category codes.
+  Every mapping or removal requires a 1–500 character audit note and the current
+  `expectedVersion`; stale writes return typed 409 and history is append-only
+  with actor, time, previous category, and new category.
+- Never show a rate or create trainer eligibility, exclusions, recommendations,
+  or seed data. The screen is the only mapping authority used by reconciliation.
+
+The detailed reconciliation contract is in `trainer-rate-reconciliation.md`. The UI/IX
+contract is in `docs/03-design/admin-pr3k-rate-reconciliation/README.md`. User Access,
+Trainer Directory, Rate categories, and Rate Reconciliation remain separate
+implementation PRs so authentication risk, trainer-reference-data changes,
+mapping authority, confidential economics, and rollback are independently
+reviewable.
 
 ## 7. Session amendment workflow
 
@@ -378,25 +411,67 @@ started by this documentation change.
 
 ### PR3K — Admin Panel: Trainer Rate Reconciliation
 
-- Add an Admin-only protected workbook upload, reconciliation preview, and atomic
-  apply workflow specified in `trainer-rate-reconciliation.md`.
-- Resolve canonical names and permanent aliases, and require explicit confirmation
-  before creating a genuine new trainer.
-- Give every newly created trainer **Needs eligibility setup** status and a direct
-  Trainer Directory handoff. Keep the trainer unavailable for session assignment
-  until an Admin explicitly approves course links, exclusions, active status, and
-  scheduling readiness.
-- Support `IIO`, `DM`, `IT-Normal`, `IT-WSQ`, `IT-Special`, `WSQ-Writing`, and `AI`.
-- Ignore AI column B for all calculations and profile decisions.
-- Deduplicate category plus pax 3–20 rate profiles and use non-overlapping effective
-  dates rather than overwriting history.
-- Audit every resolution and state change; reject stale previews and duplicate
-  applied source hashes; roll back the complete batch on any error or count mismatch.
-- Keep workbook values outside GitHub and unavailable to Ops or Viewer.
-- Do not create trainer-course eligibility, user accounts, or session assignments
-  when a new trainer is created through reconciliation.
-- Any schema/backend and Admin UI implementation must remain separately reviewable
-  within the PR3K milestone and require their own approved work orders.
+PR3K is an Admin-only milestone with two separately reviewable bounded
+sub-workstreams. The first is the canonical course-to-rate-category mapping
+screen (**Rate categories**, the third Administration subtab); the second is
+**Rate Reconciliation**, the fourth. The exact tablist is **User Access |
+Trainer Directory | Rate categories | Rate Reconciliation**. Finance keeps
+its existing read-only economics view elsewhere; Ops and Viewer receive no
+PR3K tab, route, data, or fee values.
+
+Rate categories mapping (sub-workstream 1):
+
+- List active canonical courses, grouped by programme and keyed by the exact
+  canonical course code.
+- Keep an authoritative one-row-per-course table with at most one category.
+  **Not mapped** is a valid visible state with a filter and an explicit
+  per-course mapping action. **Ambiguous** is a legacy/preflight conflict
+  only; it is never auto-resolved.
+- Save one course at a time through a combobox of all eight category codes.
+  Every mapping or removal requires a 1–500 character audit note, the current
+  `expectedVersion`, and an append-only history event with actor,
+  time, previous category, and new category. A stale write returns typed 409.
+- Never display a rate, infer a mapping from workbook text, create trainer
+  eligibility/exclusions/recommendations, or seed mapping data.
+
+Rate Reconciliation:
+
+- Provide the protected workbook upload, server-driven preview, identity
+  resolution, effective dates, immutable audit, and atomic apply described in
+  `trainer-rate-reconciliation.md`.
+- Parse eight independent template-v3 categories (`IIO`, `DM`, `IT-Normal`, `IT-WSQ`, `IT-Special`, `WSQ-Writing`, `AI`, `Video`); ignore `Sheet1`.
+  AI column B has no calculation, fingerprint, deduplication, or assignment
+  effect, and Video is never merged into IT-Special.
+- Read the mapping table only to compute per-course economics eligibility.
+  Every canonical course must be explicitly mapped before economics can use a
+  rate. Mapping gates economics per course for all eight categories: mapped
+  courses may use the matching rate assignment, unmapped courses cannot, and an
+  ambiguous course blocks only itself. The rate assignment is still applied by
+  reconciliation; no mapping is inferred and current economics behavior does
+  not change without a separately approved cutover.
+- Resolve one identity per normalized source name across the batch, with
+  individual category-row exclusions and required reasons. Cross-hash carry-
+  forward is opt-in after full server revalidation and can carry an exclusion
+  only when normalized name, category, and server-only row/profile fingerprints
+  match.
+- Use distinct terminal states `uploaded`, `parsed`, `needs_resolution`, `ready`, `applied`, `rejected`, `failed`, `discarded`. Every terminal state
+  is read-only and releases the open-batch lock. Upload Cancel exists only
+  before the `uploaded` record; after that, audited Discard is the
+  only pre-apply exit. Rejected offers only **Start a new batch**. Failed
+  retains no workbook object and requires re-upload. Carry-forward is always
+  opt-in and fully revalidated: same-hash uploads may carry still-valid identity
+  decisions and exclusions; different-hash corrected uploads may carry
+  still-valid identity decisions, while exclusions carry only when normalized
+  name, category, and server-only row/profile fingerprints match. Temporary
+  workbook files are removed after parsing, and no batch can reopen or download
+  the workbook.
+- Keep real workbooks, names, and fees outside GitHub. Fixtures and design
+  inputs use only synthetic Demo Admin and Demo Trainer 1–18 identities and
+  fabricated values.
+
+This documentation change records the approved contract only. Schema, backend,
+API, UI, migration, seed, dependency, provider, deployment, and current
+economics cutover work require separately approved implementation work orders.
 
 ### PR4 — Trainer Picker
 
@@ -422,6 +497,14 @@ Their identities and numbering are unchanged.
 - Letting Ops or Viewer access rate values or reconciliation actions.
 - Automatically accepting fuzzy name matches, inferring trainer-course eligibility,
   or deleting records that are missing from a later workbook.
+- Seeding course-to-rate-category mappings, importing real workbook rows, or
+  changing current session-economics behavior.
+- Treating Video as one aggregate economics gate rather than gating each
+  canonical course independently, or auto-resolving an Ambiguous mapping.
+- Carrying an exclusion across hashes without full revalidation and matching
+  normalized-name, category, and server-only row/profile fingerprints.
+- Retaining a workbook object after parsing, reopening it from a batch, or
+  bypassing the required mapping audit note, expected-version check, or history.
 - Removing historical PR documentation or renumbering completed work.
 - Importing the Lovable export's application logic, authentication, direct database
   operations, infrastructure, dependencies, migrations, environment values, AI,
@@ -454,3 +537,29 @@ Before PR4 begins, confirm that:
 - every newly created trainer remains unavailable to Trainer Picker until the Admin
   completes the audited Trainer Directory eligibility setup and explicitly marks
   the trainer ready for scheduling.
+- the Administration section tabs are ordered User Access, Trainer Directory,
+  Rate categories, Rate Reconciliation, with the last two absent for non-Admins;
+- Rate categories is the first PR3K sub-workstream, uses exact canonical courses,
+  keeps one authoritative row per course, exposes Not mapped and Ambiguous
+  preflight states, and has required notes, expected-version typed 409 handling,
+  and append-only history for every mapping/removal;
+- all eight template-v3 categories are explicit, Sheet1 is ignored, AI column B
+  has no effect, and Video is never merged into IT-Special;
+- every canonical course mapping is explicit before economics; all eight
+  categories show configuration status and are gated per course while the rate
+  assignment itself is always applied, and no current economics behavior
+  changes;
+- identity is resolved once per normalized source name, with independent
+  category-row exclusions and reasons, including automatically matched rows;
+- cross-hash carry-forward is opt-in after full revalidation and exclusions
+  carry only when normalized name, category, and server-only row/profile
+  fingerprints match;
+- uploaded workbook objects are removed after parsing and cannot be reopened or
+  downloaded; rejected, failed, discarded, and applied terminal states are
+  distinct and release the open-batch lock;
+- upload Cancel is available only before an uploaded batch exists; Discard is
+  audited after it exists; rejected offers only Start a new batch; failed
+  requires a re-upload, with opt-in revalidated identity carry-forward across a
+  corrected hash and exclusion carry-forward only on the stricter server match;
+- no mapping seed, real workbook, real name, real fee, migration, or deployment
+  is included in the PR3K documentation work.

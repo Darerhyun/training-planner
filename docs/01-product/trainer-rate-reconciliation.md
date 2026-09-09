@@ -1,267 +1,443 @@
 # Training Planner — Trainer Rate Reconciliation
 
 Status: Approved product requirements; documentation only; implementation pending  
-Last updated: 18 August 2026
+Last updated: 9 September 2026
 
-## 1. Purpose
+## 1. Purpose and boundary
 
-This document defines the controlled workflow for importing and reconciling trainer-rate workbooks. The feature replaces one-off local scripts with a repeatable, Admin-only process that can safely handle new trainers, name variations, new rate categories, and later workbook revisions.
+This document defines PR3K's controlled, Admin-only workflow for canonical
+course-to-rate-category mapping and trainer-rate workbook reconciliation. It
+replaces one-off local scripts with a repeatable process that can handle new
+trainers, name variations, eight independent rate categories, later workbook
+revisions, effective dating, and complete audit history.
 
-This document does not authorize application code, schema changes, database writes, provider configuration, secret changes, workflow dispatch, deployment, or import of the current confidential workbook.
+PR3K has two separately reviewable bounded sub-workstreams, in this order:
 
-## 2. Ownership and authority
+1. **Rate categories** — the authoritative canonical course-to-rate-category
+   mapping foundation and Admin screen.
+2. **Rate Reconciliation** — protected workbook upload, validation, identity and
+   row resolution, preview, effective dating, and atomic apply.
+
+This documentation changes no current production economics behavior and does
+not authorize application code, schema or API work, a migration, mapping seed,
+cutover, database write, provider change, deployment, or import of a real
+workbook. Real trainer names, mappings, and fee values remain outside GitHub.
+
+## 2. Ownership, authorization, and visibility
 
 - The trainer-rate workbook is an **import source only**.
-- The Training Planner database becomes authoritative for accepted trainer identities, permanent aliases, rate categories, deduplicated rate profiles, effective-dated assignments, and reconciliation history after an atomic apply.
-- A later workbook is a proposed change set. It must not silently replace accepted records.
-- The TMS remains the official record for regulated funding, SSG codes, claims, and other regulated data.
-- Actual fee values remain sensitive and must never be committed to GitHub.
+- After an atomic apply, the application is authoritative for accepted trainer
+  identities, permanent aliases, category-specific profiles, effective-dated
+  assignments, and reconciliation history.
+- The course-to-rate-category mapping is separate Admin-controlled application
+  data. Workbook text and reconciliation decisions never populate it.
+- The TMS remains authoritative for regulated funding, SSG codes, claims, and
+  other regulated data.
+- A later workbook is a proposed change set; it never silently replaces accepted
+  records.
 
-## 3. Authorization and visibility
+Only an active **Admin** may view or change Rate categories or upload, resolve,
+preview, discard, confirm, or apply a reconciliation batch. Administration uses
+this exact subtab order: **User Access | Trainer Directory | Rate categories |
+Rate Reconciliation**. Rate categories is third and Rate Reconciliation fourth.
 
-Only an active **Admin** may upload, preview, resolve, confirm, or apply a trainer-rate reconciliation batch.
+- Finance retains its existing read-only economics visibility elsewhere, but
+  receives no PR3K tab, route, or reconciliation action.
+- Ops and Viewer receive no rate value through pages, APIs, logs, exports, or
+  unrestricted metadata.
+- Pending, rejected, inactive, and unauthenticated users have no access.
+- Server-side authorization is mandatory on every route; browser visibility is
+  not an authorization control.
 
-- Ops and Viewer must not receive fee values through pages, APIs, logs, exports, or unrestricted upload metadata.
-- Finance may retain the existing read-only economics visibility defined elsewhere, but cannot upload, reconcile, or apply rate workbooks.
-- Pending, rejected, inactive, or unauthenticated users have no access.
-- The rate workflow must be a separate Admin section from User Access and Trainer Directory because it handles confidential values and transactional changes.
-- Server-side authorization is mandatory on every endpoint. Hiding controls in the browser is not sufficient.
+## 3. Canonical course-to-rate-category mapping
+
+Rate categories is PR3K sub-workstream 1 and must be complete before the
+reconciliation sub-workstream can be implemented. It is a general Admin screen,
+not a Video-only screen.
+
+### 3.1 Authoritative mapping contract
+
+- Each active canonical course is addressed by its exact `courses.code`.
+- The authoritative model has exactly one row per mapped canonical course and
+  allows at most one of the eight controlled categories on that row.
+- A missing row is displayed as **Not mapped** and has an explicit per-course
+  mapping action; the screen provides a **Not mapped** filter.
+- **Ambiguous** is not a normal stored state. It can appear only when migration
+  or preflight inspection finds legacy data assigning more than one category to
+  the same course. The Admin must resolve that course explicitly; the system
+  never guesses or auto-resolves it.
+- Courses are listed from canonical application records, grouped by programme,
+  with filters for **Not mapped** and **Ambiguous**.
+- The mapping combobox contains all eight controlled category codes. Save and
+  removal operate on one course at a time.
+
+Every mapping or removal requires:
+
+- a 1–500 character audit note;
+- the current `expectedVersion` on the write;
+- a typed HTTP 409 response when `expectedVersion` is stale; and
+- one append-only event containing actor, time, previous category, new category,
+  note, and resulting version.
+
+The screen never reads or displays a fee value. It creates no trainer-course
+eligibility, module exclusion, recommendation, or rate assignment; it does not
+infer a mapping from programme names, course titles, workbook sections, or
+trainer eligibility. No mapping seed or real mapping is part of this contract.
+
+### 3.2 Economics gate
+
+Every category uses the same per-course gate: a trainer's category assignment
+may participate in a canonical course's economics only when that exact course is
+explicitly mapped to that category.
+
+- A mapped course may use the matching trainer rate.
+- A **Not mapped** course cannot use a trainer rate.
+- An **Ambiguous** course is blocked on its own until resolved; it does not block
+  correctly mapped courses.
+- A trainer-rate assignment is still valid and may be applied even when one or
+  more courses are not configured to use it.
+
+`Video` follows this general rule and is never merged into `IT-Special`. Each
+applicable canonical course in the Video Editing and Video Marketing groupings
+must be mapped independently. Video rows show an aggregate status —
+**Configured (N of N)**, **Partially configured (n of N courses mapped)**,
+**Not configured (0 of N)**, or **n of N mapped · k ambiguous** — plus an
+expanded per-course list. The aggregate is explanatory only; gating remains per
+course.
+
+The mapping table is not used by current production economics until a separately
+approved implementation and cutover. This documentation preserves all current
+economics behavior.
 
 ## 4. Workbook contract
 
-The parser must use an explicit versioned template contract. It must never infer a category solely from arbitrary sheet position or formatting.
+The parser uses an explicit, versioned template-v3 contract. It never infers a
+category from arbitrary sheet position or formatting.
 
-| Sheet/section | Trainer name | Rate values | Rate category | Special rule |
+| Sheet or section | Trainer name | Rate values | Category | Special rule |
 |---|---|---|---|---|
-| IIO | Column A | Pax 3–20 columns | `IIO` | Normal category import |
+| IIO | Column A | Pax 3–20 columns | `IIO` | Independent category |
 | DM | Column A | Pax 3–20 columns | `DM` | Include newly added valid rows |
-| IT — Normal | Column A | Pax 3–20 columns | `IT-Normal` | Section header must be recognized |
-| IT — WSQ | Column A | Pax 3–20 columns | `IT-WSQ` | Section header must be recognized |
-| IT — Special | Column A | Pax 3–20 columns | `IT-Special` | Section header must be recognized |
-| IT — WSQ Writing | Column A | Pax 3–20 columns | `WSQ-Writing` | Separate category for the two writing-course trainers |
-| AI | Column A | Pax 3–20 columns beginning after column B | `AI` | **Column B is ignored for every calculation and profile decision** |
-| Sheet1 | — | — | — | Ignored completely |
+| IT — Normal | Column A | Pax 3–20 columns | `IT-Normal` | Recognize explicit section header |
+| IT — WSQ | Column A | Pax 3–20 columns | `IT-WSQ` | Recognize explicit section header |
+| IT — Special | Column A | Pax 3–20 columns | `IT-Special` | Independent from Video |
+| IT — WSQ Writing | Column A | Pax 3–20 columns | `WSQ-Writing` | Independent writing category |
+| AI | Column A | Pax 3–20 columns after B | `AI` | Ignore column B completely for all decisions and calculations |
+| Video | Column A | Pax 3–20 columns | `Video` | Independent category; never merge into `IT-Special` |
+| Sheet1 | — | — | — | Ignore completely |
 
-For AI rows, column B may be retained as non-authoritative source metadata for audit/debugging only. It must not select a tier, change a rate, form part of a profile fingerprint, affect deduplication, or influence any calculation.
+The controlled vocabulary is therefore `IIO`, `DM`, `IT-Normal`, `IT-WSQ`,
+`IT-Special`, `WSQ-Writing`, `AI`, and `Video`.
 
-Target rate cells must contain literal numeric values for every supported pax count from 3 through 20. Blank, text, formula, negative, malformed, or over-precision values are blocking validation errors. Ignored sheets are not parsed. Unknown target sheets, sections, or column layouts require an explicit template update; they must not be guessed.
+AI column B is non-authoritative metadata at most. It never selects a category
+or tier, changes a rate, forms part of a row or profile fingerprint, affects
+deduplication, or influences any calculation. `Sheet1` is not parsed.
 
-The uploaded file receives a cryptographic source hash. The same successfully applied hash is idempotent: a repeat upload must be reported as already applied rather than creating duplicate records.
+Target cells for pax 3 through 20 must be literal valid numeric values. Blank,
+text, formula, negative, malformed, or over-precision values are blocking
+validation errors. Unknown target sheets, sections, layouts, or renamed
+categories require an explicit template update and are never guessed.
 
-## 5. Batch lifecycle
+The server computes a cryptographic source hash. An already-applied hash is
+idempotent and creates no duplicate batch or records.
 
-A reconciliation batch follows these states:
+## 5. Server-driven batch lifecycle
 
-1. **Uploaded** — a private object exists and its hash and basic metadata are recorded.
-2. **Parsed** — the workbook contract and all target rows pass structural and numeric validation.
-3. **Needs resolution** — at least one trainer identity, category, effective date, or conflict requires an Admin decision.
-4. **Ready** — all rows have deterministic identities, category mappings, rate profiles, and effective dates; there are zero unresolved blocking items.
-5. **Applied** — the complete reviewed change set commits in one transaction.
-6. **Rejected or failed** — the batch is not applied; the reason is recorded without exposing fee values.
+Exactly one reconciliation batch may be open system-wide. Any active Admin may
+resume it or discard it. The current wizard step comes from server state, never
+client memory.
 
-An upload never applies automatically. A parsed batch may be discarded without changing trainer, alias, profile, assignment, user, or session data.
+Open states are:
 
-## 6. Trainer-name reconciliation
+1. `uploaded` — the server has created the batch and recorded basic metadata.
+2. `parsed` — template structure and target values passed validation.
+3. `needs_resolution` — at least one identity, row, date, mapping-status review,
+   or conflict needs attention.
+4. `ready` — every included row is deterministic and no blocker remains.
 
-Normalize source names only for comparison: trim surrounding whitespace, collapse repeated spaces, and compare case-insensitively. The stored source value and canonical display name remain available for audit.
+Terminal states are:
 
-Resolution order:
+- `applied` — the complete transaction committed;
+- `rejected` — pre-decision validation refused the workbook, including an
+  unsupported template or blocking structural/numeric failure;
+- `failed` — apply began and the complete transaction rolled back; and
+- `discarded` — an active Admin ended an open batch before apply through the
+  audited discard action.
+
+Every terminal state is read-only, releases the one-open-batch lock immediately,
+shows state, actor, time, reason, and non-sensitive counts, and offers **Start a
+new batch**. It never exposes values.
+
+### Cancel, reject, discard, and fail
+
+- **Cancel** exists only while a signed upload is in flight and before an
+  `uploaded` record exists. It aborts the transfer, removes any partial object,
+  creates no batch or audit event, returns to Upload, and restores focus to
+  **Choose workbook**.
+- After the `uploaded` record exists, Cancel is absent. **Discard batch** is the
+  only voluntary pre-apply exit. It is available at every open step to any
+  active Admin, requires confirmation, accepts an optional note up to 500
+  characters, writes one immutable audit event with actor, time, prior state,
+  counts, and reason, removes protected parsed values, changes no authoritative
+  trainer or rate data, marks `discarded`, and releases the lock.
+- `rejected` records its non-sensitive reason, changes no authoritative data,
+  releases the lock, and offers only **Start a new batch**; it never offers
+  Discard because it is already terminal.
+- `failed` means all authoritative writes rolled back. The failed batch cannot be
+  retried or re-applied. The Admin must start a new batch and re-upload.
+
+An already-applied source hash is handled before a new batch is created: the
+server returns the existing applied batch reference and creates no duplicate
+batch, audit event, profile, or assignment.
+
+### Storage contract
+
+Uploads use private storage and short-lived signed access. The original workbook
+object and every temporary local workbook file are removed immediately after
+parsing. The open batch retains only its source hash, template version,
+non-sensitive parsed structure, and protected parsed values needed for the open
+workflow. No open or terminal batch can reopen or download the workbook.
+
+Terminal states never retain protected parsed values. This contract introduces
+no new retention policy. Workbook contents and values never enter GitHub,
+unrestricted parse-result JSON, or a general schedule-upload response.
+
+## 6. Identity resolution and category-row exclusion
+
+Normalize source names only for comparison: trim surrounding whitespace,
+collapse repeated spaces, and compare case-insensitively. Preserve the original
+source spelling and canonical display name for audit.
+
+Identity is resolved exactly once per distinct normalized source name across the
+whole batch, not once per workbook row. One identity card lists every category
+row for that name. Its single decision applies to all included occurrences.
+
+Resolution order is:
 
 1. exact canonical trainer-name match;
-2. exact permanent alias match;
+2. exact permanent-alias match;
 3. deterministic suggestions for Admin review;
-4. explicit Admin choice to map to an existing trainer and create a permanent alias;
-5. explicit Admin choice to create a genuine new trainer.
+4. explicit map to an existing active trainer, creating a permanent alias only
+   when the spelling differs; or
+5. explicit creation of one genuine new trainer.
 
-Fuzzy or similarity-based suggestions must never auto-apply. Ambiguous candidates, duplicate canonical names, alias collisions, and an alias that already points to another trainer are blocking conflicts.
+Suggestions are never selected or applied automatically and show a reason, not a
+similarity score. A normalized name with at least one included category row must
+have one deterministic identity before readiness. The server rejects an attempt
+to map the same normalized name to two trainers in one batch with typed HTTP 409
+`conflicting_identity_resolution`.
 
-Every valid source row must be resolved before apply. If a row is intentionally excluded, the Admin must mark it explicitly with a reason; an excluded row is visible in preview and audit and is never a silent skip.
+Exclusion is a category-row decision. Every category row, including a row under
+an automatically matched identity, provides **Exclude row** and **Restore**.
+Exclusion requires a 1–500 character reason stored in audit. Excluding one row
+does not affect the name's other rows. When every row for a name is excluded, no
+identity decision, alias, trainer, profile, or assignment is created. Restoring
+any row makes identity resolution required again.
 
-### Permanent aliases
+Alias collisions, duplicate canonical names, two distinct source spellings
+resolving to the same trainer and category, and conflicting duplicate profiles
+are blockers. Nothing is silently skipped.
 
-When an Admin maps a new workbook spelling to an existing trainer, the workflow may create a permanent alias in the same atomic apply. Future imports should resolve the exact normalized alias automatically. Alias creation must preserve uniqueness and history; aliases are not silently reassigned.
+### Permanent aliases and new trainers
 
-### New trainers
+An approved new spelling may become a permanent alias in the same atomic apply.
+Aliases remain unique and append-only history records their creation; they are
+never silently reassigned.
 
-A genuinely new trainer can be created from the reconciliation workflow after explicit Admin confirmation. The preview must distinguish this from an alias decision and show the proposed canonical name.
+A genuine new trainer:
 
-Creating a trainer from a rate workbook:
+- creates no user account, course eligibility, module exclusion, recommendation,
+  or session assignment;
+- does not infer skills from a rate category;
+- enters the PR3J product state **Needs setup**; and
+- remains unavailable to Trainer Picker and session assignment.
 
-- creates no user account;
-- grants no application access;
-- creates no trainer-to-course eligibility or module-exclusion record;
-- does not assign the trainer to a session;
-- does not infer skills from the rate category;
-- places the trainer in the product state **Needs eligibility setup**.
+The apply result says **Needs eligibility setup in Trainer Directory** and offers
+**Configure course eligibility** for each created trainer. The separate Trainer
+Directory workflow must confirm active status, explicit course links, applicable
+exclusions, and readiness before the trainer becomes available. Later rate
+reconciliation never resets or expands approved eligibility.
 
-**Needs eligibility setup** is a scheduling-safety state, not evidence that the trainer record or rate assignment failed. The implementation may store or derive the state, but its behavior is mandatory: the trainer is unavailable in Trainer Picker and cannot be assigned to a session until an Admin completes the eligibility handoff.
+## 7. Safe carry-forward and concurrency
 
-### Eligibility setup handoff
+Every saved identity decision and category-row exclusion is versioned. Every
+preview contains `resolutionVersion` and a server fingerprint of the trainer,
+alias, profile, and assignment state on which it was built. Apply submits both.
+A stale write or preview returns typed HTTP 409; stale preview uses
+`stale_reconciliation_preview` and requires regeneration.
 
-After an atomic rate apply creates a trainer, the result page must list the trainer under **Needs eligibility setup** and provide a direct **Configure course eligibility** action. The action opens that trainer in Admin > Trainer Directory.
+Regeneration fully revalidates identities against live canonical trainers,
+aliases, active status, and uniqueness. It preserves only still-valid decisions
+and reopens invalid ones. Row exclusions are revalidated independently so an
+identity decision can remain valid when only a row decision must reopen.
 
-The Admin must then:
+Carry-forward is never automatic:
 
-1. review the canonical trainer identity and active status;
-2. select each eligible course explicitly;
-3. record any applicable module exclusions;
-4. save the eligibility changes with the Trainer Directory audit/concurrency controls;
-5. explicitly mark the trainer ready for scheduling.
+- A new upload with the server-verified same hash as a `failed` batch may offer
+  an unchecked **Carry forward decisions** option after re-upload. The original
+  workbook is not reused.
+- An Admin may opt into identity-decision carry-forward across a different source
+  hash only after the server performs the same full live-record revalidation.
+  Invalid or absent names reopen and no new identity is inferred.
+- A category-row exclusion may carry across hashes only when the server verifies
+  an exact match on normalized source name, category, and server-side row/profile
+  fingerprint. Client-provided labels, row positions, or values cannot establish
+  the match. Anything else reopens with the previous reason available only as
+  non-authoritative draft text.
 
-A trainer becomes **Ready for scheduling** only when the trainer is active, at least one approved trainer-to-course link exists, and the eligibility setup has been explicitly completed. Until then, all session-assignment and suggestion flows must treat the trainer as ineligible.
+The new batch records the predecessor relationship without mutating the earlier
+audit trail. A different hash never carries an exclusion merely because a name
+or category looks similar.
 
-Rate categories may help the Admin filter the course list, but they must not preselect, infer, or automatically create course links. A later rate reconciliation must not reset or expand previously approved eligibility. Mapping a source name to an existing trainer or permanent alias must also leave that trainer's activation and course eligibility unchanged.
+## 8. Rate profiles and effective dates
 
-Eligibility setup is a separate audited Admin action. Rate reconciliation audit identifies that follow-up is required; Trainer Directory audit records the courses, exclusions, actor, timestamp, and readiness transition.
+A profile consists of one stable category code plus normalized decimal values for
+pax 3 through 20. The server derives a deterministic fingerprint from exactly
+those fields. AI column B and presentation labels are excluded.
 
-## 7. Category mapping
-
-The controlled category vocabulary for this template is:
-
-- `IIO`
-- `DM`
-- `IT-Normal`
-- `IT-WSQ`
-- `IT-Special`
-- `WSQ-Writing`
-- `AI`
-
-The parser maps recognized sheet sections to these stable codes. An unknown category, renamed section, or conflicting mapping blocks readiness until an Admin selects an approved category or the template contract is updated.
-
-A rate category is not trainer-course eligibility. Course-to-category mapping is a separate business rule needed before session economics or recommendation logic can use a profile. No course relationship may be inferred merely because a trainer appears in a category section.
-
-## 8. Rate-profile deduplication
-
-A rate profile is defined by:
-
-- one stable category code; and
-- the normalized decimal values for pax 3 through 20.
-
-The system computes a deterministic profile fingerprint from those fields. AI column B and other presentation labels are excluded.
-
-- An exact category-and-values match reuses the existing profile.
+- Exact category-and-values matches reuse a profile.
 - Identical values in different categories remain separate profiles.
-- A changed value creates a new profile version; it must not overwrite historical values.
-- Duplicate rows for the same trainer, category, and effective period must resolve to the same profile or block apply.
-- Profiles are not deleted merely because they are absent from a later workbook.
+- A changed value creates a new profile version; historical values are not
+  overwritten.
+- Duplicate rows for one trainer, category, and effective period must resolve to
+  the same profile or block apply.
+- Absence from a later workbook never deletes a profile or ends an assignment.
 
-The preview must report reused profiles, new profiles, duplicate source rows, and conflicting profiles without exposing values to unauthorized roles.
+Every assignment has an Admin-confirmed `effective_from`; `effective_to` may
+close the previous period. The batch date is required, has no default, and uses
+an Asia/Singapore calendar date. A row may have an exceptional override with a
+required 1–200 character reason.
 
-## 9. Effective dating
+Periods for a trainer and category must not overlap. Closing a current period and
+opening its replacement occurs in the same transaction. Backdating requires a
+server-computed affected-session count and explicit acknowledgement; if impact
+cannot be computed, backdating is blocked. Historical overlap is never adjusted
+silently. Missing workbook rows never expire, delete, or deactivate an
+assignment.
 
-Every trainer-to-rate-profile assignment requires an Admin-confirmed `effective_from` date. An optional `effective_to` date may close a previous assignment.
+## 9. Six-step Admin workflow
 
-For a trainer and category:
+Routes use an opaque batch identifier only. No step, name, row, date, category,
+or value appears in the URL. A server-driven accessible stepper shows **Upload |
+Validate | Resolve | Review | Effective dates | Confirm**.
 
-- effective periods must not overlap;
-- a future assignment must not rewrite historical assignments;
-- closing the current period and starting the replacement must happen in the same transaction;
-- backdating that would change already-used session economics requires an explicit warning and confirmation;
-- omission from a workbook never automatically ends, deletes, or deactivates an existing assignment.
+1. **Upload** — `.xlsx` template-v3 file, private signed upload, no browser
+   parsing, stated size limit, progress and pre-record Cancel.
+2. **Validate** — report eight recognized sections, `Sheet1` ignored, row/name
+   counts, or blocking sheet/cell/rule errors without echoing the bad value.
+3. **Resolve** — one card per normalized source name; groups for automatic
+   matches, decisions, fully excluded names, and conflicts; per-category-row
+   exclusion with reason.
+4. **Review** — separate identity outcomes, included trainer × category
+   assignments, and excluded category rows. Summary filters are Identity
+   decisions, New trainers, Changed, Unchanged, Excluded rows, and Conflicts.
+   Expanded rows compare pax 3–20 values without percentages or derived totals.
+5. **Effective dates** — required batch date, visible exceptions, overlap blocks,
+   and backdating warning/acknowledgement.
+6. **Confirm** — non-sensitive summary, required atomic-apply acknowledgement,
+   zero blockers, then a locked non-optimistic apply action.
 
-The preview must show the current period, proposed period, and whether the change is new, unchanged, future-dated, or backdated.
+Values are visible by default only inside protected Admin preview responses. A
+page-level **Hide values** toggle is optional convenience, not authorization.
+The result page contains counts and follow-up actions but no values.
 
-## 10. Preview and resolution
+Every category-assignment row and the Confirm summary show an aggregate mapping
+status: **Configured (N of N)**, **Partially configured (n of N)**,
+**Not configured (0 of N)**, or **n of N mapped · k ambiguous**. Expansion
+lists each applicable canonical course as mapped, not mapped, or ambiguous.
+This treatment applies consistently to all eight categories so the absence of a
+badge never implies that configuration was skipped.
 
-Before confirmation, the Admin receives a protected preview containing:
+## 10. Atomic apply, idempotency, and audit
 
-- source filename, template version, file hash, upload time, and uploader;
-- parsed and excluded row totals by sheet/section and category;
-- exact canonical matches, alias matches, suggestions, permanent aliases to create, new trainers to create, and the resulting **Needs eligibility setup** count;
-- reused, new, unchanged, and conflicting rate profiles;
-- effective-date changes and overlap/backdating warnings;
-- current versus proposed assignment counts;
-- all blocking validation, identity, category, duplicate, and concurrency issues;
-- a final apply summary.
+Apply uses one transaction with stop-on-error behavior. Within it, the server:
 
-The apply control stays disabled until the batch has zero unresolved blocking items. The confirmation screen must clearly state that all approved changes will commit together and that any failure rolls back the complete batch.
+1. reauthorizes the active Admin;
+2. locks or version-checks the batch;
+3. rechecks source hash, template version, resolution version, mapping state, and
+   expected live records;
+4. rejects an already-applied hash;
+5. creates approved trainers and aliases;
+6. reuses or creates category-specific profiles;
+7. closes and creates effective-dated assignments;
+8. writes append-only reconciliation and row audit records; and
+9. verifies post-apply counts before commit.
 
-Sensitive values may appear only in the protected Admin preview and must be excluded from URLs, analytics, client error reporting, general API payloads, and server logs.
+Any apply-time validation, uniqueness, mapping-preflight, stale-preview, count,
+or audit failure rolls back every authoritative change and moves the batch to
+`failed`. Pre-decision structural or numeric validation follows the `rejected`
+path in section 5.
+Last-write-wins and partial apply are prohibited.
 
-## 11. Atomic apply, idempotency, and concurrency
+The immutable audit captures actor and authorization context, upload/apply times,
+hash and template version, batch/resolution versions, accepted and excluded rows
+with reasons, identity and alias outcomes, trainers created, categories,
+profiles, assignment periods, previous/proposed identifiers, mapping status,
+final counts, and terminal reason. Routine logs contain identifiers and counts,
+never fee values or database connection details.
 
-Apply must use one database transaction with stop-on-error behavior.
+## 11. Privacy, accessibility, and recovery
 
-Within the transaction, the server must:
+Value-bearing responses are Admin-only and use `Cache-Control: no-store`.
+Values never appear in URLs, query strings, page titles, live announcements,
+notifications, audit/history views, result pages, general API payloads, print
+output, or client error reports. Values remain only in current-step memory and
+are cleared on step change, apply, sign-out, 403, and terminal transition.
 
-1. re-authorize the active Admin;
-2. lock or version-check the batch;
-3. re-check the source hash, template version, resolution version, and expected current records;
-4. reject an already-applied hash;
-5. create approved trainers and permanent aliases;
-6. reuse or create deduplicated rate profiles;
-7. close and create effective-dated assignments;
-8. write the audit record and final counts;
-9. verify expected post-apply counts before commit.
+The UI supports keyboard operation, 44 × 44 minimum targets, ordered headings,
+step and disclosure semantics, fieldset identity choices, count-only live
+regions, focus restoration, AA contrast, reduced motion, and 1440/390/320
+viewports. Only the pax comparison grid may scroll horizontally on mobile.
 
-Any validation error, uniqueness conflict, stale preview, unexpected existing record, count mismatch, or audit failure rolls back every change. Last-write-wins behavior is prohibited. The Admin must reload and regenerate the preview after a concurrency failure.
+Errors identify the relevant sheet/cell, identity, category, course, or period
+without echoing a rate. Recovery is explicit: fix and start a new upload,
+regenerate a stale preview, resolve an individual conflict, or re-upload after a
+failed apply. There is no automatic retry.
 
-A successfully created trainer remains **Needs eligibility setup** after the rate transaction. Course links and scheduling readiness are not added inside the rate transaction; they are completed through the separately audited Trainer Directory handoff.
+All fixtures, tests, examples, screenshots, and artboards use only **Demo Admin**
+and **Demo Trainer 1–18**, synthetic course references clearly marked as such,
+and fabricated values. They must contain no real workbook, trainer name, fee,
+mapping, or production-derived row.
 
-Missing workbook rows never cause automatic deletion, deactivation, or expiry. There is no partial apply.
+## 12. Acceptance criteria
 
-## 12. Audit requirements
+PR3K implementation requires separate approved work orders and is acceptable
+only when all of the following hold:
 
-The immutable audit record must capture:
+- Rate categories and Rate Reconciliation are the third and fourth Admin subtabs
+  and are server-side Admin-only.
+- Rate categories is implemented first as the authoritative general mapping
+  surface over exact canonical courses.
+- Each mapped course has one authoritative row and at most one category;
+  **Not mapped** has a filter and action; **Ambiguous** exists only for a
+  migration/preflight conflict and is never auto-resolved.
+- Every mapping/removal has a required 1–500 character note, `expectedVersion`,
+  typed 409 stale handling, and one append-only event.
+- All eight template-v3 categories are independent; `Sheet1` is ignored; AI
+  column B has no effect; Video is never merged into IT-Special.
+- Every category is gated per exact canonical course before economics can use its
+  rate; unmapped and ambiguous courses cannot, while other courses remain
+  unaffected.
+- Current production economics behavior remains unchanged until a separately
+  approved cutover; there is no mapping seed or real mapping in PR3K docs.
+- One identity is resolved per normalized source name, while exclusions are saved
+  per category row with a required 1–500 character reason, including automatic
+  matches.
+- Suggestions never auto-apply; conflicting identity resolution returns typed
+  409; new trainers enter Needs setup with no inferred eligibility.
+- Carry-forward is opt-in and fully revalidated; cross-hash exclusions require an
+  exact normalized-name, category, and server-only row/profile-fingerprint match.
+- Profiles deduplicate by category plus pax 3–20 values; assignments are
+  effective-dated and non-overlapping; missing rows change nothing.
+- One open batch exists system-wide; wizard step is server-derived; an upload
+  never auto-applies.
+- Cancel before batch creation, audited Discard after creation, and distinct
+  `applied`, `rejected`, `failed`, and `discarded` terminals follow section 5.
+- Temporary and stored workbook objects are removed after parse; no batch can
+  reopen or download one; terminal states retain no protected parsed values.
+- Stale previews and writes return typed 409, and apply is one atomic transaction
+  with full rollback and append-only audit.
+- Values remain protected and all repository examples are synthetic only.
 
-- actor and authorization context;
-- upload and apply timestamps;
-- source hash and template version;
-- batch and resolution version;
-- accepted and excluded row counts with exclusion reasons;
-- canonical matches and alias matches;
-- aliases and trainers created;
-- categories selected;
-- profiles reused or created;
-- assignment periods closed or created;
-- previous and proposed state identifiers;
-- final verification counts;
-- rejection, rollback, or failure reason.
-
-Routine logs must use identifiers and counts, not confidential rate values or database connection details.
-
-## 13. Storage and privacy
-
-- Uploads use private object storage and signed access with short expiry.
-- Workbook contents and fee values are never committed to GitHub.
-- Confidential values are not stored inside unrestricted parse-result JSON or returned by general schedule-upload endpoints.
-- Temporary files are removed after parsing; object retention is governed by the approved private-upload policy.
-- Implementation tests use fabricated fixtures only.
-- No service-account key is introduced; provider authentication follows the repository's approved identity model.
-
-## 14. Errors and recovery
-
-The UI must provide clear, non-sensitive messages for unsupported templates, invalid cells, unmatched trainers, alias conflicts, unknown categories, overlapping effective periods, stale previews, duplicate applied hashes, authorization failures, and transaction rollbacks.
-
-A failed or rejected batch changes no authoritative trainer or rate data. Recovery is to correct the source or resolutions, generate a new preview, and explicitly confirm again. There is no automatic retry of an apply operation.
-
-## 15. Implementation boundaries
-
-This specification is the documentation amendment for the future PR3K milestone. Follow-on implementation must use separately approved, reviewable work orders for any schema/backend foundation and Admin UI work. Migration, deployment, provider configuration, secret changes, database import, and application of the current fee workbook each require their own explicit checkpoint.
-
-The first confidential workbook should ultimately pass through this same product workflow rather than a special manual SQL path.
-
-## 16. Acceptance criteria
-
-The implementation is acceptable only when:
-
-- only active Admin users can upload, resolve, preview, and apply;
-- Ops and Viewer cannot obtain fee values;
-- supported categories include `AI` and `WSQ-Writing`;
-- AI column B has no effect on calculations, fingerprints, deduplication, or assignments;
-- exact canonical and permanent alias matches are deterministic;
-- fuzzy suggestions never auto-apply;
-- an Admin can permanently alias a source name or explicitly create a new trainer;
-- new trainers receive no automatic course eligibility, user account, or session assignment;
-- every trainer created by reconciliation enters **Needs eligibility setup** and is unavailable to Trainer Picker;
-- the apply result provides an Admin handoff to Trainer Directory;
-- a trainer becomes ready for scheduling only after explicit course selection, required exclusions, active status, and completion confirmation;
-- rate profiles deduplicate by category plus pax 3–20 values;
-- assignments are effective-dated and non-overlapping;
-- missing rows do not remove existing data;
-- the preview exposes all changes and has zero unresolved blockers before confirmation;
-- duplicate source hashes are idempotent;
-- stale previews are rejected;
-- one atomic transaction applies trainers, aliases, profiles, assignments, and audit together;
-- every error or count mismatch rolls back the complete batch;
-- confidential values stay outside GitHub and routine logs.
+The detailed UI/IX contract is in
+`../03-design/admin-pr3k-rate-reconciliation/README.md`.

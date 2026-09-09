@@ -1,6 +1,6 @@
-# Training Planner — Design Brief (v1.4, 2026-09-07)
+# Training Planner — Design Brief (v1.5, 2026-09-09)
 
-Load this before any Claude Design canvas or UI critique for the Training Planner. It records what the current UI is, what the brand is, what the Lovable reference contributes, and the agreed direction. Facts come from `apps/web/src/styles.css`, `App.tsx`, `docs/01-product/planning-workflow-roadmap.md` on `main` @ `17f3168535869b93f8c3fc01b93a74c4f3d2a97b` — the PR3J target baseline (PR3G-V inputs were cut at `53bffa55` and are deployed in `0b97a9a7`), and the Lovable export "Project Spec UI 1" (TanStack Start + Tailwind v4 + shadcn; presentation reference only — its Supabase, TanStack, Tailwind/Radix, realtime and AI code are explicitly not to be imported).
+Load this before any Claude Design canvas or UI critique for the Training Planner. It records what the current UI is, what the brand is, what the Lovable reference contributes, and the agreed direction. PR3K is documented against `main` @ `645ea70b816a82fae3482dd862d8602c92035106`; the historical PR3J design target remains `17f3168535869b93f8c3fc01b93a74c4f3d2a97b`, and PR3G-V inputs were cut at `53bffa55` and deployed in `0b97a9a7`. The Lovable export "Project Spec UI 1" (TanStack Start + Tailwind v4 + shadcn) is a presentation reference only; its Supabase, TanStack, Tailwind/Radix, realtime, and AI code must not be imported.
 
 ## 1. Product and users
 
@@ -87,7 +87,68 @@ Fixture vocabulary in mockups must come from the real model, not from sample dat
 
 ## 7d. PR3J Admin — Trainer Directory canvas rules (V10, 2026-09-07)
 
-The single PR3J UI/IX reference is `docs/03-design/admin-pr3j/README.md` (V10; target baseline `17f3168535869b93f8c3fc01b93a74c4f3d2a97b`), which merges the approved V5 canvas with the accepted parts of Sol's UI/IX specification. Rules that bind every artboard and the implementation: Admin stays one primary tab with an "Administration" header and a User Access / Trainer Directory section tablist (PR3K not surfaced). List states Ready / Needs setup / Inactive are mutually exclusive; Needs setup is the landing tab while its count is above zero. `is_active` is separate from `scheduling_readiness`; Confirm ready for scheduling is a separate action gated on active, one effective eligible course, exclusions acknowledged for the current eligibility version, and no unsaved changes. Reset rule (Owen, 2026-09-04, reaffirmed 2026-09-06): readiness and the acknowledgement reset only on deactivation, link removal or an exclusion being added; additive changes never reset. Links and exclusions are independent records — a course may be both, the exclusion wins and the row says "Excluded — unavailable for scheduling" (Owen, 2026-09-06). Trainer ID is server-generated and immutable, shown as metadata (Owen, 2026-09-06). Aliases are displayed with source labels (Master schedule / Rate workbook / Admin entry), searchable, addable and removable (Owen, 2026-09-06 and 2026-09-07): each alias chip has a control named "Remove [alias] alias"; removal requires a confirmation showing the exact alias and source, an import-matching warning and a required audit note (≤ 500), sends the current expectedVersion, and is one atomic write that removes the mapping, increments the version and appends one immutable `alias_removed` event carrying alias, source and note; the primary name is never removable; stale writes return a typed 409; Cancel/Escape restores focus to the original remove control, and only a successful removal moves focus to the next chip or Add alias. A reset-triggering eligibility save is one `course_access_changed` event carrying the reset, never two. Additive eligibility changes carry the exclusion acknowledgement forward to the new eligibility version without touching the original confirmation; reset triggers clear it. Deactivation shows the exact affected-upcoming-session count and requires an acknowledgement checkbox; reactivation returns to Needs setup. Append-only `trainer_change_events` with one `course_access_changed` event per save rendered as human-readable diff lines. Programme labels use seeded `programmes.name`; tones FTDM blue / FTIIO amber / DGAI purple / ASK standalone grey; exclusion and Needs setup use warning tones, danger is reserved for errors and destructive actions. One solid-red primary per artboard. Acceptance viewports 1440, 390 and 320; table `scrollWidth === clientWidth` at 1440; rows 52–60 px; document width equals the viewport on mobile.
+The single PR3J UI/IX reference is `docs/03-design/admin-pr3j/README.md` (V10; target baseline `17f3168535869b93f8c3fc01b93a74c4f3d2a97b`), which merges the approved V5 canvas with the accepted parts of Sol's UI/IX specification. Rules that bind every artboard and the implementation: Admin stays one primary tab with an "Administration" header and a User Access / Trainer Directory section tablist (PR3K rules are defined in section 7e below). List states Ready / Needs setup / Inactive are mutually exclusive; Needs setup is the landing tab while its count is above zero. `is_active` is separate from `scheduling_readiness`; Confirm ready for scheduling is a separate action gated on active, one effective eligible course, exclusions acknowledged for the current eligibility version, and no unsaved changes. Reset rule (Owen, 2026-09-04, reaffirmed 2026-09-06): readiness and the acknowledgement reset only on deactivation, link removal or an exclusion being added; additive changes never reset. Links and exclusions are independent records — a course may be both, the exclusion wins and the row says "Excluded — unavailable for scheduling" (Owen, 2026-09-06). Trainer ID is server-generated and immutable, shown as metadata (Owen, 2026-09-06). Aliases are displayed with source labels (Master schedule / Rate workbook / Admin entry), searchable, addable and removable (Owen, 2026-09-06 and 2026-09-07): each alias chip has a control named "Remove [alias] alias"; removal requires a confirmation showing the exact alias and source, an import-matching warning and a required audit note (≤ 500), sends the current expectedVersion, and is one atomic write that removes the mapping, increments the version and appends one immutable `alias_removed` event carrying alias, source and note; the primary name is never removable; stale writes return a typed 409; Cancel/Escape restores focus to the original remove control, and only a successful removal moves focus to the next chip or Add alias. A reset-triggering eligibility save is one `course_access_changed` event carrying the reset, never two. Additive eligibility changes carry the exclusion acknowledgement forward to the new eligibility version without touching the original confirmation; reset triggers clear it. Deactivation shows the exact affected-upcoming-session count and requires an acknowledgement checkbox; reactivation returns to Needs setup. Append-only `trainer_change_events` with one `course_access_changed` event per save rendered as human-readable diff lines. Programme labels use seeded `programmes.name`; tones FTDM blue / FTIIO amber / DGAI purple / ASK standalone grey; exclusion and Needs setup use warning tones, danger is reserved for errors and destructive actions. One solid-red primary per artboard. Acceptance viewports 1440, 390 and 320; table `scrollWidth === clientWidth` at 1440; rows 52–60 px; document width equals the viewport on mobile.
+
+## 7e. PR3K Admin — Rate categories and Rate Reconciliation design rules
+
+The authoritative PR3K UI/IX contract is
+`docs/03-design/admin-pr3k-rate-reconciliation/README.md` (revision 4,
+2026-09-09). Admin remains one primary navigation area with this exact section
+tablist: **User Access | Trainer Directory | Rate categories | Rate
+Reconciliation**. Rate categories is the third subtab and Rate Reconciliation
+is the fourth. Finance keeps its existing read-only economics view elsewhere;
+Ops and Viewer receive neither tab, route, data, nor fee values.
+
+Rate categories is the first bounded PR3K sub-workstream. It is an Admin-only
+mapping screen over active canonical courses, grouped by programme, keyed by
+the exact canonical course code. The authoritative table has one row per
+course and one category at most. A row may display **Not mapped**; the
+**Not mapped** filter and an explicit per-course mapping action are required.
+The **Ambiguous** filter is for a preflight conflict only (legacy data with
+more than one category); ambiguity is never auto-resolved. The category
+combobox offers all eight codes. Every mapping or removal requires a 1–500
+character audit note, the current `expectedVersion`, and an append-only history
+event carrying actor, time, previous and new category. A stale write returns a
+typed 409. The screen has no rate values and creates no eligibility link,
+exclusion, recommendation, seed, or inferred mapping; workbook text never
+populates it.
+
+Rate Reconciliation is a six-step, server-driven Admin wizard. Its state comes
+from the server, with one open batch system-wide. Template v3 parses eight
+independent categories (`IIO`, `DM`, `IT-Normal`, `IT-WSQ`, `IT-Special`,
+`WSQ-Writing`, `AI`, and `Video`) and ignores `Sheet1`. Every category-
+assignment row shows the same aggregate mapping status, with an expanded
+per-course list. Economics is gated per course for all eight categories:
+mapped courses may use the matching rate assignment, unmapped courses cannot,
+and an ambiguous mapping blocks only that course. The rate assignment itself
+is still applied by reconciliation, and no category mapping is inferred from
+workbook text. Video remains independent and is never folded into IT-Special.
+
+Identity is resolved once per normalized source name across the whole batch;
+category rows are excluded individually with a required reason, including for
+automatically matched identities. Excluding one row leaves the other rows for
+the name untouched. Cross-hash carry-forward is opt-in only after full server
+revalidation, and an exclusion may carry only when normalized name, category,
+and server-only row/profile fingerprints all match. Temporary workbook files
+are removed after parsing and no batch can reopen or download the workbook.
+The terminal states `applied`, `rejected`, `failed`, and `discarded` are
+distinct, read-only, and release the open-batch lock; upload Cancel exists only
+before an uploaded batch record, while Discard is audited after the record
+exists. Rejected offers only **Start a new batch**; failed requires a
+re-upload. Carry-forward remains opt-in and fully revalidated: identity
+decisions may carry across a corrected hash, while exclusions require the same
+normalized name, category, and server-only row/profile fingerprint.
+
+The protected preview shows values by default to an Admin and provides an
+optional **Hide values** toggle. Values never appear in URLs, page titles,
+announcements, notifications, audit/history, error reports, or results; all
+value-bearing responses are Admin-only and no-store. The mapping and
+reconciliation screens must meet the 1440, 390, and 320 acceptance viewports,
+keep document width equal to the viewport on mobile, constrain horizontal
+scroll to the review grid, use 44px controls, and preserve the accessibility
+and focus rules in the PR3K contract. Fixtures use only Demo Admin and Demo
+Trainer 1–18 with fabricated values; no real workbook, name, fee, PNG, seed,
+or current-economics cutover is part of this documentation.
 
 ## 8. How to use this brief (governance as of PR #25, 2026-09-06)
 
