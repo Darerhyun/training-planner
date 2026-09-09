@@ -9,6 +9,7 @@ import {
   ApiError,
   apiFetch,
   approvePlannedCourseRun,
+  confirmSchedule,
   createAdminInvitation,
   fetchPlanningSessions,
   fetchAdminTrainers,
@@ -317,8 +318,15 @@ function blockedParsePayload(): ParseResult {
         rowNumber: 3,
         rawValue: 'UNKNOWN',
       },
+      {
+        code: 'invalid_date_range',
+        message: 'End Date must be on or after Start Date.',
+        rowNumber: 4,
+        rawValue: '02-08-2026 to 01-08-2026',
+      },
     ],
     conflicts: [],
+    previewDigest: 'preview-digest-blocked',
   };
 }
 
@@ -336,13 +344,14 @@ function successfulParsePayload(): ParseResult {
       conflicts: 0,
       existingSessions: 0,
       changeCount: 1,
-      autoApplied: true,
-      requiresConfirmation: false,
+      autoApplied: false,
+      requiresConfirmation: true,
       blocked: false,
       blockReason: null,
     },
     alerts: [],
     conflicts: [],
+    previewDigest: 'preview-digest-success',
     applied: {
       applied: 1,
       skipped: 0,
@@ -560,6 +569,44 @@ test('uploadMasterSchedule returns successful parse results with the upload batc
   );
 
   assert.deepEqual(result, { ...parsed, uploadBatchId: 'batch-success' });
+});
+
+test('confirmSchedule sends exact Preview acknowledgement fields', async () => {
+  let request: { url: string; init?: RequestInit } | undefined;
+  const parsed = successfulParsePayload();
+
+  await withFetch(
+    async (input, init) => {
+      request = { url: String(input), init };
+      return jsonResponse(parsed);
+    },
+    async () => {
+      const result = await confirmSchedule(user, 'batch-confirm', {
+        previewDigest: parsed.previewDigest,
+        acknowledged: true,
+      });
+      assert.equal(result.previewDigest, parsed.previewDigest);
+    },
+  );
+
+  assert.ok(request);
+  assert.ok(request.url.endsWith('/sync/batch-confirm/confirm'));
+  assert.equal(request.init?.method, 'POST');
+  assert.deepEqual(JSON.parse(String(request.init?.body)), {
+    previewDigest: parsed.previewDigest,
+    acknowledged: true,
+  });
+});
+
+test('Sync UI retains the exact acknowledgement and complete issue presentation contract', async () => {
+  const page = await readFile(new URL('./pages/sync-page.tsx', import.meta.url), 'utf8');
+  assert.match(page, /previewDigest: result\.previewDigest/);
+  assert.match(page, /acknowledged/);
+  assert.doesNotMatch(page, /manualOverride/);
+  assert.doesNotMatch(page, /alerts\.slice\(0,\s*12\)/);
+  assert.match(page, /invalid_date_range/);
+  assert.match(page, /role="list"/);
+  assert.match(page, /role="listitem"/);
 });
 
 test('fetchPlanningSessions serializes needsAttention only when true and maps its summary', async () => {

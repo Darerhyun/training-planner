@@ -78,14 +78,23 @@ export function resolveMasterScheduleColumns(
 }
 
 export type ScheduleAlertCode =
+  | 'course_not_supplied'
   | 'unknown_course'
+  | 'trainer_not_supplied'
   | 'unknown_trainer'
+  | 'venue_not_supplied'
+  | 'hotel_pending'
   | 'unknown_venue'
+  | 'room_not_supplied'
   | 'unknown_room'
+  | 'start_date_not_supplied'
   | 'invalid_start_date'
+  | 'end_date_not_supplied'
   | 'invalid_end_date'
+  | 'invalid_date_range'
   | 'invalid_expected_pax'
   | 'invalid_confirmed_pax'
+  | 'status_not_supplied'
   | 'invalid_status';
 
 export interface ScheduleParseAlert {
@@ -139,6 +148,13 @@ export interface VenueResolution {
   venueCode: string | null;
   roomId: string | null;
   roomWasExpected: boolean;
+  /**
+   * Distinguishes an empty optional Room cell from a supplied value that did
+   * not resolve. When the workbook has no Room column, the resolver reports
+   * `unmatched` unless an embedded room is recognised, which is deliberately
+   * conservative because the source cannot prove that the room was blank.
+   */
+  roomState?: 'not_applicable' | 'blank' | 'resolved' | 'unmatched';
 }
 
 export interface VenueResolver {
@@ -170,6 +186,15 @@ export interface MappedScheduleRow {
   confirmedPax: number | null;
   status: SessionStatus;
   alerts: ScheduleParseAlert[];
+}
+
+export function hasScheduleSourceValues(
+  row: readonly unknown[],
+  columns: MasterScheduleColumns,
+): boolean {
+  return Object.values(columns).some(
+    (column) => typeof column === 'number' && readCell(row, column) !== null,
+  );
 }
 
 export function createCourseResolver(
@@ -279,11 +304,19 @@ export function createVenueResolver(
       const room = possibleRooms.find((candidate) =>
         roomNameAppearsInVenueText(candidate.roomName, roomInput),
       );
+      const roomState = venueType !== 'owned'
+        ? 'not_applicable'
+        : room
+          ? 'resolved'
+          : roomName === null
+            ? 'blank'
+            : 'unmatched';
 
       return {
         venueCode,
         roomId: room?.roomId ?? null,
         roomWasExpected: venueType === 'owned',
+        roomState,
       };
     },
   };
@@ -312,7 +345,14 @@ export function mapMasterScheduleRow(
   const rawStatus = readCell(row, columns.status);
 
   const courseCode = tmsCode ? resolvers.courses.resolve(tmsCode) : null;
-  if (!courseCode) {
+  if (!tmsCode) {
+    alerts.push({
+      code: 'course_not_supplied',
+      message: 'Course / Program ID is required.',
+      rowNumber,
+      rawValue: null,
+    });
+  } else if (!courseCode) {
     alerts.push({
       code: 'unknown_course',
       message: 'Course / Program ID did not match course_aliases or courses.',
@@ -322,7 +362,14 @@ export function mapMasterScheduleRow(
   }
 
   const startDate = parseScheduleDate(rawStartDate);
-  if (rawStartDate && !startDate) {
+  if (!rawStartDate) {
+    alerts.push({
+      code: 'start_date_not_supplied',
+      message: 'Start Date is required.',
+      rowNumber,
+      rawValue: null,
+    });
+  } else if (!startDate) {
     alerts.push({
       code: 'invalid_start_date',
       message: 'Start Date must use DD-MM-YYYY format.',
@@ -332,7 +379,14 @@ export function mapMasterScheduleRow(
   }
 
   const endDate = parseScheduleDate(rawEndDate);
-  if (rawEndDate && !endDate) {
+  if (!rawEndDate) {
+    alerts.push({
+      code: 'end_date_not_supplied',
+      message: 'End Date is required.',
+      rowNumber,
+      rawValue: null,
+    });
+  } else if (!endDate) {
     alerts.push({
       code: 'invalid_end_date',
       message: 'End Date must use DD-MM-YYYY format.',
@@ -340,11 +394,26 @@ export function mapMasterScheduleRow(
       rawValue: rawEndDate,
     });
   }
+  if (startDate && endDate && endDate < startDate) {
+    alerts.push({
+      code: 'invalid_date_range',
+      message: 'End Date must be on or after Start Date.',
+      rowNumber,
+      rawValue: `${rawStartDate} to ${rawEndDate}`,
+    });
+  }
 
   const trainerId = rawTrainerName
     ? resolvers.trainers.resolve(rawTrainerName)
     : null;
-  if (rawTrainerName && !trainerId) {
+  if (!rawTrainerName) {
+    alerts.push({
+      code: 'trainer_not_supplied',
+      message: 'Trainer not supplied; the session remains unassigned.',
+      rowNumber,
+      rawValue: null,
+    });
+  } else if (!trainerId) {
     alerts.push({
       code: 'unknown_trainer',
       message: 'Trainer did not match trainer_aliases_tms or trainers.',
@@ -353,11 +422,26 @@ export function mapMasterScheduleRow(
     });
   }
 
-  const venue = rawVenueText
+  const isHotelPending = rawVenueText !== null && normalizeText(rawVenueText) === 'HOTEL';
+  const venue = rawVenueText && !isHotelPending
     ? resolvers.venues.resolve(rawVenueText, rawRoomName)
-    : { venueCode: null, roomId: null, roomWasExpected: false };
+    : { venueCode: null, roomId: null, roomWasExpected: false, roomState: 'not_applicable' as const };
 
-  if (rawVenueText && !venue.venueCode) {
+  if (!rawVenueText) {
+    alerts.push({
+      code: 'venue_not_supplied',
+      message: 'Venue not supplied.',
+      rowNumber,
+      rawValue: null,
+    });
+  } else if (isHotelPending) {
+    alerts.push({
+      code: 'hotel_pending',
+      message: 'Venue to be confirmed; Hotel is a pending delivery category.',
+      rowNumber,
+      rawValue: rawVenueText,
+    });
+  } else if (!venue.venueCode) {
     alerts.push({
       code: 'unknown_venue',
       message: 'Venue text did not match a known venue.',
@@ -366,15 +450,31 @@ export function mapMasterScheduleRow(
     });
   }
 
-  if (rawVenueText && venue.roomWasExpected && !venue.roomId) {
-    alerts.push({
-      code: 'unknown_room',
-      message: rawRoomName === undefined
-        ? 'Owned venue was detected, but no known room name was found in the venue text.'
-        : 'Room did not match a known room for the detected venue.',
-      rowNumber,
-      rawValue: rawRoomName ?? rawVenueText,
-    });
+  if (venue.roomWasExpected && !venue.roomId) {
+    const roomState = venue.roomState ?? (
+      venue.roomId
+        ? 'resolved'
+        : rawRoomName === null
+          ? 'blank'
+          : 'unmatched'
+    );
+    if (roomState === 'blank') {
+      alerts.push({
+        code: 'room_not_supplied',
+        message: 'Room not supplied for the owned venue.',
+        rowNumber,
+        rawValue: null,
+      });
+    } else {
+      alerts.push({
+        code: 'unknown_room',
+        message: rawRoomName === undefined
+          ? 'Owned venue had no recognised embedded room; the room cannot be proven blank.'
+          : 'Room did not match a known room for the detected venue.',
+        rowNumber,
+        rawValue: rawRoomName ?? rawVenueText,
+      });
+    }
   }
 
   const expectedPax = parsePax(rawExpectedPax);
@@ -398,7 +498,14 @@ export function mapMasterScheduleRow(
   }
 
   const status = parseStatus(rawStatus);
-  if (rawStatus && !status) {
+  if (!rawStatus) {
+    alerts.push({
+      code: 'status_not_supplied',
+      message: 'Status is required.',
+      rowNumber,
+      rawValue: null,
+    });
+  } else if (!status) {
     alerts.push({
       code: 'invalid_status',
       message: 'Status must be Plan, Confirmed, Cancelled, or Completed.',

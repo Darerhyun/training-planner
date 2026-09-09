@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import * as XLSX from 'xlsx';
 import { getDb } from '@training-planner/shared';
 import type { SqlQuery } from '@training-planner/shared';
@@ -5,11 +6,13 @@ import {
   createCourseResolver,
   createTrainerResolver,
   createVenueResolver,
+  hasScheduleSourceValues,
   mapMasterScheduleRow,
   MASTER_SCHEDULE_DATA_START_ROW,
   MASTER_SCHEDULE_HEADER_ROW,
   resolveMasterScheduleColumns,
   type MappedScheduleRow,
+  type ScheduleAlertCode,
   type ScheduleParseAlert,
 } from './master-schedule-mapping.js';
 import { loadScheduleLookups } from './reference-data.js';
@@ -34,6 +37,11 @@ export interface ScheduleParseResult {
     blocked: boolean;
     blockReason: string | null;
   };
+  previewDigest?: string;
+}
+
+export interface SchedulePreview extends ScheduleParseResult {
+  previewDigest: string;
 }
 
 export interface ScheduleImportConflict {
@@ -55,6 +63,81 @@ export interface ScheduleApplyResult {
   skipped: number;
   unchanged: number;
   conflicts: ScheduleImportConflict[];
+}
+
+export class ScheduleApplyBlockedError extends Error {
+  constructor() {
+    super('Schedule Preview is blocked and cannot be applied.');
+    this.name = 'ScheduleApplyBlockedError';
+  }
+}
+
+export class ScheduleApplyConflictError extends Error {
+  constructor(public readonly conflicts: ScheduleImportConflict[]) {
+    super('An application-managed session conflict was discovered while applying the Preview.');
+    this.name = 'ScheduleApplyConflictError';
+  }
+}
+
+export class ScheduleApplyStaleError extends Error {
+  constructor(message = 'A session changed while the schedule was being applied.') {
+    super(message);
+    this.name = 'ScheduleApplyStaleError';
+  }
+}
+
+const BLOCKING_ALERT_CODES: ReadonlySet<ScheduleAlertCode> = new Set([
+  'course_not_supplied',
+  'unknown_course',
+  'unknown_trainer',
+  'unknown_venue',
+  'unknown_room',
+  'start_date_not_supplied',
+  'invalid_start_date',
+  'end_date_not_supplied',
+  'invalid_end_date',
+  'invalid_date_range',
+  'invalid_expected_pax',
+  'invalid_confirmed_pax',
+  'status_not_supplied',
+  'invalid_status',
+]);
+
+export function isBlockingScheduleAlertCode(code: string): boolean {
+  return BLOCKING_ALERT_CODES.has(code as ScheduleAlertCode);
+}
+
+export function isSchedulePreviewBlocked(result: ScheduleParseResult): boolean {
+  const alerts = [
+    ...result.alerts,
+    ...result.rows.flatMap((row) => row.alerts),
+  ];
+  const cancellationGuard =
+    result.summary.existingSessions > 0 &&
+    result.summary.cancellations > result.summary.existingSessions / 2;
+
+  return (
+    result.summary.blocked ||
+    result.conflicts.length > 0 ||
+    cancellationGuard ||
+    alerts.some((alert) => isBlockingScheduleAlertCode(alert.code))
+  );
+}
+
+export function computeSchedulePreviewDigest(
+  result: ScheduleParseResult & {
+    applied?: ScheduleApplyResult;
+  },
+): string {
+  const { previewDigest: _previewDigest, applied: _applied, ...previewPayload } = result;
+  return createHash('sha256').update(stableSerialize(previewPayload)).digest('hex');
+}
+
+export function createSchedulePreview(result: ScheduleParseResult): SchedulePreview {
+  return {
+    ...result,
+    previewDigest: computeSchedulePreviewDigest(result),
+  };
 }
 
 interface ExistingSessionRow {
@@ -113,15 +196,16 @@ export async function parseScheduleWorkbook(buffer: Buffer): Promise<SchedulePar
 
   const mappedRows = rawRows
     .slice(MASTER_SCHEDULE_DATA_START_ROW - 1)
-    .map((row, index) =>
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => hasScheduleSourceValues(row, columns))
+    .map(({ row, index }) =>
       mapMasterScheduleRow(
         row,
         index + MASTER_SCHEDULE_DATA_START_ROW,
         resolvers,
         columns,
       ),
-    )
-    .filter((row) => row.tmsCode || row.sourceCourseName || row.startDate || row.endDate);
+    );
 
   return summarizeRows(mappedRows);
 }
@@ -131,10 +215,13 @@ export async function applyScheduleParseResult(
   parseResult: ScheduleParseResult,
   db: SqlQuery = getDb(),
 ): Promise<ScheduleApplyResult> {
+  if (isSchedulePreviewBlocked(parseResult)) {
+    throw new ScheduleApplyBlockedError();
+  }
+
   let applied = 0;
   let skipped = 0;
   let unchanged = 0;
-  const conflicts: Array<{ sourceIndex: number; conflict: ScheduleImportConflict }> = [];
 
   const orderedRows = parseResult.rows
     .map((row, sourceIndex) => ({
@@ -163,17 +250,47 @@ export async function applyScheduleParseResult(
     (await findExistingSessions(db, externalRefs)).map((row) => [row.external_ref, row]),
   );
 
+  // Preflight all ownership-sensitive rows before the first write. The
+  // surrounding route transaction still protects against a race discovered
+  // after this pass, but this keeps an already-known conflict from allowing
+  // any safe row to be applied alongside it.
+  const projectedByRef = new Map(existingByRef);
+  const preflightConflicts: ScheduleImportConflict[] = [];
+  for (const { row, externalRef, sourceIndex } of orderedRows) {
+    const classification = classifyScheduleRow(
+      projectedByRef.get(externalRef) ?? null,
+      row,
+      externalRef,
+    );
+
+    if (classification.kind === 'conflict') {
+      preflightConflicts.push(classification.conflict);
+      continue;
+    }
+    if (classification.kind === 'insert') {
+      projectedByRef.set(
+        externalRef,
+        createExistingSessionFromRow(row, `preview-${sourceIndex}`),
+      );
+      continue;
+    }
+    if (classification.kind === 'update') {
+      projectedByRef.set(externalRef, projectExistingSession(classification.existing, row));
+    }
+  }
+
+  if (preflightConflicts.length > 0) {
+    throw new ScheduleApplyConflictError(preflightConflicts);
+  }
+
   const applyExisting = async (
     existing: ExistingSessionRow,
     row: MappedScheduleRow,
     externalRef: string,
-    sourceIndex: number,
   ): Promise<void> => {
     const classification = classifyScheduleRow(existing, row, externalRef);
     if (classification.kind === 'conflict') {
-      conflicts.push({ sourceIndex, conflict: classification.conflict });
-      skipped += 1;
-      return;
+      throw new ScheduleApplyConflictError([classification.conflict]);
     }
     if (classification.kind === 'unchanged') {
       applied += 1;
@@ -192,7 +309,9 @@ export async function applyScheduleParseResult(
       row,
     );
     if (!updated) {
-      throw new Error('Import-managed session changed while the schedule was being applied.');
+      throw new ScheduleApplyStaleError(
+        'Import-managed session changed while the schedule was being applied.',
+      );
     }
     existingByRef.set(externalRef, updated);
     applied += 1;
@@ -210,9 +329,7 @@ export async function applyScheduleParseResult(
       continue;
     }
     if (classification.kind === 'conflict') {
-      conflicts.push({ sourceIndex, conflict: classification.conflict });
-      skipped += 1;
-      continue;
+      throw new ScheduleApplyConflictError([classification.conflict]);
     }
     if (classification.kind === 'unchanged') {
       applied += 1;
@@ -220,7 +337,7 @@ export async function applyScheduleParseResult(
       continue;
     }
     if (classification.kind === 'update') {
-      await applyExisting(classification.existing, row, externalRef, sourceIndex);
+      await applyExisting(classification.existing, row, externalRef);
       continue;
     }
 
@@ -235,18 +352,19 @@ export async function applyScheduleParseResult(
     // winner instead of blindly overwriting it, preserving application ownership.
     const concurrent = await findExistingSessionForUpdate(db, externalRef);
     if (!concurrent) {
-      throw new Error('Concurrent schedule insert could not be reloaded safely.');
+      throw new ScheduleApplyStaleError(
+        'Concurrent schedule insert could not be reloaded safely.',
+      );
     }
     existingByRef.set(externalRef, concurrent);
-    await applyExisting(concurrent, row, externalRef, sourceIndex);
+    await applyExisting(concurrent, row, externalRef);
   }
 
-  conflicts.sort((left, right) => left.sourceIndex - right.sourceIndex);
   return {
     applied,
     skipped,
     unchanged,
-    conflicts: conflicts.map((entry) => entry.conflict),
+    conflicts: [],
   };
 }
 
@@ -304,8 +422,17 @@ export async function summarizeRows(
   }
 
   const changeCount = inserts + updates;
-  const blocked = existingRows.length > 0 && cancellations > existingRows.length / 2;
-  const requiresConfirmation = blocked || cancellations > 0 || changeCount >= 10 || conflicts.length > 0;
+  const cancellationGuard = existingRows.length > 0 && cancellations > existingRows.length / 2;
+  const blockingAlertCount = rows.reduce(
+    (count, row) => count + row.alerts.filter((alert) => isBlockingScheduleAlertCode(alert.code)).length,
+    0,
+  );
+  const blocked = cancellationGuard || blockingAlertCount > 0 || conflicts.length > 0;
+  const blockReasons = [
+    cancellationGuard ? 'Parse would cancel more than 50% of existing sessions.' : null,
+    blockingAlertCount > 0 ? 'Schedule contains unresolved or malformed values.' : null,
+    conflicts.length > 0 ? 'Upload conflicts with application-managed sessions.' : null,
+  ].filter((reason): reason is string => reason !== null);
 
   return {
     rows,
@@ -323,11 +450,9 @@ export async function summarizeRows(
       existingSessions: existingRows.length,
       changeCount,
       autoApplied: false,
-      requiresConfirmation,
+      requiresConfirmation: true,
       blocked,
-      blockReason: blocked
-        ? 'Parse would cancel more than 50% of existing sessions.'
-        : null,
+      blockReason: blockReasons.length > 0 ? blockReasons.join(' ') : null,
     },
   };
 }
@@ -616,4 +741,23 @@ function compareExternalRefs(left: string, right: string): number {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
+}
+
+function stableSerialize(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? 'null' : serialized;
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerialize(entry)).join(',')}]`;
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, entry]) => entry !== undefined)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+
+  return `{${entries
+    .map(([key, entry]) => `${JSON.stringify(key)}:${stableSerialize(entry)}`)
+    .join(',')}}`;
 }

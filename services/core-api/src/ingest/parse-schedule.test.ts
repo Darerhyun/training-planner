@@ -4,11 +4,22 @@ import type { SqlQuery } from '@training-planner/shared';
 import {
   applyScheduleParseResult,
   buildExternalRef,
+  computeSchedulePreviewDigest,
+  createSchedulePreview,
+  isSchedulePreviewBlocked,
   summarizeRows,
   type ScheduleApplyResult,
   type ScheduleParseResult,
 } from './parse-schedule.js';
-import type { MappedScheduleRow } from './master-schedule-mapping.js';
+import {
+  createCourseResolver,
+  createTrainerResolver,
+  createVenueResolver,
+  hasScheduleSourceValues,
+  mapMasterScheduleRow,
+  type MasterScheduleColumns,
+  type MappedScheduleRow,
+} from './master-schedule-mapping.js';
 
 type ExistingRow = {
   id: string;
@@ -49,6 +60,61 @@ function mapped(overrides: Partial<MappedScheduleRow> = {}): MappedScheduleRow {
     alerts: [],
     ...overrides,
   };
+}
+
+const mappingColumns: MasterScheduleColumns = {
+  tmsCode: 1,
+  courseName: 2,
+  aliasBatchId: 3,
+  batchId: 4,
+  startDate: 5,
+  endDate: 6,
+  trainerName: 7,
+  venueText: 8,
+  roomName: 9,
+  timeText: 10,
+  expectedPax: 11,
+  confirmedPax: 12,
+  status: 13,
+};
+
+const mappingResolvers = {
+  courses: createCourseResolver([], [{ code: 'ASKMEI' }]),
+  trainers: createTrainerResolver([], [{ trainer_id: 'trainer-1', name: 'Trainer One' }]),
+  venues: createVenueResolver(
+    [{ code: 'IP', name: 'International Plaza', type: 'owned', address: '10 Anson Road' }],
+    [{ room_id: 'ip-class1', venue_code: 'IP', name: 'Class1' }],
+  ),
+};
+
+function mapSourceRow(overrides: {
+  course?: string;
+  trainer?: string;
+  venue?: string;
+  room?: string;
+  startDate?: string;
+  endDate?: string;
+  expectedPax?: string;
+  confirmedPax?: string;
+  status?: string;
+} = {}): MappedScheduleRow {
+  const source = [
+    overrides.course ?? 'ASKMEI',
+    'Excel Intermediate',
+    'ASKMEI-2026-1',
+    '',
+    overrides.startDate ?? '01-08-2026',
+    overrides.endDate ?? '02-08-2026',
+    overrides.trainer ?? 'Trainer One',
+    overrides.venue ?? '10 Anson Road',
+    overrides.room ?? 'Class1',
+    '9.00 AM - 6.00 PM',
+    overrides.expectedPax ?? '12',
+    overrides.confirmedPax ?? '10',
+    overrides.status ?? 'Confirmed',
+  ];
+
+  return mapMasterScheduleRow(source, 3, mappingResolvers, mappingColumns);
 }
 
 function existingFor(row: MappedScheduleRow, overrides: Partial<ExistingRow> = {}): ExistingRow {
@@ -286,6 +352,129 @@ function createConcurrentInsertDb() {
   return { apply, insertOrder, rows };
 }
 
+test('classifies blank operational values, Hotel, and unmatched rooms distinctly', () => {
+  const blank = mapSourceRow({ trainer: '', room: '' });
+  const hotel = mapSourceRow({ venue: 'Hotel', room: '' });
+  const unmatched = mapSourceRow({ trainer: 'Unknown Trainer', venue: 'Unknown Venue', room: 'Unknown Room' });
+  const unknownRoom = mapSourceRow({ room: 'Unknown Room' });
+
+  assert.deepEqual(
+    blank.alerts.map((alert) => alert.code),
+    ['trainer_not_supplied', 'room_not_supplied'],
+  );
+  assert.deepEqual(
+    hotel.alerts.map((alert) => alert.code),
+    ['hotel_pending'],
+  );
+  assert.deepEqual(
+    unmatched.alerts.map((alert) => alert.code),
+    ['unknown_trainer', 'unknown_venue'],
+  );
+  assert.deepEqual(
+    unknownRoom.alerts.map((alert) => alert.code),
+    ['unknown_room'],
+  );
+  assert.equal(isSchedulePreviewBlocked({
+    rows: [blank], alerts: blank.alerts, conflicts: [], summary: {
+      totalRows: 1, validRows: 1, inserts: 1, updates: 0, unchanged: 0, skipped: 0,
+      cancellations: 0, conflicts: 0, existingSessions: 0, changeCount: 1,
+      autoApplied: false, requiresConfirmation: true, blocked: false, blockReason: null,
+    },
+  }), false);
+  assert.equal(isSchedulePreviewBlocked({
+    rows: [unknownRoom], alerts: unknownRoom.alerts, conflicts: [], summary: {
+      totalRows: 1, validRows: 1, inserts: 1, updates: 0, unchanged: 0, skipped: 0,
+      cancellations: 0, conflicts: 0, existingSessions: 0, changeCount: 1,
+      autoApplied: false, requiresConfirmation: true, blocked: false, blockReason: null,
+    },
+  }), true);
+});
+
+test('missing required course dates and status are blocking mapping issues', () => {
+  const row = mapSourceRow({ course: '', startDate: '', endDate: '', status: '' });
+  assert.deepEqual(row.alerts.map((alert) => alert.code), [
+    'course_not_supplied',
+    'start_date_not_supplied',
+    'end_date_not_supplied',
+    'status_not_supplied',
+  ]);
+});
+
+test('retains nonblank malformed source rows while ignoring truly blank rows', () => {
+  const blank = new Array(13).fill(null);
+  const malformed = [...blank];
+  malformed[mappingColumns.startDate - 1] = 'not-a-date';
+
+  assert.equal(hasScheduleSourceValues(blank, mappingColumns), false);
+  assert.equal(hasScheduleSourceValues(malformed, mappingColumns), true);
+});
+
+test('end dates before start dates are blocking mapping issues', () => {
+  const row = mapSourceRow({ startDate: '02-08-2026', endDate: '01-08-2026' });
+  assert.deepEqual(row.alerts.map((alert) => alert.code), ['invalid_date_range']);
+  assert.equal(isSchedulePreviewBlocked({
+    rows: [row],
+    alerts: row.alerts,
+    conflicts: [],
+    summary: {
+      totalRows: 1, validRows: 1, inserts: 1, updates: 0, unchanged: 0, skipped: 0,
+      cancellations: 0, conflicts: 0, existingSessions: 0, changeCount: 1,
+      autoApplied: false, requiresConfirmation: true, blocked: false, blockReason: null,
+    },
+  }), true);
+});
+
+test('owned venue without a Room column is conservatively treated as unmatched', () => {
+  const row = mapMasterScheduleRow(
+    [
+      'ASKMEI', 'Excel Intermediate', 'ASKMEI-2026-1', '', '01-08-2026', '02-08-2026',
+      'Trainer One', '10 Anson Road', '9.00 AM - 6.00 PM', '12', '10', 'Confirmed',
+    ],
+    3,
+    mappingResolvers,
+    { ...mappingColumns, roomName: undefined },
+  );
+
+  assert.equal(row.alerts.some((alert) => alert.code === 'unknown_room'), true);
+  assert.equal(row.alerts.some((alert) => alert.code === 'room_not_supplied'), false);
+});
+
+test('preview digest is deterministic and excludes its digest and applied result', () => {
+  const result: ScheduleParseResult = {
+    rows: [mapped()],
+    alerts: [],
+    conflicts: [],
+    summary: {
+      totalRows: 1,
+      validRows: 1,
+      inserts: 1,
+      updates: 0,
+      unchanged: 0,
+      skipped: 0,
+      cancellations: 0,
+      conflicts: 0,
+      existingSessions: 0,
+      changeCount: 1,
+      autoApplied: false,
+      requiresConfirmation: true,
+      blocked: false,
+      blockReason: null,
+    },
+  };
+  const preview = createSchedulePreview(result);
+  const applied = {
+    ...preview,
+    applied: { applied: 1, skipped: 0, unchanged: 0, conflicts: [] },
+  };
+
+  assert.equal(computeSchedulePreviewDigest(preview), preview.previewDigest);
+  assert.equal(computeSchedulePreviewDigest(applied), preview.previewDigest);
+  assert.notEqual(
+    computeSchedulePreviewDigest({ ...preview, rows: [mapped({ trainerId: 'trainer-2' })] }),
+    preview.previewDigest,
+  );
+});
+
 test('summarizes existing new unchanged update and cancellation Sync behavior', async () => {
   const unchanged = mapped({ rowNumber: 3, aliasBatchId: 'ASKMEI-2026-1' });
   const changed = mapped({ rowNumber: 4, aliasBatchId: 'ASKMEI-2026-2', trainerId: 'trainer-2' });
@@ -345,7 +534,7 @@ test('app-managed trainer status date venue room and pax differences become conf
   }
 });
 
-test('safe rows apply while app-managed conflicts are skipped', async () => {
+test('an application-managed conflict blocks the whole apply before any row write', async () => {
   const safe = mapped({ rowNumber: 3, aliasBatchId: 'ASKMEI-2026-41', trainerId: 'trainer-2' });
   const conflict = mapped({ rowNumber: 4, aliasBatchId: 'ASKMEI-2026-42', status: 'cancelled' });
   const fake = createFakeDb([
@@ -354,12 +543,12 @@ test('safe rows apply while app-managed conflicts are skipped', async () => {
   ]);
   const parseResult = await summarizeRows([safe, conflict], fake.db);
 
-  const applied = await applyScheduleParseResult('batch-1', parseResult, fake.db);
+  await assert.rejects(
+    applyScheduleParseResult('batch-1', parseResult, fake.db),
+    /blocked and cannot be applied|application-managed session conflict/i,
+  );
 
-  assert.equal(applied.applied, 1);
-  assert.equal(applied.skipped, 1);
-  assert.equal(applied.conflicts.length, 1);
-  assert.equal(fake.rows.find((row) => row.external_ref === buildExternalRef(safe))?.trainer_id, 'trainer-2');
+  assert.equal(fake.rows.find((row) => row.external_ref === buildExternalRef(safe))?.trainer_id, 'trainer-1');
   assert.equal(fake.rows.find((row) => row.external_ref === buildExternalRef(conflict))?.status, 'confirmed');
 });
 
@@ -388,12 +577,10 @@ test('apply rechecks ownership at confirm time before updating', async () => {
     },
   };
 
-  const applied = await applyScheduleParseResult('batch-1', staleParseResult, fake.db);
-
-  assert.equal(applied.applied, 0);
-  assert.equal(applied.skipped, 1);
-  assert.equal(applied.conflicts.length, 1);
-  assert.equal(applied.conflicts[0].fields[0].field, 'trainerId');
+  await assert.rejects(
+    applyScheduleParseResult('batch-1', staleParseResult, fake.db),
+    /application-managed session conflict|blocked and cannot be applied/i,
+  );
 });
 
 test('bulk-locks refs in deterministic order and increments import versions once per change', async () => {
@@ -452,15 +639,15 @@ test('does not overwrite an application-managed winner of a concurrent insert ra
   });
   const fake = createFakeDb([], { insertConflict: { externalRef, winner } });
 
-  const applied = await applyScheduleParseResult(
-    'batch-race',
-    { ...(await summarizeRows([row], fake.db)), rows: [row] },
-    fake.db,
+  await assert.rejects(
+    applyScheduleParseResult(
+      'batch-race',
+      { ...(await summarizeRows([row], fake.db)), rows: [row] },
+      fake.db,
+    ),
+    /application-managed session conflict|blocked and cannot be applied/i,
   );
 
-  assert.equal(applied.applied, 0);
-  assert.equal(applied.skipped, 1);
-  assert.equal(applied.conflicts.length, 1);
   assert.equal(fake.rows[0].id, 'application-winner');
   assert.equal(fake.rows[0].trainer_id, 'trainer-1');
   assert.equal(fake.rows[0].version, 1);

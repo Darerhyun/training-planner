@@ -13,16 +13,23 @@ type ApiErrorHandler = (error: unknown, setError: (message: string) => void) => 
 export default function SyncPage({ user, onApiError }: { user: User; onApiError: ApiErrorHandler }) {
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<(ParseResult & { uploadBatchId?: string }) | null>(null);
-  const [manualOverride, setManualOverride] = useState(false);
+  const [acknowledged, setAcknowledged] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const canConfirm = result?.uploadBatchId && result.summary.requiresConfirmation;
+  const canApply = Boolean(
+    result?.uploadBatchId &&
+      result.summary.requiresConfirmation &&
+      !result.summary.blocked &&
+      !result.applied,
+  );
+  const canCancel = Boolean(result?.uploadBatchId && !result.applied);
 
   async function submitUpload() {
     if (!file) return;
     setBusy(true);
     setError('');
+    setAcknowledged(false);
     try {
       setResult(await uploadMasterSchedule(user, file));
     } catch (caught) {
@@ -33,11 +40,14 @@ export default function SyncPage({ user, onApiError }: { user: User; onApiError:
   }
 
   async function confirm() {
-    if (!result?.uploadBatchId) return;
+    if (!result?.uploadBatchId || !canApply) return;
     setBusy(true);
     setError('');
     try {
-      setResult(await confirmSchedule(user, result.uploadBatchId, manualOverride));
+      setResult(await confirmSchedule(user, result.uploadBatchId, {
+        previewDigest: result.previewDigest,
+        acknowledged,
+      }));
     } catch (caught) {
       void onApiError(caught, setError);
     } finally {
@@ -53,6 +63,7 @@ export default function SyncPage({ user, onApiError }: { user: User; onApiError:
       await cancelSchedule(user, result.uploadBatchId);
       setResult(null);
       setFile(null);
+      setAcknowledged(false);
     } catch (caught) {
       void onApiError(caught, setError);
     } finally {
@@ -89,30 +100,42 @@ export default function SyncPage({ user, onApiError }: { user: User; onApiError:
             <span className="eyebrow">Import review</span>
             <h2>Parse result</h2>
           </div>
-          {result?.summary.autoApplied && <span className="badge good">Applied</span>}
-          {result?.summary.requiresConfirmation && <span className="badge warn">Review</span>}
+          {result?.applied && <span className="badge good">Applied</span>}
+          {result && !result.applied && result.summary.blocked && <span className="badge warn">Blocked</span>}
+          {result && !result.applied && !result.summary.blocked && <span className="badge warn">Preview</span>}
         </div>
         {result ? <Summary result={result} /> : <p className="empty">No parse result yet.</p>}
-        {result?.summary.blocked && (
+        {result?.summary.blocked && !result.applied && (
+          <p className="error" role="alert">
+            Apply is blocked until the issues in this Preview are resolved in a later review.
+          </p>
+        )}
+        {canApply && (
           <label className="check-row">
             <input
               type="checkbox"
-              checked={manualOverride}
-              onChange={(event) => setManualOverride(event.target.checked)}
+              checked={acknowledged}
+              onChange={(event) => setAcknowledged(event.target.checked)}
+              aria-describedby="sync-preview-acknowledgement-help"
             />
-            Manual override
+            I acknowledge this exact Preview and want to apply it.
           </label>
         )}
-        {canConfirm && (
+        {canApply && (
+          <p className="field-help" id="sync-preview-acknowledgement-help">
+            Applying writes the stored Preview as one transaction. Any changed Preview must be reviewed again.
+          </p>
+        )}
+        {result?.uploadBatchId && result.summary.requiresConfirmation && !result.applied && (
           <div className="action-row">
-            <button disabled={busy || (result.summary.blocked && !manualOverride)} onClick={confirm}>
+            {canApply && <button disabled={busy || !acknowledged} onClick={confirm}>
               <Check size={16} />
-              Confirm
-            </button>
-            <button className="secondary" disabled={busy} onClick={cancel}>
+              Apply Preview
+            </button>}
+            {canCancel && <button className="secondary" disabled={busy} onClick={cancel}>
               <X size={16} />
               Cancel
-            </button>
+            </button>}
           </div>
         )}
       </div>
@@ -142,17 +165,29 @@ function Summary({ result }: { result: ParseResult }) {
           </div>
         ))}
       </div>
-      {summary.blockReason && <p className="error">{summary.blockReason}</p>}
+      {summary.blockReason && <p className="error" role="alert">{summary.blockReason}</p>}
       {result.applied && <p className="message">Applied {result.applied.applied} rows.</p>}
-      <div className="alert-list">
-        {result.alerts.slice(0, 12).map((alert) => (
-          <div className="alert-row" key={`${alert.rowNumber}-${alert.code}-${alert.rawValue}`}>
-            <span>Row {alert.rowNumber}</span>
-            <strong>{alert.code}</strong>
-            <em>{alert.rawValue ?? 'blank'}</em>
+      {result.alerts.length > 0 && (
+        <section aria-labelledby="schedule-alerts-heading">
+          <h3 id="schedule-alerts-heading">Preview issues ({result.alerts.length})</h3>
+          <div className="alert-list" role="list" aria-label="Schedule Preview issues">
+            {result.alerts.map((alert, index) => {
+              const blocking = isBlockingAlertCode(alert.code);
+              return (
+                <div
+                  className="alert-row"
+                  key={`${alert.rowNumber}-${alert.code}-${alert.rawValue ?? 'blank'}-${index}`}
+                  role="listitem"
+                >
+                  <span>Row {alert.rowNumber}</span>
+                  <strong>{blocking ? 'Blocking' : 'Warning'}: {formatAlertCode(alert.code)}</strong>
+                  <em>{alert.rawValue ?? 'blank'} — {alert.message}</em>
+                </div>
+              );
+            })}
           </div>
-        ))}
-      </div>
+        </section>
+      )}
       {conflicts.length > 0 && (
         <section className="conflict-section" aria-labelledby="import-conflicts-heading">
           <h3 id="import-conflicts-heading">Protected import conflicts</h3>
@@ -215,4 +250,29 @@ function getImportConflictKey(conflict: ParseResult['conflicts'][number]): strin
 
 function formatConflictValue(value: string | number | null): string {
   return value === null || value === '' ? 'blank' : String(value);
+}
+
+function isBlockingAlertCode(code: string): boolean {
+  return new Set([
+    'course_not_supplied',
+    'unknown_course',
+    'unknown_trainer',
+    'unknown_venue',
+    'unknown_room',
+    'start_date_not_supplied',
+    'invalid_start_date',
+    'end_date_not_supplied',
+    'invalid_end_date',
+    'invalid_date_range',
+    'invalid_expected_pax',
+    'invalid_confirmed_pax',
+    'status_not_supplied',
+    'invalid_status',
+  ]).has(code);
+}
+
+function formatAlertCode(code: string): string {
+  return code
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase());
 }
