@@ -1,11 +1,11 @@
 # Training Planner — Planning and Sessions Roadmap
 
-Status: Approved product direction; PR3G-V V4 and PR3J complete; PR3K contract approved and implementation pending
+Status: Approved product direction; PR3J is complete and deployed; the Sync repair contract is approved; PR3K implementation is paused behind Sync repair
 Last updated: 9 September 2026
 
-Repository `main` source baseline: `645ea70b816a82fae3482dd862d8602c92035106`
+Repository `main` source baseline: `d786d19452f069e26569bb35115cea341acb21fa`
 (verified read-only for this documentation change). Deployed application
-baseline: `749908290131882505efb011300d446ee9926c74` (last-verified evidence;
+baseline: `645ea70b816a82fae3482dd862d8602c92035106` (last-verified evidence;
 not independently reverified in this change). These baselines are distinct.
 
 ## 1. Purpose
@@ -50,6 +50,12 @@ the planning rulebook unless a future product decision explicitly says so.
 - A later Excel upload must never silently overwrite a session already managed in
   the website. The Sync preview must identify the conflict and require an explicit
   resolution.
+- The staged Sync/reference-data repair contract is the prerequisite for further
+  operational schedule imports. Every future batch stops at Preview, requires
+  server acknowledgement of that exact preview, blocks unsafe interpretations,
+  and uses Re-check after any relevant change. Existing-session repair is a
+  separate explicit workflow; no alias or reference-data change silently rewrites
+  historical sessions.
 
 Data direction:
 
@@ -108,7 +114,25 @@ Sync must distinguish:
 - safe updates to sessions not yet managed in the website;
 - conflicts where an upload differs from a website-managed session.
 
-Conflicting uploads must not silently overwrite website-managed values.
+Conflicting uploads must not silently overwrite website-managed values. The
+approved staged repair contract in
+[`sync-reference-repair.md`](sync-reference-repair.md) additionally requires:
+
+- no auto-apply, regardless of batch size;
+- exact-preview acknowledgement and server-side freshness validation;
+- blocking non-empty unmatched, ambiguous or malformed values;
+- separate visible warnings for blank operational fields and the pending `Hotel`
+  delivery category;
+- per-batch skip reasons with cancellation correspondence protection;
+- accessible presentation of every issue and exact mutually exclusive row counts;
+- Admin-managed sibling course, trainer, venue and venue-scoped room aliases;
+- a separate, audited, versioned and all-or-nothing existing-session repair flow;
+  and
+- preservation of the greater-than-50% explicit-cancellation hard block. Any
+  cancellation override remains proposed and not approved.
+
+Production schedule Sync should not be used operationally until the preventive
+repair is implemented, reviewed, accepted and deployed.
 
 ## 4. Navigation and information architecture
 
@@ -319,17 +343,20 @@ AI functions, migrations, environment files, or future-feature routes.
 Historical PRs remain unchanged. Continue with PR3 sub-parts so the existing PR4
 Trainer Picker milestone keeps its original identity.
 
-The historical PR3G-V white/red foundation was followed by completed PR3H and
-PR3I implementations. The approved PR3G-V V4 Sessions revision remains
-upcoming. The last-verified deployed application baseline is
-`749908290131882505efb011300d446ee9926c74`; repository `main` is
-`130b1e61b2822d572f29f677ad4a9f2a786d98ce`. This distinction does not renumber
-or reopen historical PRs.
+The PR3G-V white/red foundation and approved V4 Sessions revision were followed
+by completed PR3H, PR3I and PR3J implementations. All retain their historical
+identities; the PR3G-V revision and PR3J are included in the last-verified
+deployed application baseline `645ea70b816a82fae3482dd862d8602c92035106`.
+Repository `main` is `d786d19452f069e26569bb35115cea341acb21fa`. These distinct
+baselines do not renumber or reopen historical PRs.
 
-The next bounded sequence is: this documentation truth-and-backlog PR → revised
-R5 → revised R1 → revised R12 (structural-only) → PR3G-V V4 Sessions revision →
-integrated validation/deployment gate → PR3J. None of those upcoming steps is
-started by this documentation change.
+The next bounded sequence is: this Sync repair contract → SYNC-SAFE-1 →
+REFERENCE-DATA-1 → SYNC-RESOLUTION-1 → read-only production inventory →
+SESSION-REPAIR-1 → separately approved cleanup, followed by resumed PR3K work.
+The inventory must reverify venue/room categories and overlap and investigate the
+six FT-/NFT- source-row semantics before any permanent-ignore proposal; it is
+read-only and authorizes no cleanup or writes. None of those implementation,
+inventory, cleanup or PR3K steps is started by this documentation change.
 
 ### PR3E — Product and data-ownership contract (completed)
 
@@ -361,24 +388,26 @@ started by this documentation change.
   mobile, stale-edit, and conflict parity acceptance remains outstanding.
 - Merged at `2d061c990d4fd5bdb1aba062881cffb174870fd0`. Any Cloud Run revision or
   Firebase Hosting release associated with that historical milestone is
-  last-verified evidence only; the deployed application baseline recorded above
-  is the distinct `749908290131882505efb011300d446ee9926c74`.
+  last-verified evidence only; the current deployed application baseline recorded
+  above is the distinct `645ea70b816a82fae3482dd862d8602c92035106`.
 - Trainer recommendations remain deferred to PR4.
 
-### PR3G-V — ASK UX Visual Foundation
+### PR3G-V — ASK UX Visual Foundation (completed; merged and deployed)
 
-- **Historical foundation (completed).** The white/red presentation tokens and
-  branded shell merged at `ae9ef2018aeb2ea2086a98b3621876c242de721d` before
-  PR3H. That historical implementation remains separate and is not reopened.
-- **Approved V4 Sessions revision (upcoming).** Apply the approved V4
-  frontend-only Sessions visual/interaction revision using the immutable inputs
-  archived under `docs/03-design/`.
-- The V4 revision must preserve current Sessions, Sync, Legacy Sessions, role,
-  history, trainer amendment, stale-write, conflict, pagination, and date-window
-  behavior; it adds no API, auth, backend, database, infrastructure, provider,
-  dependency, or deployment change.
-- The V4 revision follows revised R12's structural-only extraction. This
-  documentation PR records the approval and assets only; it does not begin V4.
+- The white/red presentation tokens and branded shell merged at
+  `ae9ef2018aeb2ea2086a98b3621876c242de721d` before PR3H.
+- The approved V4 Sessions frontend-only visual/interaction revision is
+  completed, merged, and included in deployed baseline
+  `645ea70b816a82fae3482dd862d8602c92035106`.
+- The historical PR identity and immutable V4 design inputs archived under
+  `docs/03-design/` were retained; the work was not reopened or renumbered.
+- The completed V4 revision preserved current Sessions, Sync, Legacy Sessions,
+  role, history, trainer amendment, stale-write, conflict, pagination, and
+  date-window behavior; its implementation made no API, auth, backend, database,
+  infrastructure, provider, dependency, or deployment change.
+- The V4 revision followed revised R12's structural-only extraction. Its
+  design-input documentation recorded the approval and assets only; it did not
+  implement runtime changes.
 
 ### PR3H — Future Course Planning (completed; merged)
 
@@ -403,11 +432,44 @@ started by this documentation change.
 
 ### PR3J — Admin Panel: Trainer Directory
 
-- Add an Admin-only Trainer Directory section.
-- Register and edit trainers.
-- Activate or deactivate trainers without deleting historical assignments.
-- Manage eligible course links and module exclusions.
-- Do not expose trainer fees or mix User Access changes into this PR.
+- **Completed, merged and deployed** at
+  `645ea70b816a82fae3482dd862d8602c92035106`.
+- Delivered an Admin-only Trainer Directory section, trainer registration and
+  editing, activation/deactivation without deleting historical assignments,
+  eligible course links, module exclusions, readiness confirmation and audited
+  alias removal.
+- Trainer fee values and User Access changes remain outside this PR.
+
+### Schedule Sync and reference-data repair
+
+This is the approved prerequisite repair stream, documented in
+[`sync-reference-repair.md`](sync-reference-repair.md). It is documentation-only
+at this checkpoint and must be delivered in separately reviewable implementation
+PRs before PR3K resumes:
+
+- **SYNC-SAFE-1** — remove automatic apply, require exact-preview acknowledgement,
+  enforce blocker states on the server, expose every issue, preserve blank/Hotel
+  operational states, and retain the hard greater-than-50% cancellation block.
+- **REFERENCE-DATA-1** — Admin-only canonical course, venue and room records with
+  sibling aliases, venue-scoped room aliases, shared validation, concurrency and
+  immutable audit.
+- **SYNC-RESOLUTION-1** — per-batch skip reasons, explicit Re-check, complete
+  freshness digest, cancellation correspondence and atomic idempotent apply.
+- **Read-only production inventory** — reverify the reported venue/room categories,
+  counts and overlap, and investigate the six FT-/NFT- source-row semantics before
+  any permanent-ignore proposal. It may run after this documentation order but
+  authorizes no cleanup, repair or write.
+- **SESSION-REPAIR-1** — explicit versioned repair of selected existing sessions,
+  preserved raw evidence and all-or-nothing stale handling, issued only after the
+  inventory findings and exact affected categories are accepted.
+- **Production cleanup** — a separate dry-run and approval after the preventive
+  release. No permanent ignore rule, six-code assumption or production cleanup is
+  approved by this roadmap state.
+
+The full contract records the unapproved permanent-ignore and cancellation-
+override proposals, current no-absence-cancellation behavior, and all explicit
+exclusions. Production Sync should not be used operationally until the preventive
+repair is deployed and post-deployment verification passes.
 
 ### PR3K — Admin Panel: Trainer Rate Reconciliation
 
@@ -418,6 +480,11 @@ screen (**Rate categories**, the third Administration subtab); the second is
 Trainer Directory | Rate categories | Rate Reconciliation**. Finance keeps
 its existing read-only economics view elsewhere; Ops and Viewer receive no
 PR3K tab, route, data, or fee values.
+
+PR3K's contract is approved, but implementation is paused behind the Sync and
+reference-data repair sequence above. No PR3K code, schema, API, UI, mapping
+seed, production economics change or deployment is authorised by this roadmap
+state.
 
 Rate categories mapping (sub-workstream 1):
 
@@ -499,6 +566,17 @@ Their identities and numbering are unchanged.
 - Letting Ops or Viewer access rate values or reconciliation actions.
 - Automatically accepting fuzzy name matches, inferring trainer-course eligibility,
   or deleting records that are missing from a later workbook.
+- Using schedule Sync operationally before the preventive repair contract is
+  implemented, reviewed, accepted and deployed.
+- Applying a batch without exact-preview acknowledgement, silently treating an
+  unmatched value as resolved, or silently rewriting an existing session after a
+  reference-data change.
+- Treating literal `Hotel` as a physical venue, or treating blank trainer, venue
+  or owned-venue room values as the same state as a non-empty unresolved value.
+- Assuming the six FT-/NFT- codes are non-session rows, adding permanent ignore
+  rules without evidence, or allowing an unapproved cancellation override.
+- Repairing existing sessions through a later upload or alias change without an
+  explicit, versioned, audited repair Preview.
 - Seeding course-to-rate-category mappings, importing real workbook rows, or
   changing current session-economics behavior.
 - Treating Video as one aggregate economics gate rather than gating each
@@ -525,6 +603,19 @@ Before PR4 begins, confirm that:
 - stale writes are rejected;
 - Excel re-import cannot silently replace application-managed changes;
 - the existing session and sync behaviours remain covered by regression tests;
+- the Sync repair contract has been implemented before further operational
+  imports: no batch auto-applies, exact-preview acknowledgement is enforced on
+  the server, Re-check invalidates stale previews, and every issue is accessible;
+- unmatched, ambiguous and malformed values block, while blank operational
+  values and Hotel-pending delivery remain distinct visible Needs-attention
+  states;
+- skipped rows require reasons and cannot create unsafe cancellation proposals;
+  absent workbook rows remain non-cancelling;
+- the greater-than-50% explicit-cancellation safeguard remains a hard block;
+- reference changes participate in preview freshness, aliases are venue-scoped
+  for rooms, and alias changes never silently rewrite existing sessions;
+- existing-session repair is explicit, versioned, audited and all-or-nothing if
+  any selected session is stale;
 - the ASK visual foundation is accepted without changing those behaviours, and
   future product pages reuse its approved presentation tokens and patterns;
 - no individual training dates have been inferred from session spans;
