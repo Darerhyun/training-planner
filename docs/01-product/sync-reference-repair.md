@@ -1,17 +1,10 @@
 # Training Planner — Sync and Reference-Data Repair Contract
 
-Status: Approved staged repair contract; documentation only; implementation pending
-Last updated: 9 September 2026
+Status: Approved staged repair contract; preventive implementation sequence active
+Last updated: 10 September 2026
 
-Repository `main` baseline for this contract:
-`d786d19452f069e26569bb35115cea341acb21fa`
-
-Deployed application baseline:
-`645ea70b816a82fae3482dd862d8602c92035106`
-
-These are distinct baselines. The first is the repository source state inspected
-for this contract; the second is the last-deployed application evidence. This
-document does not query or change production.
+Repository and deployed baselines are recorded in `infra/baselines.json` and are
+distinct. This document does not query or change production.
 
 ## 1. Purpose and boundary
 
@@ -239,8 +232,21 @@ separate product decision authorizes an override.
 
 ## 8. Reference data and aliases
 
-Reference data is an Admin-managed authority. It includes canonical courses,
-venues and rooms and their approved aliases. It does not include rate values.
+Reference data is an Admin-managed authority and is the third Administration
+section after User Access and Trainer Directory. It includes canonical courses,
+venues and rooms and their approved aliases. It does not include rate values,
+trainer fees or session economics.
+
+Canonical records have an active/inactive lifecycle, a positive optimistic-
+concurrency version and timestamps. Course codes, venue codes, room IDs and
+room venue scopes are immutable; records are deactivated or reactivated rather
+than hard-deleted. Existing rows are preserved when the foundation is introduced
+and no historical audit event is fabricated.
+
+Deactivation is dependency-safe: a course cannot deactivate while active course
+aliases remain; a venue cannot deactivate while active venue aliases or active
+rooms remain; and a room cannot deactivate while active room aliases remain.
+Each dependent must be separately deactivated with its own audit evidence.
 
 Sibling alias tables remain separate and share normalization, validation,
 authorization and audit logic:
@@ -256,8 +262,11 @@ rewrites, reassigns or deletes an existing session. Existing sessions require
 the separate repair flow in Section 9.
 
 Reference writes use optimistic concurrency and append-only audit. Stale writes
-return typed HTTP 409. No production alias, venue, room or course mapping is
-seeded by this documentation work.
+return typed HTTP 409. Alias and lifecycle writes require an audit note; ordinary
+canonical create/edit notes are optional. Every successful mutation increments
+the record version and its namespace revision and appends exactly one immutable
+event in one transaction. No production alias, venue, room or course mapping is
+seeded by this work.
 
 ## 9. Existing-session repair — separate workstream
 
@@ -315,8 +324,10 @@ The following sequence is approved as planning, not implementation authorization
 2. **SYNC-SAFE-1** — remove auto-apply; enforce server-side acknowledgement,
    blocker handling, accessible all-issue presentation and the hard cancellation
    safeguard.
-3. **REFERENCE-DATA-1** — Admin-only course, venue and room reference records,
-   sibling aliases, venue-scoped room aliases, shared validation and audit.
+3. **REFERENCE-DATA-1A** — Admin-only course, venue and room reference records,
+   sibling aliases, venue-scoped room aliases, lifecycle/dependency guards,
+   shared validation, concurrency and audit foundation. **REFERENCE-DATA-1B**
+   is the later Admin UI workstream.
 4. **SYNC-RESOLUTION-1** — per-batch decisions/reasons, explicit Re-check,
    freshness digest, cancellation correspondence and atomic idempotent apply.
 5. **Read-only production inventory** — reverify the reported venue/room counts,
@@ -350,6 +361,9 @@ The repair is not accepted until later implementation work demonstrates:
 - absent workbook rows do not cancel sessions;
 - the greater-than-50% explicit-cancellation hard block remains enforced;
 - reference revisions and future source rules invalidate affected previews;
+- canonical reference identities are immutable, no records are hard-deleted,
+  and dependent deactivation is blocked until active dependents are separately
+  deactivated with their own audit evidence;
 - room aliases cannot cross venue boundaries;
 - alias changes never silently rewrite existing sessions;
 - raw room text is persisted prospectively;

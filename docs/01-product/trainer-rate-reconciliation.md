@@ -1,7 +1,7 @@
 # Training Planner — Trainer Rate Reconciliation
 
 Status: Approved product requirements; documentation only; implementation pending  
-Last updated: 9 September 2026
+Last updated: 10 September 2026
 
 ## 1. Purpose and boundary
 
@@ -36,10 +36,17 @@ workbook. Real trainer names, mappings, and fee values remain outside GitHub.
 - A later workbook is a proposed change set; it never silently replaces accepted
   records.
 
-Only an active **Admin** may view or change Rate categories or upload, resolve,
-preview, discard, confirm, or apply a reconciliation batch. Administration uses
-this exact subtab order: **User Access | Trainer Directory | Rate categories |
-Rate Reconciliation**. Rate categories is third and Rate Reconciliation fourth.
+Only an active **Admin** may view or change Reference data or Rate categories, or
+upload, resolve, preview, discard, confirm, or apply a reconciliation batch.
+Administration uses this exact subtab order: **User Access | Trainer Directory |
+Reference data | Rate categories | Rate Reconciliation**. Reference data is
+third, Rate categories is fourth, and Rate Reconciliation is fifth.
+
+Reference data is the canonical course, venue and room authority used by Sync
+and the later Rate categories screen. Its lifecycle, alias, dependency,
+optimistic-concurrency and immutable-audit contract is defined in
+`sync-reference-repair.md` and implemented separately from PR3K. It never
+exposes or stores rate values.
 
 - Finance retains its existing read-only economics visibility elsewhere, but
   receives no PR3K tab, route, or reconciliation action.
@@ -404,8 +411,8 @@ mapping, or production-derived row.
 PR3K implementation requires separate approved work orders and is acceptable
 only when all of the following hold:
 
-- Rate categories and Rate Reconciliation are the third and fourth Admin subtabs
-  and are server-side Admin-only.
+- Reference data, Rate categories and Rate Reconciliation are the third, fourth
+  and fifth Admin subtabs and are server-side Admin-only.
 - Rate categories is implemented first as the authoritative general mapping
   surface over exact canonical courses.
 - Each mapped course has one authoritative row and at most one category;

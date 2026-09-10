@@ -138,8 +138,8 @@ Target primary navigation:
 1. **Course Planning** — future-month planning.
 2. **Sessions** — individual classes, trainers, venues, pax, and status.
 3. **Sync** — Excel import and reconciliation.
-4. **Admin** — Admin-only User Access, Trainer Directory, and confidential Trainer
-   Rate Reconciliation management.
+4. **Admin** — Admin-only User Access, Trainer Directory, Reference data, Rate
+   categories, and confidential Trainer Rate Reconciliation management.
 
 The existing rich Planning dashboard should become the enhanced Sessions
 experience. The old basic Sessions page must remain until the enhanced replacement
@@ -163,12 +163,12 @@ but cannot run reconciliation.
 
 ## 6. Admin Area
 
-Approved Admin Area option 3 uses one Admin navigation area with four separate
+Approved Admin Area option 3 uses one Admin navigation area with five separate
 sections and implementation PRs. The section tablist order is **User Access |
-Trainer Directory | Rate categories | Rate Reconciliation**: Rate categories
-is the third subtab and Rate Reconciliation is the fourth. Only active Admin
-users may access or modify any section. Confidential rate values are available
-only inside the protected Trainer Rate Reconciliation workflow.
+Trainer Directory | Reference data | Rate categories | Rate Reconciliation**.
+Only active Admin users may access or modify any section. Confidential rate
+values are available only inside the protected Trainer Rate Reconciliation
+workflow.
 
 ### User Access
 
@@ -188,6 +188,24 @@ only inside the protected Trainer Rate Reconciliation workflow.
   reconciliation; require active status, at least one explicitly approved course
   link, applicable exclusions, and Admin confirmation before scheduling readiness.
 - Keep trainer fee values outside these workflows and outside GitHub.
+
+### Reference data
+
+- Provide the Admin-only canonical authority for courses, venues and owned-venue
+  rooms, plus sibling course, venue and venue-scoped room aliases.
+- Keep canonical course codes, venue codes, room IDs and room venue scopes
+  immutable. Deactivate or reactivate records; never hard-delete them or their
+  audit evidence.
+- Require optimistic `expectedVersion` checks, append-only audit and one
+  namespace revision per successful mutation. Alias and lifecycle writes require
+  an audit note; ordinary canonical create/edit notes are optional.
+- Block deactivation while active dependents remain: active course aliases block
+  a course; active venue aliases or rooms block a venue; active room aliases
+  block a room. Each dependent is separately deactivated with its own audit.
+- Resolve room aliases only after venue resolution and never across venue
+  namespaces. Reference changes affect future Sync parsing and Re-check only;
+  they never silently rewrite existing sessions.
+- Do not expose trainer rates, fee values or session economics from this section.
 
 ### Trainer Rate Reconciliation
 
@@ -231,7 +249,7 @@ only inside the protected Trainer Rate Reconciliation workflow.
 
 The detailed reconciliation contract is in `trainer-rate-reconciliation.md`. The UI/IX
 contract is in `docs/03-design/admin-pr3k-rate-reconciliation/README.md`. User Access,
-Trainer Directory, Rate categories, and Rate Reconciliation remain separate
+Trainer Directory, Reference data, Rate categories, and Rate Reconciliation remain separate
 implementation PRs so authentication risk, trainer-reference-data changes,
 mapping authority, confidential economics, and rollback are independently
 reviewable.
@@ -439,16 +457,16 @@ inventory, cleanup or PR3K steps is started by this documentation change.
 ### Schedule Sync and reference-data repair
 
 This is the approved prerequisite repair stream, documented in
-[`sync-reference-repair.md`](sync-reference-repair.md). It is documentation-only
-at this checkpoint and must be delivered in separately reviewable implementation
-PRs before PR3K resumes:
+[`sync-reference-repair.md`](sync-reference-repair.md). It must be delivered in
+separately reviewable implementation PRs before PR3K resumes:
 
 - **SYNC-SAFE-1** — remove automatic apply, require exact-preview acknowledgement,
   enforce blocker states on the server, expose every issue, preserve blank/Hotel
   operational states, and retain the hard greater-than-50% cancellation block.
-- **REFERENCE-DATA-1** — Admin-only canonical course, venue and room records with
-  sibling aliases, venue-scoped room aliases, shared validation, concurrency and
-  immutable audit.
+- **REFERENCE-DATA-1A** — Admin-only canonical course, venue and room records
+  with lifecycle/dependency guards, sibling aliases, venue-scoped room aliases,
+  shared validation, concurrency and immutable audit foundation. **REFERENCE-
+  DATA-1B** is the later Admin UI workstream.
 - **SYNC-RESOLUTION-1** — per-batch skip reasons, explicit Re-check, complete
   freshness digest, cancellation correspondence and atomic idempotent apply.
 - **Read-only production inventory** — reverify the reported venue/room categories,
@@ -471,9 +489,9 @@ repair is deployed and post-deployment verification passes.
 
 PR3K is an Admin-only milestone with two separately reviewable bounded
 sub-workstreams. The first is the canonical course-to-rate-category mapping
-screen (**Rate categories**, the third Administration subtab); the second is
-**Rate Reconciliation**, the fourth. The exact tablist is **User Access |
-Trainer Directory | Rate categories | Rate Reconciliation**. Finance keeps
+screen (**Rate categories**, the fourth Administration subtab); the second is
+**Rate Reconciliation**, the fifth. The exact tablist is **User Access |
+Trainer Directory | Reference data | Rate categories | Rate Reconciliation**. Finance keeps
 its existing read-only economics view elsewhere; Ops and Viewer receive no
 PR3K tab, route, data, or fee values.
 
@@ -556,7 +574,8 @@ Their identities and numbering are unchanged.
 - Trainer or room conflict claims based on every date inside a session span.
 - Trainer fee values in GitHub or unrestricted API/frontend responses.
 - Drag-and-drop scheduling.
-- Combining User Access, Trainer Directory, or Trainer Rate Reconciliation into one
+- Combining User Access, Trainer Directory, Reference data, Rate categories, or
+  Trainer Rate Reconciliation into one
   implementation PR.
 - Storing confidential rate values or real rate workbooks in GitHub.
 - Letting Ops or Viewer access rate values or reconciliation actions.
@@ -615,10 +634,10 @@ Before PR4 begins, confirm that:
 - the ASK visual foundation is accepted without changing those behaviours, and
   future product pages reuse its approved presentation tokens and patterns;
 - no individual training dates have been inferred from session spans;
-- the Admin Area has separate User Access, Trainer Directory, and Trainer Rate
-  Reconciliation sections;
-- only Admin users can manage user access, trainer reference records, or rate
-  reconciliation;
+- the Admin Area has separate User Access, Trainer Directory, Reference data,
+  Rate categories, and Trainer Rate Reconciliation sections;
+- only active Admin users can manage user access, trainer reference records,
+  reference data, or rate reconciliation;
 - AI column B cannot affect calculations or profile decisions;
 - rate reconciliation requires an effective-dated preview, immutable audit, stale-
   preview protection, and full transactional rollback;
@@ -627,7 +646,8 @@ Before PR4 begins, confirm that:
   completes the audited Trainer Directory eligibility setup and explicitly marks
   the trainer ready for scheduling.
 - the Administration section tabs are ordered User Access, Trainer Directory,
-  Rate categories, Rate Reconciliation, with the last two absent for non-Admins;
+  Reference data, Rate categories, Rate Reconciliation, with all absent for
+  non-Admins;
 - Rate categories is the first PR3K sub-workstream, uses exact canonical courses,
   keeps one authoritative row per course, exposes Not mapped and Ambiguous
   preflight states, and has required notes, expected-version typed 409 handling,

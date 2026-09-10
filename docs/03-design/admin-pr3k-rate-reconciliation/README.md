@@ -2,9 +2,9 @@
 
 Status: Approved text-only UI/IX and interaction contract; implementation pending
 
-Revision: 4 with Sol architecture clarifications, 9 September 2026
+Revision: 5 with Reference-data authority alignment, 10 September 2026
 
-Target baseline: `main` at `645ea70b816a82fae3482dd862d8602c92035106`
+Target baseline: the source baseline recorded in `infra/baselines.json`
 
 Source review documents:
 
@@ -31,9 +31,13 @@ PR3K contains two independently reviewable sub-workstreams, delivered in order:
    mapping foundation and screen.
 2. **Rate Reconciliation** — the Admin-only protected workbook workflow.
 
-Rate categories must be implemented and accepted first. The mapping foundation
-does not change current session economics until a separately approved mapping
-dataset and cutover are reviewed, migrated, and deployed.
+The Rate categories screen is the first PR3K sub-workstream and consumes the
+canonical course authority delivered by the separate REFERENCE-DATA-1A
+foundation. Reference data remains its own Admin section and implementation
+workstream; this README neither implements it nor changes its records. Rate
+categories must be implemented and accepted before Rate Reconciliation. The
+mapping foundation does not change current session economics until a separately
+approved mapping dataset and cutover are reviewed, migrated, and deployed.
 
 PR3K excludes trainer eligibility, session assignment, recommendations,
 rankings, PR4 picker behavior, user-access changes, provider configuration,
@@ -44,13 +48,14 @@ production seed data, and application of the confidential workbook.
 Admin remains one primary navigation area headed **Administration**. Its section
 tablist is ordered:
 
-**User Access | Trainer Directory | Rate categories | Rate Reconciliation**
+**User Access | Trainer Directory | Reference data | Rate categories | Rate Reconciliation**
 
-Rate categories is third and Rate Reconciliation fourth. Both tabs, every
-`/admin/rate-categories/*` route, and every `/admin/rates/*` route require an
-active Admin on the server. Finance retains its existing read-only economics
-view elsewhere. Finance, Ops, Viewer, pending, rejected, inactive, and
-unauthenticated users receive no PR3K tab, route, action, or protected value.
+Reference data is third, Rate categories is fourth, and Rate Reconciliation is
+fifth. The Reference data, Rate categories and Rate Reconciliation sections,
+their routes, and their actions require an active Admin on the server. Finance
+retains its existing read-only economics view elsewhere. Finance, Ops, Viewer,
+pending, rejected, inactive, and unauthenticated users receive no PR3K tab,
+route, action, or protected value.
 
 At mobile widths the section tablist scrolls horizontally as one keyboard-
 operable tablist. It is not replaced by a new navigation pattern in PR3K.

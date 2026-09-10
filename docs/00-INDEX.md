@@ -27,6 +27,8 @@
 └── gcs-cors.example.json          ← placeholder-only upload CORS example
 docs/
 ├── 00-INDEX.md                     ← you are here
+├── 04-work-orders/
+│   └── WO-20260910-reference-data-1a.md ← approved schema/API/resolver foundation work order
 ├── 01-product/
 │   ├── planning-workflow-roadmap.md ← approved Course Planning, Sessions, Admin Area, and ownership roadmap
 │   ├── sync-reference-repair.md   ← staged schedule Sync safety, reference-data repair, blocker and production-safety contract
@@ -107,7 +109,8 @@ docs/
 - **No SSG/TGS codes stored.** Those are TMS data, not planning data.
 - **Sessions are dynamic** (from Excel upload); **catalog is static** (rarely changes). The catalog must be solid so the parser has something reliable to match against.
 - **Trainer fees are sensitive.** The repo has the rate *model* and *tier groupings*; the actual dollar rates live only in the protected production database, outside GitHub, and are surfaced to users only as viability badges (except for finance/admin roles).
-- **Trainer-rate reconciliation is Admin-only.** Template v3 has eight independent categories (IIO, DM, IT-Normal, IT-WSQ, IT-Special, WSQ-Writing, AI, and Video); Sheet1 is ignored. AI workbook column B is ignored for every calculation and profile decision. The separate Admin Rate categories mapping screen is the third Administration subtab and Rate Reconciliation is fourth; the protected workflow is specified in `01-product/trainer-rate-reconciliation.md` and `03-design/admin-pr3k-rate-reconciliation/README.md`.
+- **Reference data is Admin-only.** Canonical courses, venues and owned-venue rooms are lifecycle-managed authority records with sibling course, venue and venue-scoped room aliases. Canonical identities are immutable, records are deactivated rather than deleted, and changes use optimistic concurrency plus append-only audit. The Administration tabs are ordered User Access, Trainer Directory, Reference data, Rate categories, and Rate Reconciliation.
+- **Trainer-rate reconciliation is Admin-only.** Template v3 has eight independent categories (IIO, DM, IT-Normal, IT-WSQ, IT-Special, WSQ-Writing, AI, and Video); Sheet1 is ignored. AI workbook column B is ignored for every calculation and profile decision. The Rate categories mapping screen is the fourth Administration subtab and Rate Reconciliation is fifth; the protected workflow is specified in `01-product/trainer-rate-reconciliation.md` and `03-design/admin-pr3k-rate-reconciliation/README.md`.
 - **Schedule Sync repair is a prerequisite.** Every future batch must stop at Preview, require server acknowledgement of the exact current preview, block unsafe interpretations, preserve cancellation correspondence, and keep existing-session repair separate. See `01-product/sync-reference-repair.md`.
 
 ## Known gaps / to-do (documented in the domain files)
