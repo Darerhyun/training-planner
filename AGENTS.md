@@ -10,12 +10,13 @@
 - Luna Max owns context-heavy/high-volume delivery, decomposes the approved work package, delegates bounded difficult implementation to Astra Low, then integrates and validates.
 - Astra Low is pre-authorized only within Luna's approved bounded execution package; it cannot expand scope, review, decide release, merge, or deploy. Higher Astra reasoning requires Owen's explicit permission after a stated blocker/reason.
 - Sol High must read `SOL_HIGH_RULES.md` and independently review the actual diff and evidence without editing; it cannot implement the same work item.
-- Claude is the UI/IX authority and reviewer for UI changes; recommendations pass Sol's architecture gate. Non-UI work does not require Claude unless Owen requests it.
+- Claude is the UI/IX authority and reviewer for UI changes; recommendations pass Sol's architecture gate. Non-UI work does not require Claude unless Owen requests it; Owen has made a standing request that Claude review high-risk PRs (schema, authorization, Sync apply, deployment, cost) in parallel with Sol High on the same head.
 - Sol coordinates architecture, scope, sequencing, and release gates; implementation acceptance requires Sol High approval and, for UI work, Claude approval.
 - Owen approves product/scope choices, exceptions, merges, and deployments. Only an explicitly authorized executor outside the Astra/reviewer roles may perform an approved merge or deployment after review and Sol acceptance.
 - Terra is retired from the active workflow; historical review evidence remains unchanged.
 - Before lengthy work, check capabilities and the authorized publish path; report blockers concisely and preserve patch/tree/local evidence until remote branch and PR verification.
 - Any scope or repository-state deviation returns to Sol.
+- Every PR uses `.github/PULL_REQUEST_TEMPLATE.md`; product decisions are appended to `docs/01-product/decision-log.md` in the PR that first depends on them.
 - If a rolebook or the harness conflicts with this file, stop and escalate.
 
 ## What we are building
@@ -41,13 +42,7 @@ Multi-user from day one. Roles live on `users.role` (enum: `admin | ops | financ
 ## Architecture and deployment evidence
 
 The application uses the approved PostgreSQL, Cloud Run, Firebase Hosting,
-Firebase Auth, and GCS contracts. The repository `main` source baseline for the
-current Sync/reference-data repair documentation is
-`d786d19452f069e26569bb35115cea341acb21fa`, verified read-only before editing.
-The deployed application baseline is
-`645ea70b816a82fae3482dd862d8602c92035106`, recorded as last-verified evidence.
-These are distinct baselines; repository `main` may contain changes that have
-not been deployed.
+Firebase Auth, and GCS contracts. Repository and deployment baselines are recorded once, in `infra/baselines.json` (`sourceBaseline` = the `main` commit inspected read-only for the current documentation work; `deployedBaseline` = last-verified deployment evidence). Prose documents do not restate the SHAs; `npm run check:infra` fails if they do. The two baselines are intentionally distinct: repository `main` may contain changes that are not present in the deployed application.
 
 Production and provider details are evidence records, not current-state
 guarantees, unless independently reverified read-only. This record does not
@@ -79,7 +74,7 @@ The data model is driven by the CSVs in `docs/` — they are the seed data. The 
 - Shared service code: `services/shared` (not `_shared`)
 - Health endpoint: `/health` (not `/healthz`)
 - Setup docs: single `docs/SETUP.md`, not scattered guides
-- No screenshots committed to docs
+- No production screenshots or real data committed to docs; synthetic design artboards under `docs/03-design/` are required review inputs and are the only images permitted
 
 ## Build sequence (PRs)
 
@@ -95,10 +90,10 @@ Build in this order. Each PR is independently reviewable. Do not jump ahead.
 	- **PR3E — Product and data-ownership contract.** Completed: approved Course Planning vs Sessions workflow and ownership roadmap committed as documentation.
 	- **PR3F — Session write safety and audit foundation.** Completed: ownership, optimistic concurrency, session history, Admin/Ops trainer assignment endpoint, and Sync conflict protection.
 	- **PR3G — Sessions UX and navigation consolidation.** Completed and merged: enhanced Sessions navigation, date modes, role-appropriate trainer amendment, history/detail states, stale-write handling, and protected Sync conflict presentation. Any deployment details for this historical milestone are evidence only.
-	- **PR3G-V — ASK UX Visual Foundation.** The white/red presentation foundation and approved V4 Sessions frontend-only revision are completed, merged, and included in deployed baseline `645ea70b816a82fae3482dd862d8602c92035106`. Preserve its historical PR identity and archived V4 design inputs under `docs/03-design/`; do not reopen or renumber it.
+	- **PR3G-V — ASK UX Visual Foundation.** The white/red presentation foundation and approved V4 Sessions frontend-only revision are completed, merged, and deployed (see `infra/baselines.json`). Preserve its historical PR identity and archived V4 design inputs under `docs/03-design/`; do not reopen or renumber it.
 	- **PR3H — Future Course Planning.** Completed: month-based Course Planning using planning profiles as evidence, with explicit creation of draft Sessions from approved planned runs.
 	- **PR3I — Admin Panel: User Access.** Completed: Admin-only workflow to invite, approve, reject, assign roles, deactivate, and reactivate application users.
-	- **PR3J — Admin Panel: Trainer Directory.** Completed and deployed at `645ea70b816a82fae3482dd862d8602c92035106`: Admin-only registration/editing, activation/deactivation, course links, module exclusions, audited alias removal, and scheduling-readiness setup.
+	- **PR3J — Admin Panel: Trainer Directory.** Completed and deployed (see `infra/baselines.json`): Admin-only registration/editing, activation/deactivation, course links, module exclusions, audited alias removal, and scheduling-readiness setup.
 	- **SYNC-REPAIR — Schedule Sync and reference-data safety.** Approved documentation contract in `docs/01-product/sync-reference-repair.md`; implementation is pending and must precede further operational Sync use and PR3K implementation.
 4. **PR4 — Trainer picker drawer** with rules-based suggestions (skills, SME boost, exclusions, tier/cost awareness).
 5. **PR5 — AI assistant chat** (propose → confirm → execute pattern).
@@ -116,7 +111,7 @@ planning rulebook R1–R12 in `docs/02-domain/planning-rules.md`.
 
 ## Key domain concepts (one-liners — details in docs/)
 
-- **Course / module** — a thing that can be taught. Standalone (ASK courses) or part of a programme (ACDM, DDM, SDDM, CIIO, ACIIO, DIIO). See `docs/02-domain/courses.md`.
+- **Course / module** — a thing that can be taught. Standalone (ASK courses) or part of a programme (active: FTDM, FTIIO, DGAI; ACDM, DDM, SDDM, CIIO, ACIIO, DIIO are obsolete and retained only for historical sessions). See `docs/02-domain/courses.md`.
 - **Course Planning** — future-month course × venue planning. It decides what should be run, not who teaches it.
 - **Session** — one delivery of one course on specific dates at a venue/room, for a cohort. Imported from Excel or created from approved Course Planning. Trainer assignment and session amendments happen here.
 - **Sync repair** — the staged safety contract that previews every schedule batch, blocks unsafe interpretations, requires exact-preview acknowledgement, and separates reference-data and existing-session repair. See `docs/01-product/sync-reference-repair.md`.

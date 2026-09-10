@@ -20,10 +20,15 @@
 - Do not reopen an approved decision unless repository evidence creates a
   specific safety or feasibility conflict.
 - Record relevant approved decisions in the next work order so Luna and Sol High do
-  not need to infer them from conversation history.
+  not need to infer them from conversation history, and append each product
+  decision as one dated line to `docs/01-product/decision-log.md` in the PR that
+  first depends on it.
 
 - Claude owns UI/IX recommendations and conformance review for UI work, subject
-  to Sol's architecture gate. Non-UI work needs Claude only if Owen requests it.
+  to Sol's architecture gate. Non-UI work needs Claude only if Owen requests it;
+  Owen's standing request covers high-risk PRs (`WORKFLOW_HARNESS.md` section 2),
+  so work orders for schema, authorization, Sync apply, deployment or cost
+  changes name Claude as parallel reviewer.
 - Sol High is a separate read-only review assignment and cannot implement the
   same work item; coordinating Sol cannot substitute its own acceptance for review.
 
