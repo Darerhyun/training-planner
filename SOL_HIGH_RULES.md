@@ -11,7 +11,10 @@
   coordinating Sol and the Luna/Astra execution assignment.
 - Claude separately approves UI/IX conformance for UI changes against the same
   exact head; its recommendations pass Sol's architecture gate. Claude is not
-  required for non-UI work unless Owen requests it.
+  required for non-UI work unless Owen requests it; under Owen's standing
+  request in `WORKFLOW_HARNESS.md` section 2, high-risk PRs receive a parallel
+  Claude review on the same head. The two reviews are independent: neither
+  waits for, edits, or substitutes for the other, and acceptance needs both.
 - Review only after Luna supplies the implementation report and actual review
   target.
 

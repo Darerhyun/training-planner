@@ -3,10 +3,7 @@
 Status: Approved product direction; PR3J is complete and deployed; the Sync repair contract is approved; PR3K implementation is paused behind Sync repair
 Last updated: 9 September 2026
 
-Repository `main` source baseline: `d786d19452f069e26569bb35115cea341acb21fa`
-(verified read-only for this documentation change). Deployed application
-baseline: `645ea70b816a82fae3482dd862d8602c92035106` (last-verified evidence;
-not independently reverified in this change). These baselines are distinct.
+Repository and deployment baselines: see `infra/baselines.json` (single source of truth; distinct source and deployed baselines).
 
 ## 1. Purpose
 
@@ -346,8 +343,7 @@ Trainer Picker milestone keeps its original identity.
 The PR3G-V white/red foundation and approved V4 Sessions revision were followed
 by completed PR3H, PR3I and PR3J implementations. All retain their historical
 identities; the PR3G-V revision and PR3J are included in the last-verified
-deployed application baseline `645ea70b816a82fae3482dd862d8602c92035106`.
-Repository `main` is `d786d19452f069e26569bb35115cea341acb21fa`. These distinct
+deployed application baseline recorded in `infra/baselines.json`. These distinct
 baselines do not renumber or reopen historical PRs.
 
 The next bounded sequence is: this Sync repair contract → SYNC-SAFE-1 →

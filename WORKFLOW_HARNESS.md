@@ -12,6 +12,10 @@ invokes this harness.
 
 ## 2. Roles
 
+This section is the single definition of roles and gates. Rolebooks add
+role-specific procedure and must not restate roles or gates differently; on a
+conflict, this file governs and the conflict is escalated.
+
 - **Sol** owns coordination, architecture, scope, sequencing, bounded work orders,
   acceptance, and release gates; Owen retains product decision authority.
 - **Luna Max** owns context-heavy/high-volume delivery: consumes the approved work
@@ -25,7 +29,13 @@ invokes this harness.
   implementation; it cannot implement the same work item. See `SOL_HIGH_RULES.md`.
 - **Claude** is UI/IX authority and read-only conformance reviewer for UI changes;
   recommendations pass Sol's architecture gate. Not required for non-UI work
-  unless Owen requests it.
+  unless Owen requests it. Owen has made a standing request (10 September 2026)
+  that Claude also review **high-risk PRs** — any change to database schema or
+  migrations, authentication or authorization, Sync apply or cancellation logic,
+  deployment workflows, or cost guardrails — in parallel with Sol High on the
+  same exact head. On such reviews Claude blocks only on the stop conditions in
+  `SOL_HIGH_RULES.md` section 5 and, for UI work, on Owen-approved UI/IX
+  criteria; Claude never edits, and Claude does not review a diff it authored.
 - **Terra** is retired from the active workflow; historical audit facts stand.
 - **Owen (the user)** remains the product decision-maker and must expressly approve any
   material scope, security, data, infrastructure, cost, or deployment decision.
@@ -33,8 +43,10 @@ invokes this harness.
 ## 3. Required delivery sequence
 
 1. Sol checks capabilities and the authorized publish path before lengthy work,
-   then inspects relevant repository state and issues a bounded work order
-   with an expected base SHA, allowed scope, acceptance criteria, validation,
+   then inspects relevant repository state and issues a bounded work order.
+   The work order is committed under `docs/04-work-orders/` in the PR it governs
+   (documentation-only orders may instead be quoted in full in the PR body). It
+   carries an expected base SHA, allowed scope, acceptance criteria, validation,
    exclusions, rollback, and stop conditions.
 2. Luna performs read-only inspection of the expected branch, head, base,
    relevant documents, and changed-file state.
@@ -60,8 +72,10 @@ invokes this harness.
 7. Sol High independently inspects the work order, Luna report, actual diff,
    and validation evidence without editing or having implemented this work item.
    For UI work, Claude also reviews UI/IX conformance against the same exact head;
-   recommendations pass Sol's architecture gate. Reviewers return approval or
-   changes required with evidence.
+   for high-risk PRs (section 2) Claude reviews in parallel with Sol High.
+   Recommendations pass Sol's architecture gate. Reviewers return approval or
+   changes required with evidence, recorded in the pull request using
+   `.github/PULL_REQUEST_TEMPLATE.md`.
 8. Changes required return to Sol. Sol issues a bounded correction order; Luna
    repeats the pre-edit notice and approval gate before editing.
 9. Sol records implementation acceptance only after Sol High approves and any
@@ -70,6 +84,10 @@ invokes this harness.
 10. Only Owen authorizes merge or deployment. An explicitly authorized executor
     outside the Astra/reviewer roles may perform it only after the required
     reviews and Sol's separately recorded acceptance and release-gate clearance.
+    In practice the executor is Owen's own GitHub account (`Darerhyun`), which
+    is also the only actor `deploy-recovery.yml` accepts; any other executor
+    requires a fresh written authorization naming the account and the exact
+    commit.
 11. Before deployment, the authorized executor sends a **DEPLOYMENT PLAN** with target, exact
     commit, configuration or migration impact, validation, rollback, and cost
     impact. After deployment, the executor sends a **DEPLOYMENT REPORT**.
@@ -108,12 +126,11 @@ when product authority is needed, the user approves the decision.
 
 ## 6. Repository and deployment evidence
 
-The repository `main` source baseline for the current Sync/reference-data repair
-documentation work is `d786d19452f069e26569bb35115cea341acb21fa`, verified
-read-only before editing. The deployed application baseline is
-`645ea70b816a82fae3482dd862d8602c92035106`, recorded as last-verified evidence.
-These baselines are intentionally distinct; repository `main` may contain
-changes that are not present in the deployed application.
+Repository and deployment baselines are recorded once, in `infra/baselines.json` (`sourceBaseline` = the `main` commit inspected read-only for the current documentation work; `deployedBaseline` = last-verified deployment evidence). Prose documents do not restate the SHAs; `npm run check:infra` fails if they do. The two baselines are intentionally distinct: repository `main` may contain changes that are not present in the deployed application.
+
+`deployedBaseline` is changed only by the executor's **DEPLOYMENT REPORT** (step 11
+above) in the same PR or commit that records the deployment evidence; a
+documentation PR never edits it.
 
 Production and provider facts are last-verified evidence only unless Sol High or
 another authorized reviewer independently rechecks them read-only. This

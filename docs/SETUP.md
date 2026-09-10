@@ -1,13 +1,7 @@
 # Setup and Infrastructure Recovery
 
 This is the single authoritative guide for local development and the gated
-Training Planner infrastructure recovery. The repository `main` source baseline
-for this documentation change is
-`130b1e61b2822d572f29f677ad4a9f2a786d98ce`, verified read-only before branching.
-The deployed application baseline is
-`749908290131882505efb011300d446ee9926c74`, recorded as last-verified evidence.
-These are distinct baselines; repository `main` may contain changes that are not
-present in the deployed application.
+Training Planner infrastructure recovery. Repository and deployment baselines are recorded once, in `infra/baselines.json` (`sourceBaseline` = the `main` commit inspected read-only for the current documentation work; `deployedBaseline` = last-verified deployment evidence). Prose documents do not restate the SHAs; `npm run check:infra` fails if they do. The two baselines are intentionally distinct: repository `main` may contain changes that are not present in the deployed application.
 
 Production, provider, and deployment details below are last-verified evidence
 only, not current-state guarantees, unless independently reverified read-only.
@@ -57,9 +51,8 @@ for the documentation update, not a live recheck by this PR. Reverify volatile
 provider state before any action; no production or provider state is changed by
 this documentation work.
 
-- The deployed application baseline is
-  `749908290131882505efb011300d446ee9926c74`; repository `main` is the distinct
-  source baseline `130b1e61b2822d572f29f677ad4a9f2a786d98ce`.
+- The deployed application baseline and the distinct repository `main` source
+  baseline are recorded in `infra/baselines.json`.
 - The PR3I production schema and access structures are present in the recorded
   production evidence; no new migration is authorized here.
 - The `core-api` Cloud Run service and Firebase Hosting application are recorded

@@ -15,12 +15,7 @@ updates are reflected in the company's official training management system.
 
 ## Repository and deployment evidence
 
-The repository `main` source baseline for this documentation change is
-`130b1e61b2822d572f29f677ad4a9f2a786d98ce`, verified read-only before the branch
-was created. The deployed application baseline is
-`749908290131882505efb011300d446ee9926c74`, recorded as last-verified evidence.
-These are intentionally distinct: repository `main` may contain changes that
-are not present in the deployed application baseline.
+Repository and deployment baselines are recorded once, in `infra/baselines.json` (`sourceBaseline` = the `main` commit inspected read-only for the current documentation work; `deployedBaseline` = last-verified deployment evidence). Prose documents do not restate the SHAs; `npm run check:infra` fails if they do. The two baselines are intentionally distinct: repository `main` may contain changes that are not present in the deployed application.
 
 Provider, production, and deployment facts are evidence records rather than
 current-state guarantees unless independently reverified. This documentation

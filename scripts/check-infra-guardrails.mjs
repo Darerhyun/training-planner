@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -730,6 +731,54 @@ for (const prohibitedSummaryValue of requiredDeploymentVariables) {
     `deployment summary must not include restricted value: ${prohibitedSummaryValue}`,
   );
 }
+
+
+// Baselines: one machine-readable source of truth. Living documents point at it;
+// dated contracts (for example docs/01-product/sync-reference-repair.md) may
+// record the commit they inspected, because that fact does not change.
+const baselines = readJson('infra/baselines.json');
+const shaPattern = /^[0-9a-f]{40}$/;
+if (baselines) {
+  assert(baselines.version === 1, 'baselines: version must be 1');
+  assert(shaPattern.test(baselines.sourceBaseline?.sha ?? ''), 'baselines: sourceBaseline.sha must be a 40-hex commit');
+  assert(shaPattern.test(baselines.deployedBaseline?.sha ?? ''), 'baselines: deployedBaseline.sha must be a 40-hex commit');
+  assert(typeof baselines.sourceBaseline?.verifiedAt === 'string', 'baselines: sourceBaseline.verifiedAt required');
+  assert(typeof baselines.deployedBaseline?.deployedAt === 'string', 'baselines: deployedBaseline.deployedAt required');
+  const ancestry = spawnSync('git', ['merge-base', '--is-ancestor', baselines.sourceBaseline?.sha ?? '', 'HEAD'], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+  });
+  if (ancestry.status === 128 && /shallow|not a valid|bad object/i.test(`${ancestry.stderr}`)) {
+    console.warn('baselines: git history too shallow to verify sourceBaseline ancestry; skipped');
+  } else {
+    assert(ancestry.status === 0, 'baselines: sourceBaseline.sha must be an ancestor of HEAD');
+  }
+}
+const baselineProseFiles = [
+  'AGENTS.md',
+  'WORKFLOW_HARNESS.md',
+  'README.md',
+  'docs/SETUP.md',
+  'docs/01-product/planning-workflow-roadmap.md',
+];
+const restatedBaseline = /baseline[^`\n]{0,80}`[0-9a-f]{40}`/i;
+for (const relativePath of baselineProseFiles) {
+  const text = readText(relativePath);
+  assert(text.includes('infra/baselines.json'), `${relativePath}: must point at infra/baselines.json instead of restating baselines`);
+  const match = text.match(restatedBaseline);
+  assert(!match, `${relativePath}: restates a baseline SHA in prose (${match?.[0].slice(0, 60)}...); record it only in infra/baselines.json`);
+}
+for (const relativePath of ['.github/PULL_REQUEST_TEMPLATE.md', 'docs/01-product/decision-log.md', 'docs/04-work-orders/README.md']) {
+  assert(existsSync(path.join(repositoryRoot, relativePath)), `${relativePath}: required governance record is missing`);
+}
+const pullRequestTemplate = readText('.github/PULL_REQUEST_TEMPLATE.md');
+for (const fragment of ['Work order', 'Base SHA', 'SOL HIGH REVIEW', 'Claude review', 'Owen merge authorization', 'Validation']) {
+  assert(pullRequestTemplate.includes(fragment), `pull request template must carry: ${fragment}`);
+}
+assert(
+  harness.includes('high-risk PRs') && harness.includes('in parallel with Sol High'),
+  'delivery harness must preserve the parallel Claude review of high-risk PRs',
+);
 
 if (errors.length > 0) {
   console.error('Infrastructure guardrail validation failed:');

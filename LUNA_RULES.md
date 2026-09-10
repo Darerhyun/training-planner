@@ -41,17 +41,8 @@ Before every edit cycle:
 
 1. Perform read-only inspection of the expected branch, base, head, PR state,
    relevant documents, and changed files.
-2. Send a **LUNA PRE-EDIT NOTICE** containing:
-   - work order;
-   - base SHA and expected/current branch head;
-   - branch;
-   - exact files expected to change;
-   - database/schema impact;
-   - infrastructure/cost impact;
-   - tests and validation;
-   - deployment target;
-   - rollback method;
-   - deviations or questions.
+2. Send a **LUNA PRE-EDIT NOTICE** containing exactly the fields listed in
+   `WORKFLOW_HARNESS.md` section 3 step 3 (that list is the only definition).
 3. Wait for Sol to return **APPROVED_TO_EDIT**.
 
 Do not treat the work order itself, user urgency, or a previous approval as
@@ -144,8 +135,9 @@ same line under Escalations; write “None.” if there are none.
 
 - Sol High must independently review the actual diff and validation evidence.
 - Do not merge or deploy unless Sol High approves, Claude approves UI/IX for UI
-  work (or reviews when Owen requests), Sol records acceptance and release-gate
-  clearance, and Owen explicitly authorizes the exact action and executor.
+  work and high-risk PRs (`WORKFLOW_HARNESS.md` section 2), Sol records
+  acceptance and release-gate clearance, and Owen explicitly authorizes the
+  exact action and executor.
 - Implementation acceptance and merge/deployment authorization are separate.
 - An explicitly authorized executor outside the Astra/reviewer roles may perform
   an approved merge or deployment; Luna has no exclusive release authority.
