@@ -385,6 +385,7 @@ export interface ParseResult {
     blocked: boolean;
     blockReason: string | null;
   };
+  previewDigest: string;
   alerts: Array<{
     code: string;
     message: string;
@@ -553,10 +554,14 @@ export async function uploadMasterSchedule(user: User, file: File): Promise<Pars
   return { ...result, uploadBatchId: signed.upload.id };
 }
 
-export async function confirmSchedule(user: User, batchId: string, manualOverride: boolean): Promise<ParseResult> {
+export async function confirmSchedule(
+  user: User,
+  batchId: string,
+  input: { previewDigest: string; acknowledged: boolean },
+): Promise<ParseResult> {
   return apiFetch<ParseResult>(user, `/sync/${batchId}/confirm`, {
     method: 'POST',
-    body: JSON.stringify({ manualOverride }),
+    body: JSON.stringify(input),
   });
 }
 
@@ -709,6 +714,7 @@ function isBlockedParseResult(value: unknown): value is ParseResult {
   ];
   if (!numericFields.every((field) => isNonNegativeInteger(summary[field]))) return false;
   if (!isNonNegativeInteger(summary.existingSessions)) return false;
+  if (typeof value.previewDigest !== 'string' || value.previewDigest.length === 0) return false;
   if (
     summary.autoApplied !== false ||
     summary.requiresConfirmation !== true ||

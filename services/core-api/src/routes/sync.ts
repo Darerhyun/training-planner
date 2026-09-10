@@ -5,8 +5,15 @@ import type { AppEnv, SqlQuery, TransactionHandler } from '@training-planner/sha
 import { HttpError } from '../lib/http-error.js';
 import {
   applyScheduleParseResult,
+  computeSchedulePreviewDigest,
+  createSchedulePreview,
+  isSchedulePreviewBlocked,
+  ScheduleApplyBlockedError,
+  ScheduleApplyConflictError,
+  ScheduleApplyStaleError,
   parseScheduleWorkbook,
   type ScheduleApplyResult,
+  type SchedulePreview,
   type ScheduleParseResult,
 } from '../ingest/parse-schedule.js';
 import { ScheduleHeaderError } from '../ingest/master-schedule-mapping.js';
@@ -37,7 +44,7 @@ type UploadBatchRow = {
   parse_result: unknown;
 };
 
-type SyncResponseBody = ScheduleParseResult & { applied?: ScheduleApplyResult };
+type SyncResponseBody = SchedulePreview & { applied?: ScheduleApplyResult };
 
 type SyncOutcome = {
   body: SyncResponseBody;
@@ -86,13 +93,26 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
       return c.json({ error: 'GCS_UPLOAD_BUCKET is not configured' }, 500);
     }
 
-    let parseResult: ScheduleParseResult;
+    let parseResult: SchedulePreview;
     try {
       const [buffer] = await storage
         .bucket(bucketName)
         .file(batch.gcs_object_name)
         .download();
-      parseResult = await parseWorkbook(buffer);
+      const parsedResult = await parseWorkbook(buffer);
+      const previewBlocked = isSchedulePreviewBlocked(parsedResult);
+      parseResult = createSchedulePreview({
+        ...parsedResult,
+        summary: {
+          ...parsedResult.summary,
+          autoApplied: false,
+          requiresConfirmation: true,
+          blocked: previewBlocked,
+          blockReason: parsedResult.summary.blockReason ?? (
+            previewBlocked ? 'Schedule Preview contains blocking issues.' : null
+          ),
+        },
+      });
     } catch (error) {
       console.error('Schedule parse failed:', error);
       const message = error instanceof Error ? error.message : 'Unknown parse error';
@@ -113,18 +133,11 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
           throw new HttpError(409, 'Upload batch is not ready for parsing.');
         }
 
-        if (!parseResult.summary.requiresConfirmation) {
-          const applied = await applyScheduleParseResult(uploadBatchId, parseResult, tx);
-          parseResult.summary.autoApplied = true;
-          await saveParseResult(tx, uploadBatchId, 'applied', parseResult, applied);
-          return { body: { ...parseResult, applied }, status: 200 } satisfies SyncOutcome;
-        }
-
-        const status = parseResult.summary.blocked ? 'blocked' : 'parsed';
+        const status = isSchedulePreviewBlocked(parseResult) ? 'blocked' : 'parsed';
         await saveParseResult(tx, uploadBatchId, status, parseResult);
         return {
           body: parseResult,
-          status: parseResult.summary.blocked ? 409 : 200,
+          status: isSchedulePreviewBlocked(parseResult) ? 409 : 200,
         } satisfies SyncOutcome;
       });
 
@@ -137,7 +150,9 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
 
   routes.post('/sync/:batchId/confirm', async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const manualOverride = body?.manualOverride === true;
+    const acknowledged = body?.acknowledged === true;
+    const submittedPreviewDigest =
+      typeof body?.previewDigest === 'string' ? body.previewDigest : '';
 
     try {
       const outcome = await runTransaction(async (tx) => {
@@ -146,20 +161,43 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
           throw new HttpError(404, 'Parsed batch not found');
         }
 
-        // A second confirmation observes the committed result after waiting
-        // on the batch lock and returns the exact first response body.
-        const replay = replayAppliedBatch(batch);
-        if (replay) return replay;
-
         if (batch.status === 'rejected') {
           throw new HttpError(409, 'Upload batch has been rejected.');
         }
 
-        const parseResult = batch.parse_result as ScheduleParseResult;
-        if (parseResult.summary.blocked && !manualOverride) {
+        const parseResult = batch.parse_result as SchedulePreview;
+        if (!acknowledged) {
+          throw new HttpError(
+            400,
+            'Explicit acknowledgement of the current schedule Preview is required.',
+            { code: 'sync_preview_acknowledgement_required' },
+          );
+        }
+
+        const storedPreviewDigest = parseResult.previewDigest;
+        if (
+          !storedPreviewDigest ||
+          !submittedPreviewDigest ||
+          storedPreviewDigest !== submittedPreviewDigest ||
+          storedPreviewDigest !== computeSchedulePreviewDigest(parseResult)
+        ) {
           throw new HttpError(
             409,
-            'Manual override is required for the cancellation guard.',
+            'Schedule Preview is stale. Cancel this Preview and upload the workbook again, then acknowledge the new Preview before applying.',
+            { code: 'stale_sync_preview' },
+          );
+        }
+
+        // A second confirmation observes the committed result only after the
+        // caller proves that it is acknowledging the exact committed Preview.
+        const replay = replayAppliedBatch(batch);
+        if (replay) return replay;
+
+        if (batch.status === 'blocked' || isSchedulePreviewBlocked(parseResult)) {
+          throw new HttpError(
+            409,
+            'Schedule Preview is blocked and cannot be applied.',
+            { code: 'sync_preview_blocked' },
           );
         }
 
@@ -171,6 +209,24 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
       return c.json(outcome.body, outcome.status);
     } catch (error) {
       if (error instanceof HttpError) return c.json(error.body, error.status);
+      if (error instanceof ScheduleApplyBlockedError) {
+        return c.json(
+          {
+            error: 'Schedule Preview is blocked and cannot be applied.',
+            code: 'sync_preview_blocked',
+          },
+          409,
+        );
+      }
+      if (error instanceof ScheduleApplyConflictError || error instanceof ScheduleApplyStaleError) {
+        return c.json(
+          {
+            error: 'Schedule Preview is stale. Cancel this Preview and upload the workbook again, then acknowledge the new Preview before applying.',
+            code: 'stale_sync_preview',
+          },
+          409,
+        );
+      }
       throw error;
     }
   });
@@ -227,7 +283,7 @@ function replayStoredBatch(batch: UploadBatchRow): SyncOutcome | null {
     const result = batch.parse_result as SyncResponseBody;
     return {
       body: result,
-      status: result.summary.blocked ? 409 : 200,
+      status: isSchedulePreviewBlocked(result) ? 409 : 200,
     };
   }
   return null;
@@ -252,7 +308,7 @@ async function saveParseResult(
   db: SqlQuery,
   batchId: string,
   status: 'parsed' | 'blocked' | 'applied',
-  parseResult: ScheduleParseResult,
+  parseResult: SchedulePreview,
   applied?: ScheduleApplyResult,
 ): Promise<void> {
   await db(
