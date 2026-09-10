@@ -169,7 +169,7 @@ export async function parseScheduleWorkbook(buffer: Buffer): Promise<SchedulePar
   const resolvers = {
     courses: createCourseResolver(lookups.courseAliases, lookups.courses),
     trainers: createTrainerResolver(lookups.trainerAliases, lookups.trainers),
-    venues: createVenueResolver(lookups.venues, lookups.rooms),
+    venues: createVenueResolver(lookups.venues, lookups.rooms, lookups.venueAliases, lookups.roomAliases),
   };
 
   const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false });
@@ -518,6 +518,7 @@ async function updateImportManagedSession(
        expected_pax = $14,
        confirmed_pax = $15,
        upload_batch_id = $16,
+       raw_room_text = $18,
        version = version + 1,
        updated_at = now()
      WHERE id = $1
@@ -545,6 +546,7 @@ async function updateImportManagedSession(
       row.confirmedPax,
       batchId,
       expectedVersion,
+      row.rawRoomText ?? null,
     ],
   );
   return rows[0] ?? null;
@@ -561,12 +563,12 @@ async function insertImportManagedSession(
       course_code, tms_code, source_course_name, trainer_id, raw_trainer_name,
       venue_code, room_id, raw_venue_text, time_text, status,
       start_date, end_date, expected_pax, confirmed_pax, upload_batch_id, external_ref,
-      version
+      version, raw_room_text
     ) VALUES (
       $1, $2, $3, $4, $5,
       $6, $7, $8, $9, $10,
       $11, $12, $13, $14, $15, $16,
-      1
+      1, $17
     )
     ON CONFLICT (external_ref) WHERE external_ref IS NOT NULL DO NOTHING
     RETURNING id, external_ref, management_source::text AS management_source,
@@ -590,6 +592,7 @@ async function insertImportManagedSession(
       row.confirmedPax,
       batchId,
       externalRef,
+      row.rawRoomText ?? null,
     ],
   );
 

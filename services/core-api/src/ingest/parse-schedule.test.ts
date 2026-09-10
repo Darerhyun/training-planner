@@ -87,6 +87,57 @@ const mappingResolvers = {
   ),
 };
 
+test('new venue aliases are exact normalized matches and room aliases remain venue scoped', () => {
+  const venues = [
+    { code: 'IP', name: 'International Plaza', type: 'owned' as const, address: '10 Anson Road' },
+    { code: 'JTC', name: 'JTC Summit', type: 'owned' as const, address: null },
+  ];
+  const rooms = [{ room_id: 'ip-quality', venue_code: 'IP', name: 'Quality' }, { room_id: 'jtc-adapt', venue_code: 'JTC', name: 'Adapt' }];
+  const resolve = createVenueResolver(venues, rooms, [{ alias: 'Demo campus', venue_code: 'IP' }], [
+    { alias: 'Demo room', venue_code: 'IP', room_id: 'ip-quality' },
+    { alias: 'Demo room', venue_code: 'JTC', room_id: 'jtc-adapt' },
+  ]);
+  assert.equal(resolve.resolve(' DEMO CAMPUS ', ' demo ROOM ').roomId, 'ip-quality');
+  assert.equal(resolve.resolve('JTC', 'Demo room').roomId, 'jtc-adapt');
+  assert.equal(resolve.resolve('near Demo campus', 'Demo room').venueCode, null);
+  assert.equal(resolve.resolve('IP', null).roomState, 'blank');
+  assert.equal(resolve.resolve('10 Anson Road', 'Quality').roomId, 'ip-quality');
+  assert.equal(resolve.resolve('Hotel').venueCode, null);
+  assert.equal(createVenueResolver([], []).resolve('10 Anson Road').venueCode, null);
+});
+
+test('ambiguous explicit aliases fail closed rather than selecting the first record', () => {
+  const venues = [{ code: 'IP', name: 'International Plaza', type: 'owned' as const, address: null }, { code: 'JTC', name: 'JTC Summit', type: 'owned' as const, address: null }];
+  const resolver = createVenueResolver(venues, [], [{ alias: 'Demo', venue_code: 'IP' }, { alias: 'demo', venue_code: 'JTC' }]);
+  assert.equal(resolver.resolve('Demo').venueCode, null);
+  const courses = [{ code: 'ASKMEI' }, { code: 'ASKAME' }];
+  assert.equal(createCourseResolver([{ tms_code: 'Demo', catalog_code: 'ASKMEI' }, { tms_code: 'demo', catalog_code: 'ASKAME' }], courses).resolve('Demo'), null);
+  assert.equal(createCourseResolver([{ tms_code: 'Demo', catalog_code: 'ASKMEI' }], courses).resolve(' Demo '), 'ASKMEI');
+  assert.equal(createCourseResolver([{ tms_code: 'Demo', catalog_code: 'ASKMEI' }], []).resolve('Demo'), null);
+});
+
+test('source room text is preserved honestly including missing evidence', () => {
+  assert.equal(mapSourceRow({ room: 'Demo unresolved room' }).rawRoomText, 'Demo unresolved room');
+  assert.equal(mapSourceRow({ room: '' }).rawRoomText, null);
+});
+
+test('import inserts and updates persist supplied room text without fabricating legacy evidence', async () => {
+  for (const update of [false, true]) {
+    const incoming = mapped({ rawRoomText: 'Room Quality', trainerId: 'trainer-2' });
+    const fake = createFakeDb(update ? [existingFor(incoming, { trainer_id: 'trainer-1' })] : []);
+    const writes: Array<{ sql: string; params: unknown[] }> = [];
+    const db: SqlQuery = async <T>(sql: string, params: unknown[] = []): Promise<T[]> => {
+      if (sql.startsWith('INSERT INTO sessions') || sql.startsWith('UPDATE sessions')) writes.push({ sql, params });
+      return fake.db<T>(sql, params);
+    };
+    const preview = await summarizeRows([incoming], db);
+    await applyScheduleParseResult('demo-batch', preview, db);
+    assert.equal(writes.length, 1);
+    assert.match(writes[0]!.sql, /raw_room_text/);
+    assert.equal(writes[0]!.params.at(-1), 'Room Quality');
+  }
+});
+
 function mapSourceRow(overrides: {
   course?: string;
   trainer?: string;
