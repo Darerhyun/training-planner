@@ -47,8 +47,6 @@ conflict, this file governs and the conflict is escalated.
    The work order is committed under `docs/04-work-orders/` in the PR it governs
    (documentation-only orders may instead be quoted in full in the PR body). It
    carries an expected base SHA, allowed scope, acceptance criteria, validation,
-   exclusions, rollback, and stop conditions; it also
-   with an expected base SHA, allowed scope, acceptance criteria, validation,
    exclusions, rollback, and stop conditions.
 2. Luna performs read-only inspection of the expected branch, head, base,
    relevant documents, and changed-file state.
