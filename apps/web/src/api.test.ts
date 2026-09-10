@@ -607,6 +607,58 @@ test('Sync UI retains the exact acknowledgement and complete issue presentation 
   assert.match(page, /invalid_date_range/);
   assert.match(page, /role="list"/);
   assert.match(page, /role="listitem"/);
+  const uploadPanel = page.indexOf('className="panel upload-panel"');
+  const uploadAlert = page.indexOf('{error && <p className="error" role="alert">{error}</p>}');
+  const resultPanel = page.indexOf('className="panel result-panel"');
+  assert.ok(uploadPanel < uploadAlert && uploadAlert < resultPanel, 'upload errors remain in the upload panel and are announced');
+});
+
+test('Sync confirm failures disarm the client Preview and focus its in-panel recovery after settling', async () => {
+  const page = await readFile(new URL('./pages/sync-page.tsx', import.meta.url), 'utf8');
+  const source = ts.createSourceFile('sync.tsx', page, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let confirm = ''; let effect = '';
+  function visit(node: ts.Node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'confirm') confirm = node.getText(source);
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'useEffect') effect = node.arguments[0].getText(source);
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  assert.ok(confirm); assert.ok(effect);
+  const panel = page.indexOf('className="panel result-panel"');
+  const alert = page.indexOf('<p className="error" role="alert" tabIndex={-1} ref={confirmAlert}>');
+  const actions = page.indexOf('<div className="action-row">');
+  assert.ok(panel < alert && alert < actions, 'confirm alert belongs in the result panel above actions');
+  assert.match(page.slice(alert, actions), /Cancel this Preview and upload the workbook again/);
+  assert.match(page, /disabled=\{busy \|\| previewStale \|\| !acknowledged\}/);
+  assert.match(page, /disabled=\{busy \|\| previewStale\}/);
+  assert.match(page, /previewStale && <span className="badge warn">Stale<\/span>/);
+  const callbacks = ts.transpileModule(`${confirm}\n({ confirm, commitFocus: ${effect} });`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  for (const failure of [new ApiError('Missing acknowledgement', 400), new ApiError('Stale', 409), new ApiError('Unavailable', 500), new TypeError('Failed to fetch')]) {
+    let focused = false; let scrolled = false; let calls = 0;
+    const result = { uploadBatchId: 'synthetic-batch', previewDigest: 'exact-digest' };
+    const context = {
+      user, result, canApply: true, acknowledged: true, busy: false, previewStale: false, confirmError: '',
+      confirmAlert: { current: { focus: () => { focused = true; }, scrollIntoView: () => { scrolled = true; } } },
+      setBusy: (value: boolean) => { context.busy = value; }, setError: () => {},
+      setAcknowledged: (value: boolean) => { context.acknowledged = value; },
+      setPreviewStale: (value: boolean) => { context.previewStale = value; },
+      setConfirmError: (value: string) => { context.confirmError = value; },
+      setResult: () => { assert.fail('failed confirmation must not mutate the stored result'); },
+      confirmSchedule: async () => { calls++; throw failure; },
+      onApiError: async (_error: unknown, setter: (value: string) => void) => { setter(failure.message); },
+    };
+    const actual = runInNewContext(callbacks, context) as { confirm: () => Promise<void>; commitFocus: () => void };
+    const pending = actual.confirm();
+    actual.commitFocus(); assert.equal(focused, false, 'no focus before the request settles');
+    await pending;
+    assert.equal(context.acknowledged, false); assert.equal(context.previewStale, true); assert.equal(context.busy, false);
+    assert.equal(context.result, result, 'Stale is client state, not a server batch transition');
+    actual.commitFocus(); assert.equal(focused, true); assert.equal(scrolled, true);
+    context.acknowledged = true;
+    await actual.confirm(); assert.equal(calls, 1, 'even re-acknowledgement cannot apply the stale Preview');
+  }
 });
 
 test('fetchPlanningSessions serializes needsAttention only when true and maps its summary', async () => {

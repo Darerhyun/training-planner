@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { User } from 'firebase/auth';
 import { Check, RefreshCw, Upload, X } from 'lucide-react';
 import {
@@ -16,6 +16,15 @@ export default function SyncPage({ user, onApiError }: { user: User; onApiError:
   const [acknowledged, setAcknowledged] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [confirmError, setConfirmError] = useState('');
+  const [previewStale, setPreviewStale] = useState(false);
+  const confirmAlert = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => {
+    if (!confirmError || busy) return;
+    confirmAlert.current?.focus();
+    confirmAlert.current?.scrollIntoView({ block: 'nearest' });
+  }, [confirmError, busy]);
 
   const canApply = Boolean(
     result?.uploadBatchId &&
@@ -32,6 +41,8 @@ export default function SyncPage({ user, onApiError }: { user: User; onApiError:
     setAcknowledged(false);
     try {
       setResult(await uploadMasterSchedule(user, file));
+      setConfirmError('');
+      setPreviewStale(false);
     } catch (caught) {
       void onApiError(caught, setError);
     } finally {
@@ -40,7 +51,7 @@ export default function SyncPage({ user, onApiError }: { user: User; onApiError:
   }
 
   async function confirm() {
-    if (!result?.uploadBatchId || !canApply) return;
+    if (!result?.uploadBatchId || !canApply || previewStale || !acknowledged || busy) return;
     setBusy(true);
     setError('');
     try {
@@ -49,7 +60,10 @@ export default function SyncPage({ user, onApiError }: { user: User; onApiError:
         acknowledged,
       }));
     } catch (caught) {
-      void onApiError(caught, setError);
+      setAcknowledged(false);
+      setPreviewStale(true);
+      setConfirmError('Confirmation could not be completed.');
+      await onApiError(caught, setConfirmError);
     } finally {
       setBusy(false);
     }
@@ -64,6 +78,8 @@ export default function SyncPage({ user, onApiError }: { user: User; onApiError:
       setResult(null);
       setFile(null);
       setAcknowledged(false);
+      setConfirmError('');
+      setPreviewStale(false);
     } catch (caught) {
       void onApiError(caught, setError);
     } finally {
@@ -91,7 +107,7 @@ export default function SyncPage({ user, onApiError }: { user: User; onApiError:
           {busy ? <RefreshCw size={16} className="spin" /> : <Upload size={16} />}
           Upload
         </button>
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error" role="alert">{error}</p>}
       </div>
 
       <div className="panel result-panel">
@@ -101,8 +117,9 @@ export default function SyncPage({ user, onApiError }: { user: User; onApiError:
             <h2>Parse result</h2>
           </div>
           {result?.applied && <span className="badge good">Applied</span>}
-          {result && !result.applied && result.summary.blocked && <span className="badge warn">Blocked</span>}
-          {result && !result.applied && !result.summary.blocked && <span className="badge warn">Preview</span>}
+          {result && !result.applied && previewStale && <span className="badge warn">Stale</span>}
+          {result && !result.applied && !previewStale && result.summary.blocked && <span className="badge warn">Blocked</span>}
+          {result && !result.applied && !previewStale && !result.summary.blocked && <span className="badge warn">Preview</span>}
         </div>
         {result ? <Summary result={result} /> : <p className="empty">No parse result yet.</p>}
         {result?.summary.blocked && !result.applied && (
@@ -115,6 +132,7 @@ export default function SyncPage({ user, onApiError }: { user: User; onApiError:
             <input
               type="checkbox"
               checked={acknowledged}
+              disabled={busy || previewStale}
               onChange={(event) => setAcknowledged(event.target.checked)}
               aria-describedby="sync-preview-acknowledgement-help"
             />
@@ -126,9 +144,15 @@ export default function SyncPage({ user, onApiError }: { user: User; onApiError:
             Applying writes the stored Preview as one transaction. Any changed Preview must be reviewed again.
           </p>
         )}
+        {confirmError && (
+          <p className="error" role="alert" tabIndex={-1} ref={confirmAlert}>
+            This Preview can no longer be applied. {confirmError}
+            {!confirmError.includes('Cancel this Preview and upload the workbook again') && ' Cancel this Preview and upload the workbook again, then acknowledge the new Preview before applying.'}
+          </p>
+        )}
         {result?.uploadBatchId && result.summary.requiresConfirmation && !result.applied && (
           <div className="action-row">
-            {canApply && <button disabled={busy || !acknowledged} onClick={confirm}>
+            {canApply && <button disabled={busy || previewStale || !acknowledged} onClick={confirm}>
               <Check size={16} />
               Apply Preview
             </button>}

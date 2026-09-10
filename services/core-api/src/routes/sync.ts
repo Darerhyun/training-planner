@@ -183,7 +183,7 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
         ) {
           throw new HttpError(
             409,
-            'Schedule Preview is stale. Run Re-check and acknowledge the fresh Preview before applying.',
+            'Schedule Preview is stale. Cancel this Preview and upload the workbook again, then acknowledge the new Preview before applying.',
             { code: 'stale_sync_preview' },
           );
         }
@@ -221,7 +221,7 @@ export function createSyncRoutes(options: SyncRouteOptions = {}): Hono<AppEnv> {
       if (error instanceof ScheduleApplyConflictError || error instanceof ScheduleApplyStaleError) {
         return c.json(
           {
-            error: 'Schedule Preview is stale. Run Re-check and acknowledge the fresh Preview before applying.',
+            error: 'Schedule Preview is stale. Cancel this Preview and upload the workbook again, then acknowledge the new Preview before applying.',
             code: 'stale_sync_preview',
           },
           409,

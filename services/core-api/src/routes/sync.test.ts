@@ -372,7 +372,7 @@ test('confirmation rejects missing, mismatched, and tampered Preview digests wit
 
     assert.equal(response.status, 409);
     assert.deepEqual(await response.json(), {
-      error: 'Schedule Preview is stale. Run Re-check and acknowledge the fresh Preview before applying.',
+      error: 'Schedule Preview is stale. Cancel this Preview and upload the workbook again, then acknowledge the new Preview before applying.',
       code: 'stale_sync_preview',
     });
     assert.equal(store.state.batch.status, 'parsed');
@@ -536,7 +536,7 @@ test('applied confirmation validates acknowledgement and digest before replay', 
   const missingDigest = await confirmRequest({ acknowledged: true });
   assert.equal(missingDigest.status, 409);
   assert.deepEqual(await missingDigest.json(), {
-    error: 'Schedule Preview is stale. Run Re-check and acknowledge the fresh Preview before applying.',
+    error: 'Schedule Preview is stale. Cancel this Preview and upload the workbook again, then acknowledge the new Preview before applying.',
     code: 'stale_sync_preview',
   });
 
@@ -596,7 +596,7 @@ test('apply-time application ownership conflicts fail the whole transaction', as
 
   assert.equal(response.status, 409);
   assert.deepEqual(await response.json(), {
-    error: 'Schedule Preview is stale. Run Re-check and acknowledge the fresh Preview before applying.',
+    error: 'Schedule Preview is stale. Cancel this Preview and upload the workbook again, then acknowledge the new Preview before applying.',
     code: 'stale_sync_preview',
   });
   assert.equal(store.state.batch.status, 'parsed');
@@ -644,7 +644,7 @@ test('apply-time import version conflicts fail the whole transaction', async () 
 
   assert.equal(response.status, 409);
   assert.deepEqual(await response.json(), {
-    error: 'Schedule Preview is stale. Run Re-check and acknowledge the fresh Preview before applying.',
+    error: 'Schedule Preview is stale. Cancel this Preview and upload the workbook again, then acknowledge the new Preview before applying.',
     code: 'stale_sync_preview',
   });
   assert.equal(store.state.batch.status, 'parsed');
