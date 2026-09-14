@@ -5,7 +5,7 @@
 ## Mandatory operating files
 
 - `../AGENTS.md` — always-loaded project brief and build sequence.
-- `../WORKFLOW_HARNESS.md` — mandatory Sol → Luna Max (bounded Astra Low execution) → Sol High delivery gates.
+- `../WORKFLOW_HARNESS.md` — mandatory Sol → Luna Max (bounded Astra XHigh execution) → Sol High delivery gates.
 - `../SOL_RULES.md` — mandatory planning, architecture, work-order, and acceptance contract for Sol.
 - `../LUNA_RULES.md` — mandatory pre-edit, implementation, escalation, and release contract for Luna.
 - `../SOL_HIGH_RULES.md` — mandatory independent read-only technical review and post-deployment verification contract; no implementation of the same work item.
@@ -16,7 +16,7 @@
 
 ```
 ../AGENTS.md                       ← project brief and mandatory role entry point
-../WORKFLOW_HARNESS.md              ← Sol → Luna Max (bounded Astra Low execution) → Sol High delivery harness
+../WORKFLOW_HARNESS.md              ← Sol → Luna Max (bounded Astra XHigh execution) → Sol High delivery harness
 ../SOL_RULES.md                    ← Sol operating contract
 ../LUNA_RULES.md                   ← Luna operating contract
 ../SOL_HIGH_RULES.md               ← independent technical review contract

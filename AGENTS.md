@@ -7,8 +7,8 @@
 - Read and follow `WORKFLOW_HARNESS.md` for every change to application code, infrastructure, database schema, GitHub state, or deployment.
 - Sol must read `SOL_RULES.md` before planning, architecture, work orders, or acceptance.
 - Luna must read `LUNA_RULES.md`, perform read-only inspection, send a pre-edit notice, and wait for `APPROVED_TO_EDIT` before editing.
-- Luna Max owns context-heavy/high-volume delivery, decomposes the approved work package, delegates bounded difficult implementation to Astra Low, then integrates and validates.
-- Astra Low is pre-authorized only within Luna's approved bounded execution package; it cannot expand scope, review, decide release, merge, or deploy. Higher Astra reasoning requires Owen's explicit permission after a stated blocker/reason.
+- Luna Max owns context-heavy/high-volume delivery, decomposes the approved work package, delegates bounded difficult implementation to Astra XHigh, then integrates and validates.
+- Astra XHigh uses `gpt-6-astra` with `reasoning_effort: xhigh` and is pre-authorized only within Luna's approved bounded execution package; it cannot expand scope, review, decide release, merge, or deploy.
 - Sol High must read `SOL_HIGH_RULES.md` and independently review the actual diff and evidence without editing; it cannot implement the same work item.
 - Claude is the UI/IX authority and reviewer for UI changes; recommendations pass Sol's architecture gate. Non-UI work does not require Claude unless Owen requests it; Owen has made a standing request that Claude review high-risk PRs (schema, authorization, Sync apply, deployment, cost) in parallel with Sol High on the same head.
 - Sol coordinates architecture, scope, sequencing, and release gates; implementation acceptance requires Sol High approval and, for UI work, Claude approval.

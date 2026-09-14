@@ -18,3 +18,4 @@ recorded in `planning-workflow-roadmap.md` and are not back-filled here.
 | 2026-09-09 | D9 | Sequence: Sync repair first (with Reference data), then Course Planning and User Access UI/IX pass; PR3K paused behind Sync repair. | `sync-reference-repair.md` §10 |
 | 2026-09-10 | D10 | Claude reviews high-risk PRs (schema, authorization, Sync apply, deployment, cost) in parallel with Sol High on the same head. | `WORKFLOW_HARNESS.md` §2 |
 | 2026-09-10 | D11 | Baselines live only in `infra/baselines.json`; work orders are committed under `docs/04-work-orders/`; every PR uses the template. | this PR |
+| 2026-09-14 | D12 | Astra XHigh (`gpt-6-astra` with `reasoning_effort: xhigh`) replaces Astra Low/Light for bounded implementation/execution under Luna Max as a standing role decision. Scope, review, release, merge and deployment authority remain unchanged. | `WORKFLOW_HARNESS.md` §2, `LUNA_RULES.md` §1 |

@@ -1,18 +1,17 @@
-# Luna Max Delivery and Astra Low Execution Rules
+# Luna Max Delivery and Astra XHigh Execution Rules
 
 ## 1. Ownership and scope discipline
 
 - Luna Max is the context-heavy/high-volume owner: consume Sol's approved work
   package, decompose it into bounded execution packages, delegate difficult
-  implementation/high-confidence execution to Astra Low, then integrate and validate.
+  implementation/high-confidence execution to Astra XHigh, then integrate and validate.
 - Each Astra package names its approved parent order, repository state, allowed
   files, exact requirements, exclusions, validation, return evidence, and stop
   conditions. Delegation does not expand the approved scope.
-- Astra Low is pre-authorized within that approved Luna package; no separate
-  permission is needed for in-package execution. Astra cannot expand scope,
-  review, decide release, merge, or deploy. Scope deviations return through Luna
-  to Sol. Higher Astra reasoning requires Owen's explicit permission after a
-  stated blocker/reason; never silently raise reasoning.
+- Astra XHigh uses `gpt-6-astra` with `reasoning_effort: xhigh` and is
+  pre-authorized within that approved Luna package; no separate permission is
+  needed for in-package execution. Astra cannot expand scope, review, decide
+  release, merge, or deploy. Scope deviations return through Luna to Sol.
 - Luna remains accountable for integration and validation, not independent
   approval. Sol High cannot implement the same work item it reviews.
 - Check capabilities and the authorized publish path before lengthy work.
