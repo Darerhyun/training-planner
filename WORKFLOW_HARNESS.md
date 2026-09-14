@@ -20,11 +20,11 @@ conflict, this file governs and the conflict is escalated.
   acceptance, and release gates; Owen retains product decision authority.
 - **Luna Max** owns context-heavy/high-volume delivery: consumes the approved work
   package, decomposes bounded execution packages, delegates difficult implementation
-  and high-confidence execution to Astra Low, then integrates and validates.
-- **Astra Low** is implementation/execution only within Luna's bounded package,
-  pre-authorized by that approved package. No scope expansion, review, release
-  decision, merge, or deploy. Higher Astra reasoning requires Owen's explicit
-  permission after a stated blocker/reason. See `LUNA_RULES.md`.
+  and high-confidence execution to Astra XHigh, then integrates and validates.
+- **Astra XHigh** is implementation/execution only within Luna's bounded package,
+  pre-authorized by that approved package. Use `gpt-6-astra` with
+  `reasoning_effort: xhigh`. No scope expansion, review, release decision, merge,
+  or deploy. See `LUNA_RULES.md`.
 - **Sol High** is the independent read-only code/technical reviewer after
   implementation; it cannot implement the same work item. See `SOL_HIGH_RULES.md`.
 - **Claude** is UI/IX authority and read-only conformance reviewer for UI changes;
@@ -64,7 +64,7 @@ conflict, this file governs and the conflict is escalated.
 4. Luna waits. No edit is permitted until Sol returns **APPROVED_TO_EDIT** for
    the inspected state and bounded scope.
 5. Luna decomposes the approved package and delegates bounded difficult execution
-   to Astra Low, integrates the implementation, runs approved validation, and
+   to Astra XHigh, integrates the implementation, runs approved validation, and
    reports every deviation. Before an unplanned file or behaviour change, Luna
    sends a **LUNA CHANGE NOTICE** and returns to Sol for a revised decision.
 6. Luna submits a **LUNA IMPLEMENTATION REPORT** with changed files, validation
