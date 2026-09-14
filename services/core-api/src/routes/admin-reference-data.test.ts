@@ -101,6 +101,29 @@ test('invalid namespaces, pagination, IDs and missing rows return typed failures
   assert.equal((await f.app.request('/admin/reference-data/course-aliases')).status, 404);
 });
 
+test('history rejects a 36-hyphen cursor UUID with typed 400 before any SQL', async () => {
+  const cursor = Buffer.from(JSON.stringify({ time: '2026-09-10T12:00:00.000Z', id: '-'.repeat(36) })).toString('base64url');
+  for (const path of ['courses/ASKMEI/history', 'courses/ASKMEI/aliases/Demo/history', 'rooms/ip-quality/aliases/00000000-0000-0000-0000-000000000001/history']) {
+    const f = fixture();
+    const response = await f.app.request(`/admin/reference-data/${path}?cursor=${cursor}`);
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: 'Invalid cursor', code: 'invalid_reference_data' });
+    assert.equal(f.calls.length, 0);
+  }
+});
+
+test('history accepts a canonical mixed-case UUID cursor', async () => {
+  const f = fixture();
+  const value = { time: '2026-09-10T12:00:00.000Z', id: 'aBcDeF01-2345-6789-aBcD-Ef0123456789' };
+  const cursor = Buffer.from(JSON.stringify(value)).toString('base64url');
+  const response = await f.app.request(`/admin/reference-data/courses/ASKMEI/history?cursor=${cursor}`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { events: [], nextCursor: null });
+  const history = f.calls.find((call) => call.sql.includes('FROM reference_data_change_events'));
+  assert.ok(history);
+  assert.deepEqual(history.params, ['course', 'ASKMEI', 51, value.time, value.id]);
+});
+
 test('room creation requires an active owned parent before any insertion', async () => {
   const f = fixture(); f.targetActive = false;
   assert.equal((await f.post('rooms', { room_id: 'ip-demo', venue_code: 'IP', name: 'Demo room' })).status, 409);

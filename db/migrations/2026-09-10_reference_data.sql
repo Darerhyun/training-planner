@@ -332,6 +332,17 @@ BEGIN
 END
 $$;
 
+CREATE OR REPLACE FUNCTION prevent_venue_deactivation_with_active_rooms() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF OLD.is_active AND NOT NEW.is_active
+    AND EXISTS (SELECT 1 FROM rooms WHERE venue_code = OLD.code AND is_active) THEN
+    RAISE EXCEPTION 'venue cannot deactivate while active rooms exist'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END $$;
+
 CREATE OR REPLACE FUNCTION prevent_owned_venue_type_change_with_rooms() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -391,6 +402,10 @@ BEGIN
     BEFORE UPDATE ON room_aliases FOR EACH ROW
     EXECUTE FUNCTION prevent_reference_data_identity_mutation('id', 'alias', 'venue_code');
 
+  DROP TRIGGER IF EXISTS trg_venues_deactivation_requires_no_active_rooms ON venues;
+  CREATE TRIGGER trg_venues_deactivation_requires_no_active_rooms
+    BEFORE UPDATE OF is_active ON venues FOR EACH ROW
+    EXECUTE FUNCTION prevent_venue_deactivation_with_active_rooms();
   DROP TRIGGER IF EXISTS trg_venues_type_requires_no_rooms ON venues;
   CREATE TRIGGER trg_venues_type_requires_no_rooms
     BEFORE UPDATE OF type ON venues FOR EACH ROW

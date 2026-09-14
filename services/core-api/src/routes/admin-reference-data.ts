@@ -130,13 +130,13 @@ export function createAdminReferenceDataRoutes(deps: AdminReferenceDataDeps = {}
   });
   routes.on('GET', ['/admin/reference-data/:kind/:id/history', '/admin/reference-data/:kind/:id/aliases/:aliasId/history'], async (c) => {
     const d = routeDefinition(c);
-    const record = await requestRecord(db, d, c);
     const limit = Number(c.req.query('limit') ?? 50); let cursor: { time: string; id: string } | null = null;
     if (c.req.query('cursor')) {
       try { cursor = JSON.parse(Buffer.from(c.req.query('cursor')!, 'base64url').toString()); } catch { invalid('Invalid cursor'); }
-      if (!cursor || typeof cursor.time !== 'string' || !Number.isFinite(Date.parse(cursor.time)) || typeof cursor.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(cursor.id)) invalid('Invalid cursor');
+      if (!cursor || typeof cursor.time !== 'string' || !Number.isFinite(Date.parse(cursor.time)) || typeof cursor.id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cursor.id)) invalid('Invalid cursor');
     }
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) invalid('Invalid pagination');
+    const record = await requestRecord(db, d, c);
     const events = await db<Record<string, unknown>>(`SELECT id,entity_type,entity_id,actor_user_id,action,previous_version,new_version,previous_state,new_state,note,metadata,created_at FROM reference_data_change_events WHERE entity_type=$1 AND entity_id=$2 AND ($4::timestamptz IS NULL OR (created_at,id)<($4::timestamptz,$5::uuid)) ORDER BY created_at DESC,id DESC LIMIT $3`, [d.entity, String(record[d.key]), limit + 1, cursor?.time ?? null, cursor?.id ?? null]);
     const last = events[limit - 1];
     return c.json({ events: events.slice(0, limit), nextCursor: events.length > limit && last ? Buffer.from(JSON.stringify({ time: last.created_at, id: last.id })).toString('base64url') : null });

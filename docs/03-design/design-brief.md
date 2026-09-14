@@ -92,8 +92,8 @@ The single PR3J UI/IX reference is `docs/03-design/admin-pr3j/README.md` (V10; t
 ## 7e. PR3K Admin — Rate categories and Rate Reconciliation design rules
 
 The authoritative PR3K UI/IX contract is
-`docs/03-design/admin-pr3k-rate-reconciliation/README.md` (revision 4,
-2026-09-09). Admin remains one primary navigation area with this exact section
+`docs/03-design/admin-pr3k-rate-reconciliation/README.md` (revision 5,
+2026-09-10). Admin remains one primary navigation area with this exact section
 tablist: **User Access | Trainer Directory | Reference data | Rate categories |
 Rate Reconciliation**. Reference data is the third subtab, Rate categories is
 the fourth, and Rate Reconciliation is the fifth. Finance keeps its existing
