@@ -7,6 +7,8 @@ import {
   computeSchedulePreviewDigest,
   createSchedulePreview,
   isSchedulePreviewBlocked,
+  resolveSchedulePreview,
+  scheduleSourceRowId,
   summarizeRows,
   type ScheduleApplyResult,
   type ScheduleParseResult,
@@ -201,6 +203,15 @@ function createFakeDb(existing: ExistingRow[], options: FakeDbOptions = {}) {
   const calls: string[] = [];
   const db: SqlQuery = async <T = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<T[]> => {
     calls.push(sql);
+    if (sql.includes('FROM reference_data_namespace_revisions')) {
+      return ['course_aliases', 'courses', 'room_aliases', 'rooms', 'venue_aliases', 'venues']
+        .map((namespace) => ({ namespace, revision: '1' })) as T[];
+    }
+    if (sql.includes('FROM trainers ORDER BY trainer_id')) {
+      return [{ trainer_id: 'trainer-1', name: 'Demo Trainer 1', version: 1, is_active: true, scheduling_readiness: 'ready' },
+        { trainer_id: 'trainer-2', name: 'Demo Trainer 2', version: 1, is_active: true, scheduling_readiness: 'ready' }] as T[];
+    }
+    if (sql.includes('FROM trainer_aliases ORDER BY id')) return [];
     if (sql.includes('FROM sessions') && sql.includes('WHERE external_ref IS NOT NULL')) return rows as T[];
     if (sql.includes('WHERE external_ref = ANY')) {
       const refs = params[0] as string[];
@@ -264,6 +275,39 @@ function createFakeDb(existing: ExistingRow[], options: FakeDbOptions = {}) {
   };
   return { db, rows, calls };
 }
+
+test('resolution uses stable source row IDs and mutually exclusive apply, skipped, and blocked arithmetic', async () => {
+  const workbookSha256 = 'a'.repeat(64);
+  const rows = [mapped({ rowNumber: 3 }), mapped({ rowNumber: 4, aliasBatchId: 'ASKMEI-2026-2',
+    courseCode: null, alerts: [{ code: 'unknown_course', rowNumber: 4, message: 'Unknown course.', rawValue: 'Demo unknown' }] })];
+  const fake = createFakeDb([]);
+  const parsed = await summarizeRows(rows, fake.db);
+  const sourceRowId = scheduleSourceRowId('demo-batch', workbookSha256, 4);
+  const preview = await resolveSchedulePreview(parsed, {
+    batchId: 'demo-batch', objectName: 'demo/schedule.xlsx', workbookSha256, rechecked: true,
+  }, [{ sourceRowId, action: 'skip', reason: 'Synthetic unresolved row.', actorId: 'demo-admin', decidedAt: '2026-09-15T00:00:00Z' }], fake.db);
+  assert.deepEqual(preview.resolution?.counts, { total: 2, apply: 1, skipped: 1, blocked: 0 });
+  assert.equal(preview.summary.validRows, 1);
+  assert.equal(preview.summary.skipped, 1);
+  assert.equal(preview.resolution?.outcomes[1]?.reason, 'Synthetic unresolved row.');
+  assert.equal(computeSchedulePreviewDigest(preview), preview.previewDigest);
+});
+
+test('cancellation evidence separates source rows from matched sessions and preserves denominator versions', async () => {
+  const cancelledExisting = mapped({ rowNumber: 3, status: 'cancelled' });
+  const cancelledInsert = mapped({ rowNumber: 4, aliasBatchId: 'ASKMEI-2026-2', status: 'cancelled' });
+  const existing = existingFor(cancelledExisting, { status: 'cancelled', version: 7 });
+  const fake = createFakeDb([existing]);
+  const parsed = await summarizeRows([cancelledExisting, cancelledInsert], fake.db);
+  const preview = await resolveSchedulePreview(parsed, {
+    batchId: 'demo-batch', objectName: 'demo/schedule.xlsx', workbookSha256: 'b'.repeat(64), rechecked: true,
+  }, [], fake.db);
+  assert.equal(preview.resolution?.cancellation.numerator, 2);
+  assert.deepEqual(preview.resolution?.cancellation.sessionIds, [existing.id]);
+  assert.equal(preview.resolution?.cancellation.sourceRowIds.length, 2);
+  assert.deepEqual(preview.resolution?.cancellation.denominatorSessions, [{ id: existing.id, version: 7 }]);
+  assert.equal(preview.resolution?.cancellation.hardBlocked, true);
+});
 
 function createConcurrentInsertDb() {
   const rows: ExistingRow[] = [];

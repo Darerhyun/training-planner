@@ -731,7 +731,22 @@ CREATE TABLE upload_batches (
   parse_result    JSONB,
   created_by      UUID                REFERENCES users (id),
   created_at      TIMESTAMPTZ         NOT NULL DEFAULT now(),
-  applied_at      TIMESTAMPTZ
+  applied_at      TIMESTAMPTZ,
+  original_workbook_sha256 TEXT,
+  acknowledged_by UUID                REFERENCES users (id),
+  acknowledged_digest TEXT,
+  acknowledged_at TIMESTAMPTZ,
+  CONSTRAINT chk_upload_batches_workbook_sha256 CHECK (
+    original_workbook_sha256 IS NULL OR original_workbook_sha256 ~ '^[0-9a-f]{64}$'
+  ),
+  CONSTRAINT chk_upload_batches_acknowledged_digest CHECK (
+    acknowledged_digest IS NULL OR acknowledged_digest ~ '^[0-9a-f]{64}$'
+  ),
+  CONSTRAINT chk_upload_batches_acknowledgement_evidence CHECK (
+    (acknowledged_by IS NULL AND acknowledged_digest IS NULL AND acknowledged_at IS NULL)
+      OR (status = 'applied' AND applied_at IS NOT NULL AND acknowledged_by IS NOT NULL
+        AND acknowledged_digest IS NOT NULL AND acknowledged_at IS NOT NULL)
+  )
 );
 
 CREATE INDEX idx_upload_batches_status ON upload_batches (status);
