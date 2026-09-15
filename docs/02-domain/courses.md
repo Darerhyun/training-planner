@@ -179,6 +179,25 @@ notes           — empty, reserved for future use
 
 No `ssg_code` column. SSG TGS codes are TMS data, not planning data.
 
+## Reference-data authority
+
+The application maintains the canonical course authority used by schedule Sync.
+Each course has an immutable `code`, an active/inactive lifecycle, an optimistic
+concurrency `version`, and creation/update timestamps. Courses are deactivated
+or reactivated rather than hard-deleted, and their immutable history is retained.
+Existing catalogue rows are preserved when this authority is introduced; no
+historical audit event is invented.
+
+Course aliases remain a sibling, Admin-managed authority. Alias text is
+normalized for uniqueness but retains its original spelling, points to one
+canonical course code, and is deactivated rather than deleted. Alias and
+lifecycle changes are versioned, require an audit note, and affect future Sync
+parsing and Re-check only; they never silently rewrite an existing session.
+Canonical course create/edit notes are optional. Every successful reference
+mutation increments the record and course-namespace versions and appends one
+immutable audit event in the same transaction. Reference APIs never expose
+`fee_with_gst`, trainer rates or session economics.
+
 ## Catalog vs sessions
 
 This catalog is **static knowledge** — what the company can offer. Rarely changes.
@@ -191,7 +210,8 @@ Catalog (static, in DB)        Daily Excel upload
         ↓                              ↓
   parse-schedule service matches Excel rows → catalog course codes
         ↓
-  If code unknown → flag for review (auto-create placeholder or ask AI to resolve)
+  If code unknown → block for an explicit Admin alias/course decision or a
+  per-batch skip with a required reason
         ↓
   Planner sees calendar with full context: trainer, room, fee, programme
 ```

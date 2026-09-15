@@ -136,6 +136,9 @@ export interface RoomLookupRow {
   name: string;
 }
 
+export interface VenueAliasRow { alias: string; venue_code: string }
+export interface RoomAliasRow { alias: string; venue_code: string; room_id: string }
+
 export interface CourseResolver {
   resolve(tmsCode: string): string | null;
 }
@@ -181,6 +184,7 @@ export interface MappedScheduleRow {
   venueCode: string | null;
   roomId: string | null;
   rawVenueText: string | null;
+  rawRoomText?: string | null;
   timeText: string | null;
   expectedPax: number | null;
   confirmedPax: number | null;
@@ -201,11 +205,13 @@ export function createCourseResolver(
   aliasRows: CourseAliasRow[],
   courses: CourseLookupRow[],
 ): CourseResolver {
-  const aliases = new Map<string, string>();
+  const aliases = new Map<string, string | null>();
   const directCodes = new Map<string, string>();
 
   for (const row of aliasRows) {
-    aliases.set(normalizeCode(row.tms_code), row.catalog_code.trim());
+    const key = row.tms_code.trim().toLowerCase();
+    const target = row.catalog_code.trim();
+    aliases.set(key, aliases.has(key) && aliases.get(key) !== target ? null : target);
   }
 
   for (const course of courses) {
@@ -219,7 +225,13 @@ export function createCourseResolver(
         return null;
       }
 
-      return aliases.get(key) ?? directCodes.get(key) ?? null;
+      const aliasKey = tmsCode.trim().toLowerCase();
+      if (aliases.has(aliasKey)) {
+        const target = aliases.get(aliasKey);
+        const direct = directCodes.get(key);
+        return target && (!direct || direct === target) && directCodes.has(normalizeCode(target)) ? target : null;
+      }
+      return directCodes.get(key) ?? null;
     },
   };
 }
@@ -258,6 +270,8 @@ export function createTrainerResolver(
 export function createVenueResolver(
   venues: VenueLookupRow[],
   rooms: RoomLookupRow[],
+  aliases: VenueAliasRow[] = [],
+  roomAliases: RoomAliasRow[] = [],
 ): VenueResolver {
   const venueAliases = new Map([['VIRTUAL', 'HBL']]);
   const addressVenuePatterns = [
@@ -282,7 +296,13 @@ export function createVenueResolver(
   return {
     resolve(venueText: string, roomName?: string | null): VenueResolution {
       const normalizedVenueText = normalizeText(venueText);
-      const venueCode = venueAliases.get(normalizedVenueText)
+      if (venueText.trim().toLowerCase() === 'hotel') return { venueCode: null, roomId: null, roomWasExpected: false, roomState: 'not_applicable' };
+      const explicit = aliases.filter((a) => a.alias.trim().toLowerCase() === venueText.trim().toLowerCase());
+      const explicitTargets = new Set(explicit.map((a) => a.venue_code));
+      const canonicalExact = venues.filter((v) => [v.code, v.name, v.address].some((s) => s?.trim().toLowerCase() === venueText.trim().toLowerCase()));
+      const allExact = new Set([...explicitTargets, ...canonicalExact.map((v) => v.code)]);
+      if (allExact.size > 1 || (explicit.length && !venues.some((v) => explicitTargets.has(v.code)))) return { venueCode: null, roomId: null, roomWasExpected: false, roomState: 'not_applicable' };
+      const legacyCode = venueAliases.get(normalizedVenueText)
         ?? addressVenuePatterns.find((venue) =>
           normalizedVenueText.includes(venue.pattern),
         )?.venueCode
@@ -291,6 +311,8 @@ export function createVenueResolver(
             (pattern) => pattern && normalizedVenueText.includes(pattern),
           ),
         )?.venueCode ?? null;
+      const candidateCode = explicit[0]?.venue_code ?? legacyCode;
+      const venueCode = venues.some((v) => v.code === candidateCode) ? candidateCode : null;
       const venueType =
         venuePatterns.find((venue) => venue.venueCode === venueCode)?.venueType ?? null;
 
@@ -301,9 +323,12 @@ export function createVenueResolver(
       const roomInput = roomName === undefined
         ? normalizedVenueText
         : normalizeText(stripRoomPrefix(roomName ?? ''));
-      const room = possibleRooms.find((candidate) =>
+      const explicitRooms = roomName == null ? [] : roomAliases.filter((a) => a.venue_code === venueCode && a.alias.trim().toLowerCase() === roomName.trim().toLowerCase());
+      const directRooms = possibleRooms.filter((candidate) =>
         roomNameAppearsInVenueText(candidate.roomName, roomInput),
       );
+      const targets = new Set([...explicitRooms.map((a) => a.room_id), ...directRooms.map((r) => r.roomId)]);
+      const room = targets.size === 1 ? possibleRooms.find((r) => targets.has(r.roomId)) : undefined;
       const roomState = venueType !== 'owned'
         ? 'not_applicable'
         : room
@@ -528,6 +553,7 @@ export function mapMasterScheduleRow(
     venueCode: venue.venueCode,
     roomId: venue.roomId,
     rawVenueText,
+    rawRoomText: rawRoomName ?? null,
     timeText,
     expectedPax,
     confirmedPax,

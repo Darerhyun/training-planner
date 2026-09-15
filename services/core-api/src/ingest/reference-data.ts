@@ -10,6 +10,8 @@ import type {
   TrainerAliasRow,
   TrainerLookupRow,
   VenueLookupRow,
+  VenueAliasRow,
+  RoomAliasRow,
 } from './master-schedule-mapping.js';
 
 interface CsvCourseRow {
@@ -234,27 +236,30 @@ export async function finalizeTrainerDirectoryReferenceData(
   await db('SELECT finalize_trainer_directory_reference_data()');
 }
 
-export async function loadScheduleLookups(): Promise<{
+export async function loadScheduleLookups(db: SqlQuery = getDb()): Promise<{
   courseAliases: CourseAliasRow[];
   courses: CourseLookupRow[];
   trainerAliases: TrainerAliasRow[];
   trainers: TrainerLookupRow[];
   venues: VenueLookupRow[];
   rooms: RoomLookupRow[];
+  venueAliases: VenueAliasRow[];
+  roomAliases: RoomAliasRow[];
 }> {
-  const db = getDb();
-  const [courseAliases, courses, trainerAliases, trainers, venues, rooms] =
+  const [courseAliases, courses, trainerAliases, trainers, venues, rooms, venueAliases, roomAliases] =
     await Promise.all([
-      db<CourseAliasRow>('SELECT tms_code, catalog_code FROM course_aliases'),
-      db<CourseLookupRow>('SELECT code FROM courses'),
+      db<CourseAliasRow>('SELECT a.tms_code, a.catalog_code FROM course_aliases a JOIN courses c ON c.code=a.catalog_code WHERE a.is_active AND c.is_active'),
+      db<CourseLookupRow>('SELECT code FROM courses WHERE is_active'),
       db<TrainerAliasRow>(
         `SELECT alias_name AS tms_name, trainer_id
          FROM trainer_aliases
          WHERE source IN ('tms', 'rate_excel', 'schedule_excel')`,
       ),
       db<TrainerLookupRow>('SELECT trainer_id, name FROM trainers WHERE is_active = TRUE'),
-      db<VenueLookupRow>('SELECT code, name, type, address FROM venues'),
-      db<RoomLookupRow>('SELECT room_id, venue_code, name FROM rooms'),
+      db<VenueLookupRow>('SELECT code, name, type, address FROM venues WHERE is_active'),
+      db<RoomLookupRow>("SELECT r.room_id, r.venue_code, r.name FROM rooms r JOIN venues v ON v.code=r.venue_code WHERE r.is_active AND v.is_active AND v.type='owned'"),
+      db<VenueAliasRow>('SELECT a.alias, a.venue_code FROM venue_aliases a JOIN venues v ON v.code=a.venue_code WHERE a.is_active AND v.is_active'),
+      db<RoomAliasRow>("SELECT a.alias, a.venue_code, a.room_id FROM room_aliases a JOIN rooms r ON r.room_id=a.room_id AND r.venue_code=a.venue_code JOIN venues v ON v.code=a.venue_code WHERE a.is_active AND r.is_active AND v.is_active AND v.type='owned'"),
     ]);
 
   return {
@@ -264,6 +269,8 @@ export async function loadScheduleLookups(): Promise<{
     trainers,
     venues,
     rooms,
+    venueAliases,
+    roomAliases,
   };
 }
 

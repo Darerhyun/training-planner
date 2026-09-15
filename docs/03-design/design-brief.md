@@ -1,6 +1,6 @@
-# Training Planner — Design Brief (v1.5, 2026-09-09)
+# Training Planner — Design Brief (v1.6, 2026-09-10)
 
-Load this before any Claude Design canvas or UI critique for the Training Planner. It records what the current UI is, what the brand is, what the Lovable reference contributes, and the agreed direction. PR3K is documented against `main` @ `645ea70b816a82fae3482dd862d8602c92035106`; the historical PR3J design target remains `17f3168535869b93f8c3fc01b93a74c4f3d2a97b`, and PR3G-V inputs were cut at `53bffa55` and deployed in `0b97a9a7`. The Lovable export "Project Spec UI 1" (TanStack Start + Tailwind v4 + shadcn) is a presentation reference only; its Supabase, TanStack, Tailwind/Radix, realtime, and AI code must not be imported.
+Load this before any Claude Design canvas or UI critique for the Training Planner. It records what the current UI is, what the brand is, what the Lovable reference contributes, and the agreed direction. PR3K's implementation target is the repository source baseline recorded in `infra/baselines.json`; the historical PR3J design target and PR3G-V inputs remain immutable review evidence. The Lovable export "Project Spec UI 1" (TanStack Start + Tailwind v4 + shadcn) is a presentation reference only; its Supabase, TanStack, Tailwind/Radix, realtime, and AI code must not be imported.
 
 ## 1. Product and users
 
@@ -92,12 +92,18 @@ The single PR3J UI/IX reference is `docs/03-design/admin-pr3j/README.md` (V10; t
 ## 7e. PR3K Admin — Rate categories and Rate Reconciliation design rules
 
 The authoritative PR3K UI/IX contract is
-`docs/03-design/admin-pr3k-rate-reconciliation/README.md` (revision 4,
-2026-09-09). Admin remains one primary navigation area with this exact section
-tablist: **User Access | Trainer Directory | Rate categories | Rate
-Reconciliation**. Rate categories is the third subtab and Rate Reconciliation
-is the fourth. Finance keeps its existing read-only economics view elsewhere;
-Ops and Viewer receive neither tab, route, data, nor fee values.
+`docs/03-design/admin-pr3k-rate-reconciliation/README.md` (revision 5,
+2026-09-10). Admin remains one primary navigation area with this exact section
+tablist: **User Access | Trainer Directory | Reference data | Rate categories |
+Rate Reconciliation**. Reference data is the third subtab, Rate categories is
+the fourth, and Rate Reconciliation is the fifth. Finance keeps its existing
+read-only economics view elsewhere; Ops and Viewer receive none of these tabs,
+routes, data, or fee values.
+
+Reference data is the Admin-only canonical authority for courses, venues, owned
+rooms and their sibling aliases. Its screen is a later implementation
+workstream; it uses the same white/red system and Admin User Access patterns,
+shows lifecycle and dependency states, and never shows rates or economics.
 
 Rate categories is the first bounded PR3K sub-workstream. It is an Admin-only
 mapping screen over active canonical courses, grouped by programme, keyed by
@@ -152,4 +158,4 @@ or current-economics cutover is part of this documentation.
 
 ## 8. How to use this brief (governance updated 2026-09-14)
 
-Claude loads this brief, then opens a Claude Design canvas. Approved mockups are exported as PNG and committed to the repository together with this brief under `docs/03-design/` so they are immutable review inputs before a UI PR is authorised. Delivery: Luna Max / Astra XHigh implement on a branch from the exact target baseline under `WORKFLOW_HARNESS.md`; a PR may include schema, API and UI work when the work order says so (PR3J does: `trainers` readiness and version columns, `trainer_change_events`, alias index, new Admin routes, and the Admin UI). Review: Sol High reviews technical correctness (schema/API/security/tests) and Claude reviews UI/IX conformance against the committed artboards and README criteria, both on the same exact head; neither edits. Terra Max is retired from the workflow. Owen gives final product and release approval; Claude re-renders the implemented UI at 1440, 390 and 320 with synthetic fixtures before approval.
+Claude loads this brief, then opens a Claude Design canvas. Approved mockups are exported as PNG and committed to the repository together with this brief under `docs/03-design/` so they are immutable review inputs before a UI PR is authorised. Delivery: Luna Max / Astra XHigh implement on a branch from the exact target baseline under `WORKFLOW_HARNESS.md`; a PR may include schema, API and UI work when the work order says so (PR3J does: `trainers` readiness and version columns, `trainer_change_events`, alias index, new Admin routes, and the Admin UI). Reference-data foundation work is separately reviewable from its later UI; it does not alter PR3J or PR3K behavior. Review: Sol High reviews technical correctness (schema/API/security/tests) and Claude reviews UI/IX conformance against the committed artboards and README criteria, both on the same exact head; neither edits. Terra Max is retired from the workflow. Owen gives final product and release approval; Claude re-renders the implemented UI at 1440, 390 and 320 with synthetic fixtures before approval.

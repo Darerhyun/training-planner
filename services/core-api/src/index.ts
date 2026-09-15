@@ -13,6 +13,7 @@ import { syncRoutes } from './routes/sync.js';
 import { uploadsRoutes } from './routes/uploads.js';
 import { adminUsersRoutes } from './routes/admin-users.js';
 import { adminTrainersRoutes } from './routes/admin-trainers.js';
+import { adminReferenceDataRoutes } from './routes/admin-reference-data.js';
 
 const app = new Hono<AppEnv>();
 
@@ -35,6 +36,7 @@ app.route('/', healthRoutes);
 app.route('/', meRoutes);
 app.route('/', adminUsersRoutes);
 app.route('/', adminTrainersRoutes);
+app.route('/', adminReferenceDataRoutes);
 app.route('/', uploadsRoutes);
 app.route('/', syncRoutes);
 app.route('/', createPlanningRoutes());

@@ -106,10 +106,17 @@ CREATE TABLE courses (
   fee_with_gst    NUMERIC(10,2),  -- total price incl 9% GST; NULL if unknown
   is_capstone     BOOLEAN     NOT NULL DEFAULT FALSE,
   recently_added  BOOLEAN     NOT NULL DEFAULT FALSE,
-  notes           TEXT
+  notes           TEXT,
+  is_active       BOOLEAN     NOT NULL DEFAULT TRUE,
+  version         INTEGER     NOT NULL DEFAULT 1 CHECK (version > 0),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_courses_notes_length CHECK (notes IS NULL OR char_length(notes) <= 500)
 );
 
 CREATE INDEX idx_courses_programme ON courses (programme_code);
+CREATE UNIQUE INDEX idx_courses_code_normalized
+  ON courses (lower(btrim(code)));
 
 -- Programme dimension: identity, lifecycle status, supersession.
 -- No FK from courses.programme_code yet (avoids seed-order coupling; added later).
@@ -227,10 +234,17 @@ CREATE UNIQUE INDEX idx_trainer_aliases_alias_name_normalized
 CREATE TABLE course_aliases (
   tms_code        TEXT        PRIMARY KEY,
   catalog_code    TEXT        NOT NULL REFERENCES courses (code) ON UPDATE CASCADE,
-  notes           TEXT
+  notes           TEXT,
+  is_active       BOOLEAN     NOT NULL DEFAULT TRUE,
+  version         INTEGER     NOT NULL DEFAULT 1 CHECK (version > 0),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_course_aliases_notes_length CHECK (notes IS NULL OR char_length(notes) <= 500)
 );
 
 CREATE INDEX idx_course_aliases_catalog ON course_aliases (catalog_code);
+CREATE UNIQUE INDEX idx_course_aliases_tms_code_normalized
+  ON course_aliases (lower(btrim(tms_code)));
 
 -- ---------------------------------------------------------------------------
 -- 4. Trainer ↔ Course skill matrix
@@ -475,8 +489,16 @@ CREATE TABLE venues (
   name            TEXT        NOT NULL,
   type            venue_type  NOT NULL,
   address         TEXT,
-  notes           TEXT
+  notes           TEXT,
+  is_active       BOOLEAN     NOT NULL DEFAULT TRUE,
+  version         INTEGER     NOT NULL DEFAULT 1 CHECK (version > 0),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_venues_notes_length CHECK (notes IS NULL OR char_length(notes) <= 500)
 );
+
+CREATE UNIQUE INDEX idx_venues_code_normalized
+  ON venues (lower(btrim(code)));
 
 -- ---------------------------------------------------------------------------
 -- 9. Rooms (only for 'owned' venues)
@@ -486,10 +508,215 @@ CREATE TABLE rooms (
   venue_code      TEXT        NOT NULL REFERENCES venues (code),
   name            TEXT        NOT NULL,
   capacity        INT,                        -- NULL = not yet captured
-  notes           TEXT
+  notes           TEXT,
+  is_active       BOOLEAN     NOT NULL DEFAULT TRUE,
+  version         INTEGER     NOT NULL DEFAULT 1 CHECK (version > 0),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_rooms_capacity_nonnegative CHECK (capacity IS NULL OR capacity >= 0),
+  CONSTRAINT chk_rooms_notes_length CHECK (notes IS NULL OR char_length(notes) <= 500),
+  CONSTRAINT uq_rooms_room_venue UNIQUE (room_id, venue_code)
 );
 
 CREATE INDEX idx_rooms_venue ON rooms (venue_code);
+CREATE UNIQUE INDEX idx_rooms_room_id_normalized
+  ON rooms (lower(btrim(room_id)));
+
+-- ---------------------------------------------------------------------------
+-- 9a. Venue and room aliases
+-- ---------------------------------------------------------------------------
+CREATE TABLE venue_aliases (
+  alias       TEXT PRIMARY KEY,
+  venue_code  TEXT NOT NULL REFERENCES venues (code) ON UPDATE CASCADE,
+  notes       TEXT,
+  is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+  version     INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_venue_aliases_alias_nonempty CHECK (char_length(btrim(alias)) > 0),
+  CONSTRAINT chk_venue_aliases_notes_length CHECK (notes IS NULL OR char_length(notes) <= 500)
+);
+
+CREATE UNIQUE INDEX idx_venue_aliases_alias_normalized
+  ON venue_aliases (lower(btrim(alias)));
+
+CREATE TABLE room_aliases (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  venue_code  TEXT NOT NULL,
+  alias       TEXT NOT NULL,
+  room_id     TEXT NOT NULL,
+  notes       TEXT,
+  is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+  version     INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT fk_room_aliases_room_venue
+    FOREIGN KEY (room_id, venue_code) REFERENCES rooms (room_id, venue_code)
+      ON UPDATE CASCADE,
+  CONSTRAINT chk_room_aliases_alias_nonempty CHECK (char_length(btrim(alias)) > 0),
+  CONSTRAINT chk_room_aliases_notes_length CHECK (notes IS NULL OR char_length(notes) <= 500)
+);
+
+CREATE UNIQUE INDEX idx_room_aliases_venue_alias_normalized
+  ON room_aliases (venue_code, lower(btrim(alias)));
+
+-- ---------------------------------------------------------------------------
+-- 9b. Reference-data namespace revisions and immutable audit
+-- ---------------------------------------------------------------------------
+CREATE TABLE reference_data_namespace_revisions (
+  namespace   TEXT PRIMARY KEY CHECK (
+    namespace IN ('courses', 'venues', 'rooms', 'course_aliases', 'venue_aliases', 'room_aliases')
+  ),
+  revision    BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO reference_data_namespace_revisions (namespace)
+VALUES
+  ('courses'), ('venues'), ('rooms'),
+  ('course_aliases'), ('venue_aliases'), ('room_aliases');
+
+CREATE TYPE reference_data_entity AS ENUM (
+  'course', 'venue', 'room', 'course_alias', 'venue_alias', 'room_alias'
+);
+CREATE TYPE reference_data_change_action AS ENUM (
+  'course_created', 'course_updated', 'course_deactivated', 'course_reactivated',
+  'venue_created', 'venue_updated', 'venue_deactivated', 'venue_reactivated',
+  'room_created', 'room_updated', 'room_deactivated', 'room_reactivated',
+  'course_alias_created', 'course_alias_retargeted',
+  'course_alias_deactivated', 'course_alias_reactivated',
+  'venue_alias_created', 'venue_alias_retargeted',
+  'venue_alias_deactivated', 'venue_alias_reactivated',
+  'room_alias_created', 'room_alias_retargeted',
+  'room_alias_deactivated', 'room_alias_reactivated'
+);
+
+CREATE TABLE reference_data_change_events (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  entity_type      reference_data_entity NOT NULL,
+  entity_id        TEXT NOT NULL,
+  namespace        TEXT NOT NULL REFERENCES reference_data_namespace_revisions (namespace),
+  actor_user_id    UUID NOT NULL REFERENCES users (id),
+  action           reference_data_change_action NOT NULL,
+  previous_version INTEGER,
+  new_version      INTEGER NOT NULL,
+  previous_state   JSONB,
+  new_state        JSONB NOT NULL,
+  note             TEXT,
+  metadata         JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_reference_event_previous_version_positive CHECK (previous_version IS NULL OR previous_version > 0),
+  CONSTRAINT chk_reference_event_new_version_positive CHECK (new_version > 0),
+  CONSTRAINT chk_reference_event_note_length CHECK (note IS NULL OR char_length(note) BETWEEN 1 AND 500)
+);
+
+CREATE INDEX idx_reference_data_events_entity_time
+  ON reference_data_change_events (entity_type, entity_id, created_at DESC, id DESC);
+CREATE INDEX idx_reference_data_events_namespace_time
+  ON reference_data_change_events (namespace, created_at DESC, id DESC);
+
+CREATE OR REPLACE FUNCTION prevent_reference_data_change_event_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $$ BEGIN
+  RAISE EXCEPTION 'reference_data_change_events is append-only';
+END $$;
+CREATE TRIGGER trg_reference_data_change_events_append_only
+  BEFORE UPDATE OR DELETE ON reference_data_change_events
+  FOR EACH ROW EXECUTE FUNCTION prevent_reference_data_change_event_mutation();
+
+CREATE OR REPLACE FUNCTION prevent_reference_data_identity_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+  identity_column TEXT;
+BEGIN
+  FOREACH identity_column IN ARRAY TG_ARGV LOOP
+    IF to_jsonb(OLD)->>identity_column IS DISTINCT FROM to_jsonb(NEW)->>identity_column THEN
+      RAISE EXCEPTION '% identity or scope is immutable', TG_TABLE_NAME;
+    END IF;
+  END LOOP;
+  RETURN NEW;
+END $$;
+
+CREATE OR REPLACE FUNCTION prevent_reference_data_delete() RETURNS trigger
+LANGUAGE plpgsql AS $$ BEGIN
+  RAISE EXCEPTION '% records and aliases are never hard-deleted', TG_TABLE_NAME;
+END $$;
+
+CREATE OR REPLACE FUNCTION prevent_venue_deactivation_with_active_rooms() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF OLD.is_active AND NOT NEW.is_active
+    AND EXISTS (SELECT 1 FROM rooms WHERE venue_code = OLD.code AND is_active) THEN
+    RAISE EXCEPTION 'venue cannot deactivate while active rooms exist'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE OR REPLACE FUNCTION prevent_owned_venue_type_change_with_rooms() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF OLD.type = 'owned' AND NEW.type <> 'owned'
+    AND EXISTS (SELECT 1 FROM rooms WHERE venue_code = OLD.code) THEN
+    RAISE EXCEPTION 'owned venue type cannot change while rooms exist'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE OR REPLACE FUNCTION require_active_owned_venue_for_room() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+  venue_active BOOLEAN;
+  venue_kind TEXT;
+BEGIN
+  IF NEW.is_active THEN
+    SELECT v.is_active, v.type::text
+      INTO venue_active, venue_kind
+      FROM venues AS v
+      WHERE v.code = NEW.venue_code FOR UPDATE;
+    IF NOT FOUND OR venue_active IS DISTINCT FROM TRUE OR venue_kind <> 'owned' THEN
+      RAISE EXCEPTION 'rooms require an active owned venue'
+        USING ERRCODE = '23514';
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE TRIGGER trg_courses_identity_immutable BEFORE UPDATE ON courses
+  FOR EACH ROW EXECUTE FUNCTION prevent_reference_data_identity_mutation('code');
+CREATE TRIGGER trg_venues_identity_immutable BEFORE UPDATE ON venues
+  FOR EACH ROW EXECUTE FUNCTION prevent_reference_data_identity_mutation('code');
+CREATE TRIGGER trg_rooms_identity_immutable BEFORE UPDATE ON rooms
+  FOR EACH ROW EXECUTE FUNCTION prevent_reference_data_identity_mutation('room_id', 'venue_code');
+CREATE TRIGGER trg_course_aliases_identity_immutable BEFORE UPDATE ON course_aliases
+  FOR EACH ROW EXECUTE FUNCTION prevent_reference_data_identity_mutation('tms_code');
+CREATE TRIGGER trg_venue_aliases_identity_immutable BEFORE UPDATE ON venue_aliases
+  FOR EACH ROW EXECUTE FUNCTION prevent_reference_data_identity_mutation('alias');
+CREATE TRIGGER trg_room_aliases_identity_immutable BEFORE UPDATE ON room_aliases
+  FOR EACH ROW EXECUTE FUNCTION prevent_reference_data_identity_mutation('id', 'alias', 'venue_code');
+
+CREATE OR REPLACE TRIGGER trg_venues_deactivation_requires_no_active_rooms
+  BEFORE UPDATE OF is_active ON venues
+  FOR EACH ROW EXECUTE FUNCTION prevent_venue_deactivation_with_active_rooms();
+CREATE TRIGGER trg_venues_type_requires_no_rooms
+  BEFORE UPDATE OF type ON venues
+  FOR EACH ROW EXECUTE FUNCTION prevent_owned_venue_type_change_with_rooms();
+CREATE TRIGGER trg_rooms_require_active_owned_venue
+  BEFORE INSERT OR UPDATE OF is_active, venue_code ON rooms
+  FOR EACH ROW EXECUTE FUNCTION require_active_owned_venue_for_room();
+
+CREATE TRIGGER trg_courses_no_delete BEFORE DELETE ON courses
+  FOR EACH ROW EXECUTE FUNCTION prevent_reference_data_delete();
+CREATE TRIGGER trg_venues_no_delete BEFORE DELETE ON venues
+  FOR EACH ROW EXECUTE FUNCTION prevent_reference_data_delete();
+CREATE TRIGGER trg_rooms_no_delete BEFORE DELETE ON rooms
+  FOR EACH ROW EXECUTE FUNCTION prevent_reference_data_delete();
+CREATE TRIGGER trg_course_aliases_no_delete BEFORE DELETE ON course_aliases
+  FOR EACH ROW EXECUTE FUNCTION prevent_reference_data_delete();
+CREATE TRIGGER trg_venue_aliases_no_delete BEFORE DELETE ON venue_aliases
+  FOR EACH ROW EXECUTE FUNCTION prevent_reference_data_delete();
+CREATE TRIGGER trg_room_aliases_no_delete BEFORE DELETE ON room_aliases
+  FOR EACH ROW EXECUTE FUNCTION prevent_reference_data_delete();
 
 -- ---------------------------------------------------------------------------
 -- 10. Upload batches
@@ -527,6 +754,7 @@ CREATE TABLE sessions (
   venue_code      TEXT            REFERENCES venues (code),
   room_id         TEXT            REFERENCES rooms (room_id),
   raw_venue_text  TEXT,           -- raw TMS venue/address field
+  raw_room_text   TEXT,           -- raw TMS room field retained for future repair evidence
   time_text       TEXT,           -- TMS time range, stored as text for PR2
   status          session_status  NOT NULL DEFAULT 'draft',
 

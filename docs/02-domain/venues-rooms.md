@@ -140,6 +140,34 @@ capacity    — integer (max pax). Blank means not yet captured.
 notes       — free text
 ```
 
+## Reference-data authority
+
+The application maintains courses, venues and rooms as Admin-managed canonical
+reference records for Sync. Venue `code` and room `room_id` plus its
+`venue_code` scope are immutable. Each record has an active/inactive lifecycle,
+an optimistic-concurrency `version`, and timestamps; records are deactivated or
+reactivated rather than hard-deleted, and audit evidence remains immutable.
+
+Venue aliases and room aliases are sibling tables. A venue alias resolves only
+to its canonical venue. A room alias resolves only after the venue has resolved
+and is unique within `(venue_code, normalized_alias)`, so the same room label at
+two venues cannot cross-resolve. Alias text and scope are immutable; alias and
+lifecycle writes require an audit note, while ordinary canonical create/edit
+notes are optional. Successful mutations update the record and namespace
+revision and append one audit event atomically. Changes affect future parsing
+and Re-check only and never silently rewrite an existing session.
+
+Deactivation is dependency-safe: a venue cannot deactivate while active venue
+aliases or active rooms remain, and a room cannot deactivate while active room
+aliases remain. Dependents must be deactivated separately with their own audit
+evidence. Active rooms require an active owned venue; an owned venue cannot
+change type while rooms remain. Reference APIs expose no trainer rates, fee
+values or session economics.
+
+Future schedule imports persist the raw room source text alongside the resolved
+room ID. If an older session never stored room text, an existing-session repair
+must show **Original room text unavailable** rather than fabricate or infer it.
+
 ## Counts
 
 - Venues: 9 (2 owned, 6 external, 1 virtual)
