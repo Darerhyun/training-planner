@@ -427,6 +427,23 @@ select option { color: var(--text); }
   padding-top: 10px;
 }
 .alert-row em { color: var(--warning); font-style: normal; overflow-wrap: anywhere; }
+.sync-resolution-list { display: grid; gap: 10px; margin-top: 12px; }
+.sync-resolution-row {
+  align-items: start;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ask-red);
+  border-radius: 9px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 280px);
+  padding: 12px;
+}
+.sync-resolution-row > div:first-child { display: grid; gap: 4px; min-width: 0; }
+.sync-resolution-row span, .sync-resolution-row p { color: var(--text-muted); font-size: 0.76rem; margin: 0; overflow-wrap: anywhere; }
+.sync-skip-control { display: grid; gap: 6px; min-width: 0; }
+.sync-skip-control label { color: #475467; font-size: 0.75rem; font-weight: 700; }
+.sync-skip-control textarea { min-height: 72px; resize: vertical; width: 100%; }
+.sync-skip-control > span { text-align: right; }
 
 .action-row, .toolbar, .check-row { align-items: center; display: flex; gap: 10px; }
 .toolbar { flex-wrap: wrap; justify-content: flex-end; }
@@ -701,6 +718,7 @@ td span + span { margin-top: 2px; }
   .planning-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .course-planning-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .alert-row { grid-template-columns: 1fr; }
+  .sync-resolution-row { grid-template-columns: minmax(0, 1fr); }
   .planning-hero { align-items: flex-start; flex-direction: column; }
   .planning-hero .toolbar { justify-content: flex-start; width: 100%; }
   .filter-panel-heading { align-items: flex-start; gap: 8px; }

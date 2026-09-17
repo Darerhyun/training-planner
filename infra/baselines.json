@@ -2,8 +2,8 @@
   "version": 1,
   "description": "Single source of truth for repository and deployment baselines. Prose documents point here and must not restate the SHAs. sourceBaseline is the main commit inspected read-only for the current documentation work and must be an ancestor of HEAD. deployedBaseline is last-verified evidence and is updated only by the DEPLOYMENT REPORT step of WORKFLOW_HARNESS.md section 3, never by a documentation PR.",
   "sourceBaseline": {
-    "sha": "6007159630f567f9d4e0fa3deee4922354243ec9",
-    "verifiedAt": "2026-09-14",
+    "sha": "a993470122b1b96f2e1795ebf0648af9eacecefa",
+    "verifiedAt": "2026-09-15",
     "verifiedBy": "Sol (read-only inspection)"
   },
   "deployedBaseline": {

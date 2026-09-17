@@ -38,6 +38,55 @@ export interface ScheduleParseResult {
     blockReason: string | null;
   };
   previewDigest?: string;
+  resolution?: ScheduleResolution;
+}
+
+export const SCHEDULE_PARSER_VERSION = 'sync-resolution-1';
+export const REFERENCE_NAMESPACES = ['course_aliases', 'courses', 'room_aliases', 'rooms', 'venue_aliases', 'venues'] as const;
+
+export interface ScheduleRowDecision {
+  sourceRowId: string;
+  action: 'skip';
+  reason: string;
+  actorId: string;
+  decidedAt: string;
+}
+
+export interface ScheduleRowOutcome {
+  sourceRowId: string;
+  rowNumber: number;
+  outcome: 'apply' | 'skipped' | 'blocked';
+  operation: 'insert' | 'update' | 'unchanged' | 'cancellation' | null;
+  canSkip: boolean;
+  correspondenceProven: boolean;
+  externalRef: string | null;
+  sessionId: string | null;
+  issues: string[];
+  reason: string | null;
+}
+
+export interface ScheduleResolution {
+  rechecked: boolean;
+  decisions: ScheduleRowDecision[];
+  outcomes: ScheduleRowOutcome[];
+  counts: { total: number; apply: number; skipped: number; blocked: number };
+  cancellation: {
+    numerator: number;
+    denominator: number;
+    sourceRowIds: string[];
+    sessionIds: string[];
+    denominatorSessions: Array<{ id: string; version: number }>;
+    hardBlocked: boolean;
+  };
+  freshness: {
+    objectName: string;
+    workbookSha256: string;
+    parserVersion: string;
+    namespaceRevisions: Array<{ namespace: string; revision: string }>;
+    trainerReferenceDigest: string;
+    resolvedTrainers: Array<{ trainer_id: string; version: number; is_active: boolean; scheduling_readiness: string }>;
+    sessions: Array<{ externalRef: string; sessionId: string | null; version: number | null }>;
+  };
 }
 
 export interface SchedulePreview extends ScheduleParseResult {
@@ -108,6 +157,9 @@ export function isBlockingScheduleAlertCode(code: string): boolean {
 }
 
 export function isSchedulePreviewBlocked(result: ScheduleParseResult): boolean {
+  if (result.resolution) {
+    return result.summary.blocked || result.resolution.counts.blocked > 0 || result.resolution.cancellation.hardBlocked;
+  }
   const alerts = [
     ...result.alerts,
     ...result.rows.flatMap((row) => row.alerts),
@@ -164,8 +216,8 @@ type ScheduleRowClassification =
   | { kind: 'update'; externalRef: string; existing: ExistingSessionRow }
   | { kind: 'conflict'; externalRef: string; conflict: ScheduleImportConflict };
 
-export async function parseScheduleWorkbook(buffer: Buffer): Promise<ScheduleParseResult> {
-  const lookups = await loadScheduleLookups();
+export async function parseScheduleWorkbook(buffer: Buffer, db: SqlQuery = getDb()): Promise<ScheduleParseResult> {
+  const lookups = await loadScheduleLookups(db);
   const resolvers = {
     courses: createCourseResolver(lookups.courseAliases, lookups.courses),
     trainers: createTrainerResolver(lookups.trainerAliases, lookups.trainers),
@@ -185,7 +237,7 @@ export async function parseScheduleWorkbook(buffer: Buffer): Promise<SchedulePar
 
   const rawRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
     header: 1,
-    blankrows: false,
+    blankrows: true,
     raw: false,
   });
   const headerRow = rawRows[MASTER_SCHEDULE_HEADER_ROW - 1];
@@ -207,7 +259,147 @@ export async function parseScheduleWorkbook(buffer: Buffer): Promise<SchedulePar
       ),
     );
 
-  return summarizeRows(mappedRows);
+  return summarizeRows(mappedRows, db);
+}
+
+/** Acquire the same reference-write mutex as the Admin API, then prevent both
+ * session phantoms and non-cooperating trainer/reference writes. Table locks
+ * are transaction-scoped; no session write begins before the complete snapshot
+ * is validated. Sessions are locked first because trainer amendments lock a
+ * session before consulting trainer state. */
+export async function lockScheduleResolution(db: SqlQuery): Promise<void> {
+  await db('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', ['reference-data-writes']);
+  await db('LOCK TABLE sessions IN SHARE ROW EXCLUSIVE MODE');
+  await db('LOCK TABLE course_aliases, courses, reference_data_namespace_revisions, room_aliases, rooms, trainer_aliases, trainers, venue_aliases, venues IN SHARE MODE');
+}
+
+export function scheduleSourceRowId(batchId: string, workbookSha256: string, rowNumber: number): string {
+  return createHash('sha256').update(stableSerialize([batchId, workbookSha256, rowNumber])).digest('hex');
+}
+
+/** Called only with the transaction's resolution locks held. Reads contain no
+ * fees, economics, reference writes or inferred training dates. */
+export async function resolveSchedulePreview(
+  parsed: ScheduleParseResult,
+  context: { batchId: string; objectName: string; workbookSha256: string; rechecked: boolean },
+  decisions: ScheduleRowDecision[],
+  db: SqlQuery,
+): Promise<SchedulePreview> {
+  const namespaceRevisions = await db<{ namespace: string; revision: string }>(
+    'SELECT namespace, revision::text AS revision FROM reference_data_namespace_revisions ORDER BY namespace',
+  );
+  if (namespaceRevisions.length !== 6 || REFERENCE_NAMESPACES.some((name, index) =>
+    namespaceRevisions[index]?.namespace !== name || !/^[1-9]\d*$/.test(namespaceRevisions[index]?.revision ?? ''))) {
+    throw new Error('The six reference namespace revisions must be available before Sync.');
+  }
+  const trainers = await db<{ trainer_id: string; name: string; version: number; is_active: boolean; scheduling_readiness: string }>(
+    'SELECT trainer_id, name, version, is_active, scheduling_readiness::text FROM trainers ORDER BY trainer_id',
+  );
+  const trainerAliases = await db<{ id: number; trainer_id: string; alias_name: string; source: string | null }>(
+    'SELECT id, trainer_id, alias_name, source FROM trainer_aliases ORDER BY id',
+  );
+  const existingRows = await db<ExistingSessionRow>(
+    `SELECT id, external_ref, management_source::text AS management_source,
+      course_code, trainer_id, venue_code, room_id, status,
+      start_date::text, end_date::text, expected_pax, confirmed_pax, time_text, version
+     FROM sessions WHERE external_ref IS NOT NULL ORDER BY external_ref, id`,
+  );
+  const existingByRef = new Map(existingRows.map((row) => [row.external_ref, row]));
+  const refs = parsed.rows.map((row) => row.startDate && row.endDate ? buildExternalRef(row) : null);
+  const sourceIds = parsed.rows.map((row) => scheduleSourceRowId(context.batchId, context.workbookSha256, row.rowNumber));
+  if (new Set(sourceIds).size !== sourceIds.length) throw new ScheduleApplyStaleError('Source row identities are not unique.');
+  const decisionById = new Map(decisions.map((decision) => [decision.sourceRowId, decision]));
+  if (decisionById.size !== decisions.length || decisions.some((decision) =>
+    !sourceIds.includes(decision.sourceRowId) || decision.action !== 'skip' ||
+    !decision.reason.trim() || decision.reason !== decision.reason.trim() || decision.reason.length > 500)) {
+    throw new ScheduleApplyStaleError('Stored row decisions do not match this workbook.');
+  }
+  const conflicts: ScheduleImportConflict[] = [];
+  let inserts = 0; let updates = 0; let unchanged = 0;
+  const outcomes = parsed.rows.map((row, index): ScheduleRowOutcome => {
+    const externalRef = refs[index];
+    const existing = externalRef ? existingByRef.get(externalRef) ?? null : null;
+    const classification = classifyScheduleRow(existing, row, externalRef ?? '');
+    const blockers = row.alerts.filter((alert) => isBlockingScheduleAlertCode(alert.code));
+    const malformed = blockers.some((alert) => !['unknown_course', 'unknown_trainer', 'unknown_venue', 'unknown_room'].includes(alert.code));
+    const stableIds = [...new Set([row.aliasBatchId, row.batchId].filter(
+      (value): value is string => Boolean(value && /^[A-Z]+-\d{4}-\d+$/.test(value)),
+    ))];
+    const duplicate = externalRef !== null && (refs.filter((ref) => ref === externalRef).length !== 1 ||
+      existingRows.filter((session) => session.external_ref === externalRef).length > 1);
+    // Unresolved fallback identity cannot prove correspondence: its course may
+    // change after reference repair. Conflicting source batch IDs also fail closed.
+    const correspondenceProven = Boolean(externalRef && !duplicate && stableIds.length <= 1 &&
+      (stableIds.length === 1 || (row.courseCode && row.tmsCode && !malformed)));
+    const issues = blockers.map((alert) => alert.message);
+    if (duplicate) issues.push('Duplicate source correspondence must be corrected in the workbook.');
+    if (stableIds.length > 1) issues.push('Conflicting source batch IDs prevent safe correspondence.');
+    if (classification.kind === 'conflict') {
+      conflicts.push(classification.conflict);
+      issues.push('This row differs from an application-managed session.');
+    }
+    const canSkip = correspondenceProven && !malformed &&
+      (blockers.length > 0 || classification.kind === 'conflict');
+    const decision = decisionById.get(sourceIds[index]);
+    if (decision && !canSkip) {
+      throw new ScheduleApplyStaleError('A skip no longer has a skippable issue with proven cancellation correspondence.');
+    }
+    const outcome = decision ? 'skipped' :
+      blockers.length > 0 || duplicate || stableIds.length > 1 || classification.kind === 'conflict' || classification.kind === 'skipped'
+        ? 'blocked' : 'apply';
+    const operation = outcome !== 'apply' ? null : row.status === 'cancelled' ? 'cancellation' :
+      classification.kind === 'insert' ? 'insert' : classification.kind === 'update' ? 'update' : 'unchanged';
+    if (outcome === 'apply') {
+      if (classification.kind === 'insert') inserts++;
+      if (classification.kind === 'update') updates++;
+      if (classification.kind === 'unchanged') unchanged++;
+    }
+    return { sourceRowId: sourceIds[index], rowNumber: row.rowNumber, outcome, operation, canSkip,
+      correspondenceProven, externalRef, sessionId: existing?.id ?? null, issues, reason: decision?.reason ?? null };
+  });
+  // Preserve the legacy guard: every non-skipped explicit cancelled source row
+  // is in the numerator, even a new or already-cancelled session. It is NOT the
+  // count of matched existing IDs, and workbook absence never proposes a cancel.
+  const cancellations = outcomes.filter((outcome, index) =>
+    outcome.outcome !== 'skipped' && parsed.rows[index].status === 'cancelled');
+  const hardBlocked = existingRows.length > 0 && cancellations.length > existingRows.length / 2;
+  const counts = { total: outcomes.length, apply: 0, skipped: 0, blocked: 0 };
+  for (const outcome of outcomes) counts[outcome.outcome]++;
+  const blocked = counts.blocked > 0 || hardBlocked;
+  const resolution: ScheduleResolution = {
+    rechecked: context.rechecked,
+    decisions: [...decisions].sort((left, right) => compareExternalRefs(left.sourceRowId, right.sourceRowId)),
+    outcomes, counts,
+    cancellation: {
+      numerator: cancellations.length, denominator: existingRows.length,
+      sourceRowIds: cancellations.map((outcome) => outcome.sourceRowId).sort(),
+      sessionIds: [...new Set(cancellations.flatMap((outcome) => outcome.sessionId ? [outcome.sessionId] : []))].sort(),
+      denominatorSessions: existingRows.map((row) => ({ id: row.id, version: row.version })).sort((a, b) => compareExternalRefs(a.id, b.id)),
+      hardBlocked,
+    },
+    freshness: {
+      objectName: context.objectName, workbookSha256: context.workbookSha256, parserVersion: SCHEDULE_PARSER_VERSION,
+      namespaceRevisions,
+      trainerReferenceDigest: createHash('sha256').update(stableSerialize({ trainers, trainerAliases })).digest('hex'),
+      resolvedTrainers: trainers.filter((trainer) => parsed.rows.some((row) => row.trainerId === trainer.trainer_id))
+        .map(({ trainer_id, version, is_active, scheduling_readiness }) => ({ trainer_id, version, is_active, scheduling_readiness })),
+      sessions: [...new Set(refs.filter((ref): ref is string => ref !== null))].sort().map((externalRef) => ({
+        externalRef, sessionId: existingByRef.get(externalRef)?.id ?? null, version: existingByRef.get(externalRef)?.version ?? null,
+      })),
+    },
+  };
+  return createSchedulePreview({
+    rows: parsed.rows, alerts: parsed.rows.flatMap((row) => row.alerts), conflicts,
+    summary: {
+      totalRows: counts.total, validRows: counts.apply, inserts, updates, unchanged, skipped: counts.skipped,
+      cancellations: cancellations.length, conflicts: outcomes.filter((row) => row.outcome === 'blocked' && conflicts.some((conflict) => conflict.rowNumber === row.rowNumber)).length,
+      existingSessions: existingRows.length, changeCount: inserts + updates,
+      autoApplied: false, requiresConfirmation: true, blocked,
+      blockReason: blocked ? [counts.blocked ? 'Resolve or safely skip every blocked row, then Re-check.' : '',
+        hardBlocked ? 'More than 50% explicit cancellations is a hard block; no override is available.' : ''].filter(Boolean).join(' ') : null,
+    },
+    resolution,
+  });
 }
 
 export async function applyScheduleParseResult(
@@ -223,7 +415,9 @@ export async function applyScheduleParseResult(
   let skipped = 0;
   let unchanged = 0;
 
+  const skippedIds = new Set(parseResult.resolution?.outcomes.filter((row) => row.outcome === 'skipped').map((row) => row.rowNumber));
   const orderedRows = parseResult.rows
+    .filter((row) => !skippedIds.has(row.rowNumber))
     .map((row, sourceIndex) => ({
       row,
       sourceIndex,
@@ -348,6 +542,7 @@ export async function applyScheduleParseResult(
       continue;
     }
 
+    if (parseResult.resolution) throw new ScheduleApplyStaleError('A previously absent session now exists. Run Re-check.');
     // A concurrent importer won the unique-key race. Lock and classify the
     // winner instead of blindly overwriting it, preserving application ownership.
     const concurrent = await findExistingSessionForUpdate(db, externalRef);

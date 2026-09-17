@@ -10,6 +10,7 @@ import {
   apiFetch,
   approvePlannedCourseRun,
   confirmSchedule,
+  recheckSchedule,
   createAdminInvitation,
   fetchPlanningSessions,
   fetchAdminTrainers,
@@ -327,6 +328,7 @@ function blockedParsePayload(): ParseResult {
     ],
     conflicts: [],
     previewDigest: 'preview-digest-blocked',
+    resolution: scheduleResolution(false, true),
   };
 }
 
@@ -352,12 +354,29 @@ function successfulParsePayload(): ParseResult {
     alerts: [],
     conflicts: [],
     previewDigest: 'preview-digest-success',
+    resolution: scheduleResolution(true, false),
     applied: {
       applied: 1,
       skipped: 0,
       unchanged: 0,
       conflicts: [],
     },
+  };
+}
+
+function scheduleResolution(rechecked: boolean, blocked: boolean): ParseResult['resolution'] {
+  return {
+    rechecked,
+    decisions: [],
+    outcomes: blocked ? [{ sourceRowId: 'a'.repeat(64), rowNumber: 3, outcome: 'blocked', operation: null,
+      canSkip: true, correspondenceProven: true, externalRef: 'tms:ASKMEI-2026-1', sessionId: null,
+      issues: ['Course code could not be resolved.'], reason: null }] : [],
+    counts: { total: blocked ? 1 : 0, apply: 0, skipped: 0, blocked: blocked ? 1 : 0 },
+    cancellation: { numerator: 0, denominator: 0, sourceRowIds: [], sessionIds: [], denominatorSessions: [], hardBlocked: false },
+    freshness: { objectName: 'demo/schedule.xlsx', workbookSha256: 'b'.repeat(64), parserVersion: 'sync-resolution-1',
+      namespaceRevisions: ['course_aliases', 'courses', 'room_aliases', 'rooms', 'venue_aliases', 'venues']
+        .map((namespace) => ({ namespace, revision: '1' })),
+      trainerReferenceDigest: 'c'.repeat(64), resolvedTrainers: [], sessions: [] },
   };
 }
 
@@ -598,6 +617,38 @@ test('confirmSchedule sends exact Preview acknowledgement fields', async () => {
   });
 });
 
+test('recheckSchedule sends the exact Preview digest and per-batch skip decisions', async () => {
+  let request: { url: string; init?: RequestInit } | undefined;
+  const parsed = successfulParsePayload();
+  await withFetch(async (input, init) => { request = { url: String(input), init }; return jsonResponse(parsed); }, async () => {
+    await recheckSchedule(user, 'batch-recheck', {
+      previewDigest: 'd'.repeat(64),
+      decisions: [{ sourceRowId: 'e'.repeat(64), action: 'skip', reason: 'Synthetic exception.' }],
+    });
+  });
+  assert.ok(request?.url.endsWith('/sync/batch-recheck/re-check'));
+  assert.equal(request?.init?.method, 'POST');
+  assert.deepEqual(JSON.parse(String(request?.init?.body)), {
+    previewDigest: 'd'.repeat(64),
+    decisions: [{ sourceRowId: 'e'.repeat(64), action: 'skip', reason: 'Synthetic exception.' }],
+  });
+});
+
+test('Sync Re-check UI disarms changed decisions and keeps recovery inside the result panel', async () => {
+  const page = await readFile(new URL('./pages/sync-page.tsx', import.meta.url), 'utf8');
+  const css = await readFile(new URL('./styles.css', import.meta.url), 'utf8');
+  assert.match(page, /Run Re-check to validate this Preview/);
+  assert.match(page, /Skip reason/);
+  assert.match(page, /Restore row/);
+  assert.match(page, /setAcknowledged\(false\)/);
+  assert.match(page, /setPreviewStale\(true\)/);
+  assert.match(page, /previewDigest: result\.previewDigest/);
+  assert.match(page, /The last stored Preview is unchanged/);
+  assert.doesNotMatch(page, /Reference data.*href|href.*Reference data/s);
+  assert.match(css, /\.sync-resolution-row[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(css, /@media \(max-width: 820px\)[\s\S]*\.sync-resolution-row \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+});
+
 test('Sync UI retains the exact acknowledgement and complete issue presentation contract', async () => {
   const page = await readFile(new URL('./pages/sync-page.tsx', import.meta.url), 'utf8');
   assert.match(page, /previewDigest: result\.previewDigest/);
@@ -619,7 +670,8 @@ test('Sync confirm failures disarm the client Preview and focus its in-panel rec
   let confirm = ''; let effect = '';
   function visit(node: ts.Node) {
     if (ts.isFunctionDeclaration(node) && node.name?.text === 'confirm') confirm = node.getText(source);
-    if (ts.isCallExpression(node) && node.expression.getText(source) === 'useEffect') effect = node.arguments[0].getText(source);
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'useEffect'
+      && node.arguments[0]?.getText(source).includes('confirmAlert')) effect = node.arguments[0].getText(source);
     ts.forEachChild(node, visit);
   }
   visit(source);
@@ -628,7 +680,8 @@ test('Sync confirm failures disarm the client Preview and focus its in-panel rec
   const alert = page.indexOf('<p className="error" role="alert" tabIndex={-1} ref={confirmAlert}>');
   const actions = page.indexOf('<div className="action-row">');
   assert.ok(panel < alert && alert < actions, 'confirm alert belongs in the result panel above actions');
-  assert.match(page.slice(alert, actions), /Cancel this Preview and upload the workbook again/);
+  assert.match(page.slice(alert, actions), /cannot be applied until recovery succeeds/);
+  assert.match(page, /Run Re-check before trying to apply again/);
   assert.match(page, /disabled=\{busy \|\| previewStale \|\| !acknowledged\}/);
   assert.match(page, /disabled=\{busy \|\| previewStale\}/);
   assert.match(page, /previewStale && <span className="badge warn">Stale<\/span>/);
@@ -645,6 +698,7 @@ test('Sync confirm failures disarm the client Preview and focus its in-panel rec
       setAcknowledged: (value: boolean) => { context.acknowledged = value; },
       setPreviewStale: (value: boolean) => { context.previewStale = value; },
       setConfirmError: (value: string) => { context.confirmError = value; },
+      setResultMessage: () => {},
       setResult: () => { assert.fail('failed confirmation must not mutate the stored result'); },
       confirmSchedule: async () => { calls++; throw failure; },
       onApiError: async (_error: unknown, setter: (value: string) => void) => { setter(failure.message); },

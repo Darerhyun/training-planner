@@ -386,6 +386,28 @@ export interface ParseResult {
     blockReason: string | null;
   };
   previewDigest: string;
+  resolution: {
+    rechecked: boolean;
+    decisions: Array<{ sourceRowId: string; action: 'skip'; reason: string; actorId: string; decidedAt: string }>;
+    outcomes: Array<{
+      sourceRowId: string; rowNumber: number; outcome: 'apply' | 'skipped' | 'blocked';
+      operation: 'insert' | 'update' | 'unchanged' | 'cancellation' | null;
+      canSkip: boolean; correspondenceProven: boolean; externalRef: string | null;
+      sessionId: string | null; issues: string[]; reason: string | null;
+    }>;
+    counts: { total: number; apply: number; skipped: number; blocked: number };
+    cancellation: {
+      numerator: number; denominator: number; sourceRowIds: string[]; sessionIds: string[];
+      denominatorSessions: Array<{ id: string; version: number }>; hardBlocked: boolean;
+    };
+    freshness: {
+      objectName: string; workbookSha256: string; parserVersion: string;
+      namespaceRevisions: Array<{ namespace: string; revision: string }>;
+      trainerReferenceDigest: string;
+      resolvedTrainers: Array<{ trainer_id: string; version: number; is_active: boolean; scheduling_readiness: string }>;
+      sessions: Array<{ externalRef: string; sessionId: string | null; version: number | null }>;
+    };
+  };
   alerts: Array<{
     code: string;
     message: string;
@@ -415,6 +437,7 @@ export interface ScheduleParseRow {
   venueCode: string | null;
   roomId: string | null;
   rawVenueText: string | null;
+  rawRoomText?: string | null;
   timeText: string | null;
   expectedPax: number | null;
   confirmedPax: number | null;
@@ -563,6 +586,27 @@ export async function confirmSchedule(
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+export async function recheckSchedule(
+  user: User,
+  batchId: string,
+  input: {
+    previewDigest: string;
+    decisions: Array<{ sourceRowId: string; action: 'skip'; reason: string }>;
+  },
+): Promise<ParseResult> {
+  try {
+    return await apiFetch<ParseResult>(user, `/sync/${batchId}/re-check`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  } catch (error: unknown) {
+    if (error instanceof ApiError && error.status === 409 && isBlockedParseResult(error.payload)) {
+      return error.payload;
+    }
+    throw error;
+  }
 }
 
 export async function cancelSchedule(user: User, batchId: string): Promise<void> {
@@ -726,6 +770,7 @@ function isBlockedParseResult(value: unknown): value is ParseResult {
   }
 
   if (!value.rows.every(isScheduleParseRow)) return false;
+  if (!isScheduleResolution(value.resolution)) return false;
   if (!Array.isArray(value.alerts) || !value.alerts.every(isParseAlert)) return false;
   if (!Array.isArray(value.conflicts) || !value.conflicts.every(isScheduleImportConflict)) {
     return false;
@@ -769,12 +814,30 @@ function isScheduleParseRow(value: unknown): value is ScheduleParseRow {
     isNullableString(value.venueCode) &&
     isNullableString(value.roomId) &&
     isNullableString(value.rawVenueText) &&
+    (!('rawRoomText' in value) || isNullableString(value.rawRoomText)) &&
     isNullableString(value.timeText) &&
     isNullableNumber(value.expectedPax) &&
     isNullableNumber(value.confirmedPax) &&
     isSessionStatus(value.status) &&
     value.alerts.every(isParseAlert)
   );
+}
+
+function isScheduleResolution(value: unknown): boolean {
+  if (!isRecord(value) || !isRecord(value.counts) || !isRecord(value.cancellation) || !isRecord(value.freshness)) return false;
+  if (typeof value.rechecked !== 'boolean' || !Array.isArray(value.decisions) || !Array.isArray(value.outcomes)) return false;
+  const counts = value.counts;
+  if (!['total', 'apply', 'skipped', 'blocked'].every((field) => isNonNegativeInteger(counts[field]))) return false;
+  if (Number(counts.total) !== Number(counts.apply) + Number(counts.skipped) + Number(counts.blocked)) return false;
+  const cancellation = value.cancellation;
+  if (!isNonNegativeInteger(cancellation.numerator) || !isNonNegativeInteger(cancellation.denominator)
+    || !Array.isArray(cancellation.sourceRowIds) || !Array.isArray(cancellation.sessionIds)
+    || !Array.isArray(cancellation.denominatorSessions) || typeof cancellation.hardBlocked !== 'boolean') return false;
+  return typeof value.freshness.workbookSha256 === 'string'
+    && typeof value.freshness.parserVersion === 'string'
+    && Array.isArray(value.freshness.namespaceRevisions)
+    && Array.isArray(value.freshness.resolvedTrainers)
+    && Array.isArray(value.freshness.sessions);
 }
 
 function isSessionStatus(value: unknown): value is ScheduleParseRow['status'] {
