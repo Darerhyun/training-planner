@@ -27,6 +27,7 @@
 └── gcs-cors.example.json          ← placeholder-only upload CORS example
 docs/
 ├── 00-INDEX.md                     ← you are here
+├── HANDOVER.md                     ← verified OpenAI-workflow closeout, live baselines, active work, provider routing, and successor safeguards
 ├── 04-work-orders/
 │   └── WO-20260910-reference-data-1a.md ← approved schema/API/resolver foundation work order
 ├── 01-product/
@@ -76,6 +77,7 @@ docs/
 | If you are working on... | Read these |
 |---|---|
 | Delivery workflow, review, acceptance, merge, or deployment | `../WORKFLOW_HARNESS.md` and the applicable rolebooks |
+| OpenAI-to-Claude handover, current live baselines, active branches, production repair sequence, or sensitive-provider transfer boundaries | `HANDOVER.md` |
 | Infrastructure recovery, cost controls, GCS lifecycle, or CORS | `SETUP.md`, `../infra/cost-guardrails.json`, `../infra/gcs-lifecycle.json`, `../infra/gcs-cors.example.json` |
 | Course Planning / Sessions workflow, Excel/app/TMS ownership, Admin Area decisions, PR3E–PR3K scope | `01-product/planning-workflow-roadmap.md` |
 | Schedule Sync safety, reference-data aliases, blocker states, existing-session repair, or production cleanup guardrails | `01-product/sync-reference-repair.md`, `01-product/planning-workflow-roadmap.md` |
